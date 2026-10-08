@@ -2,9 +2,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   authorizedEnvId,
+  assertMwTestReady,
   invokeFn,
-  parseInvokePayload,
   projectRoot,
+  publicObjectUrls,
+  recordStep,
   redact,
   runCommand,
   runTcb,
@@ -25,11 +27,13 @@ const evidence = {
   steps: []
 };
 
-function record(name, value) {
-  evidence.steps.push({ name, ...value });
+function record(stepName, value) {
+  recordStep(evidence.steps, stepName, value);
   writeJson(join(tmp, "mw04-evidence.json"), redact(evidence));
 }
 
+const ready = await assertMwTestReady();
+record("hard_check", ready);
 const envId = authorizedEnvId();
 writeJson(join(root, "cloudbaserc.json"), {
   version: "2.0",
@@ -115,26 +119,28 @@ evidence.local.npm = npmVersion.stdout.trim();
 
 const envList = await runTcb(["env", "list", "--json"]);
 if (envList.code !== 0) {
-  writeJson(join(tmp, "mw04-evidence.json"), redact({ ...evidence, envList }));
-  throw new Error(`tcb env list failed: ${envList.stderr || envList.stdout || envList.code}`);
+  writeJson(join(tmp, "mw04-evidence.json"), redact(evidence));
+  throw new Error("tcb env list failed; refusing deploy, ACL, upload, and transactions");
 }
 const envRow = (envList.json?.data || []).find((row) => row.EnvId === envId);
+if (!envRow) {
+  record("env_list", { code: envList.code, selected: null, otherEnvCount: (envList.json?.data || []).length });
+  throw new Error("authorized env not found in env list; refusing deploy, ACL, upload, and transactions");
+}
 record("env_list", {
   code: envList.code,
-  selected: envRow
-    ? {
-        packageId: envRow.PackageId,
-        packageName: envRow.PackageName,
-        regionHint: "ap-shanghai",
-        enableOverrun: envRow.EnableOverrun,
-        expireTime: envRow.ExpireTime,
-        status: envRow.Status,
-        payMode: envRow.PayMode,
-        deduction: envRow.EnvDeductionMode,
-        qpsQuota: envRow.EnvQps?.QpsQuota,
-        autoRenew: envRow.IsAutoRenew
-      }
-    : null,
+  selected: {
+    packageId: envRow.PackageId,
+    packageName: envRow.PackageName,
+    regionHint: ready.region,
+    enableOverrun: envRow.EnableOverrun,
+    expireTime: envRow.ExpireTime,
+    status: envRow.Status,
+    payMode: envRow.PayMode,
+    deduction: envRow.EnvDeductionMode,
+    qpsQuota: envRow.EnvQps?.QpsQuota,
+    autoRenew: envRow.IsAutoRenew
+  },
   otherEnvCount: (envList.json?.data || []).filter((row) => row.EnvId !== envId).length
 });
 
@@ -253,15 +259,17 @@ record("invoke_storage_a", { code: storageA.code, payload: storageA.payload });
 const storageB = await invokeFn("mw-validation-probe", { action: "storage", asOwner: "b" });
 record("invoke_storage_b", { code: storageB.code, payload: storageB.payload });
 
-const publicUrl = `https://6d77-${envId}-1252343873.tcb.qcloud.la/mw-test/validation/private-sample.txt`;
-let publicGet = { http: 0, error: null };
-try {
-  const response = await fetch(publicUrl, { redirect: "manual" });
-  publicGet = { http: response.status, redirected: response.redirected };
-} catch (error) {
-  publicGet = { http: 0, error: error && error.message };
+const publicUrls = publicObjectUrls(ready.storageHosts, "mw-test/validation/private-sample.txt");
+const publicGets = [];
+for (const url of publicUrls) {
+  try {
+    const response = await fetch(url, { redirect: "manual" });
+    publicGets.push({ http: response.status, redirected: response.redirected });
+  } catch (error) {
+    publicGets.push({ http: 0, error: { message: error && error.message } });
+  }
 }
-record("public_storage_get", publicGet);
+record("public_storage_get", { count: publicGets.length, results: publicGets });
 
 const size49 = await invokeFn("mw-validation-probe", { action: "upload_size", megabytes: 4.9 }, { timeoutMs: 180000 });
 record("invoke_size_4_9", { code: size49.code, payload: size49.payload });
@@ -316,13 +324,15 @@ try {
     clientAccess = {
       attempted: true,
       ok: false,
-      name: error && error.name,
-      message: error && error.message,
-      code: error && error.code
+      error: {
+        detailName: error && error.name,
+        message: error && error.message,
+        code: error && error.code
+      }
     };
   }
 } catch (error) {
-  clientAccess = { attempted: false, reason: error && error.message };
+  clientAccess = { attempted: false, error: { message: error && error.message } };
 }
 record("client_direct_db", clientAccess);
 
@@ -331,7 +341,6 @@ record("usage_after", { code: usageAfter.code, stdout: usageAfter.stdout });
 
 evidence.finishedAt = new Date().toISOString();
 writeJson(join(tmp, "mw04-evidence.json"), redact(evidence));
-writeJson(join(tmp, "mw04-evidence.raw.json"), evidence);
 console.log("MW04 validation finished. Evidence written to tmp/mw04 (gitignored).");
 console.log(
   JSON.stringify(
@@ -345,7 +354,7 @@ console.log(
       tx: txRead.payload,
       index: indexResult.payload,
       storageA: storageA.payload,
-      publicHttp: publicGet,
+      publicHttp: publicGets,
       size49: size49.payload,
       size51: size51.payload
     }),

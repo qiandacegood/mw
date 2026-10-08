@@ -9,9 +9,9 @@
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
 - **MW01、MW02、MW03 已完成**；**MW04 部分完成**；MW05—MW30 未开始。
-- mw-test 已做 P01—P12 有限实测并锁定 Nodejs20.19 与 SDK 版本。**没有生产环境、没有真实支付、没有正式微信身份或测试管理员登录**。
+- mw-test 上 P01—P12 已逐项记录，其中部分 NOT_RUN/PARTIAL；已锁定 Nodejs20.19 与 SDK 版本。验证桩云函数与 `mw_validation_*` 测试资源已收尾删除。**没有生产环境、没有真实支付、没有正式微信身份或测试管理员登录**。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
-- 建议下一项为 MW05 可信入口与后台权限。缺测试管理员与小程序测试号时，只能做入口骨架和拒绝越权，不能标登录闭合。
+- 下一项为 **MW05 可有限启动**（可信入口与后台权限）。缺测试管理员与小程序测试号时，只能做入口骨架和拒绝越权，不能标登录闭合。
 
 ## 任务状态
 
@@ -81,4 +81,4 @@
 | MW01 | [mw01-result.md](first-batch/results/mw01-result.md)（整改后仍为已完成） |
 | MW02 | [mw02-result.md](first-batch/results/mw02-result.md)（第三轮后台走查后仍为已完成） |
 | MW03 | [mw03-result.md](first-batch/results/mw03-result.md)（串行 npm test×5 均为 0；DevTools NOT_RUN） |
-| MW04 | [mw04-result.md](first-batch/results/mw04-result.md)（部分完成：缺正式微信身份与测试管理员；HTTP 网关 NOT_RUN） |
+| MW04 | [mw04-result.md](first-batch/results/mw04-result.md)（部分完成：P01—P12 已逐项记录，其中部分 NOT_RUN/PARTIAL；验证资源已收尾） |

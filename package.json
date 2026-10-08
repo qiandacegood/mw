@@ -12,9 +12,11 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check:prototypes": "node scripts/check-prototype-scripts.mjs",
-    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && npm run test --workspaces --if-present",
+    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && node scripts/mw04-record.test.mjs && npm run test --workspaces --if-present",
     "build": "node scripts/ensure-shared-js.mjs && npm run build --workspaces --if-present",
-    "mw04:validate": "node scripts/mw04-validate.mjs"
+    "mw04:validate": "node scripts/mw04-validate.mjs",
+    "mw04:teardown": "node scripts/mw04-teardown.mjs",
+    "mw04:teardown:confirm": "node scripts/mw04-teardown.mjs --confirm"
   },
   "engines": {
     "node": ">=20"

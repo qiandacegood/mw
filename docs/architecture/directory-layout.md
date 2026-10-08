@@ -4,7 +4,7 @@
 开发根目录：F:/MW/main  
 现行基线：[产品 V1.1](../product/product-spec-v1.1.md)和[技术文档入口](README.md)。
 
-CloudBase 已确定为云平台。MW03 已建立本地工程骨架。MW04 已在 mw-test 部署有限验证函数并锁定运行时/SDK；环境 ID 不进入本仓库。
+CloudBase 已确定为云平台。MW03 已建立本地工程骨架。MW04 **部分完成**：已在 mw-test 做 P01—P12 逐项记录并锁定运行时/SDK，随后删除一次性验证云资源；环境 ID 不进入本仓库。
 
 ## 现有目录树
 
@@ -61,8 +61,8 @@ F:/MW/main/
 │   ├── contracts/
 │   ├── imports/
 │   └── fixtures/
-├── cloudfunctions/   # MW04 有限验证函数（mw-validation-*）
-├── scripts/          # 共享 JS 生成、小程序构建、MW04 验证
+├── cloudfunctions/   # MW04 一次性验证桩源码（mw-validation-*，不得作 MW05 正式实现）
+├── scripts/          # 共享 JS 生成、小程序构建、MW04 验证与收尾
 └── tests/
     ├── integration/
     └── e2e/
@@ -89,7 +89,7 @@ F:/MW/main/
 | services/api | 云函数入口、业务模块与 CloudBase/微信支付适配器 |
 | packages/shared | 纯类型、校验与错误码，不存答案和密钥 |
 | infra/cloudbase | SDK 锁定说明与安全规则模板；真实 envId 不入库 |
-| cloudfunctions | MW04 验证函数源码；正式入口仍在 services/api |
+| cloudfunctions | MW04 一次性验证桩源码（部分完成任务的本地保留）；正式入口仍在 services/api |
 | assets | 品牌及勋章原稿和授权说明 |
 | samples/contracts | MW01 建立的虚构接口样例与字段说明，供契约对照 |
 | samples/imports | 虚构 CSV 模板与导入示例，开发阶段建立 |

@@ -26,10 +26,16 @@ export function readEnvFile(path) {
   return out;
 }
 
-export function authorizedEnvId(root = projectRoot()) {
+export function readLocalMwEnv(root = projectRoot()) {
   const fileEnv = readEnvFile(join(root, ".env"));
-  const envId = process.env.CLOUDBASE_ENV_ID || fileEnv.CLOUDBASE_ENV_ID || "";
-  const appEnv = process.env.APP_ENV || fileEnv.APP_ENV || "";
+  return {
+    envId: process.env.CLOUDBASE_ENV_ID || fileEnv.CLOUDBASE_ENV_ID || "",
+    appEnv: process.env.APP_ENV || fileEnv.APP_ENV || ""
+  };
+}
+
+export function authorizedEnvId(root = projectRoot()) {
+  const { envId, appEnv } = readLocalMwEnv(root);
   if (!envId || envId === "env-placeholder-not-real") {
     throw new Error("CLOUDBASE_ENV_ID missing or placeholder; set it in local .env");
   }
@@ -40,6 +46,125 @@ export function authorizedEnvId(root = projectRoot()) {
     throw new Error("refusing to operate on an environment that is not the authorized mw-test id");
   }
   return envId;
+}
+
+export const MW_VALIDATION_FUNCTIONS = [
+  "mw-validation-runtime22",
+  "mw-validation-probe",
+  "mw-validation-public",
+  "mw-validation-member",
+  "mw-validation-admin",
+  "mw-validation-upload",
+  "mw-validation-pay-hook",
+  "mw-validation-jobs"
+];
+
+export const MW_VALIDATION_COLLECTIONS = [
+  "mw_validation_tx",
+  "mw_validation_index",
+  "mw_validation_admin_users",
+  "mw_validation_files",
+  "mw_validation_docs"
+];
+
+export const MW_VALIDATION_STORAGE_PREFIX = "mw-test/validation/";
+
+export function recordStep(steps, stepName, value) {
+  const payload =
+    value && typeof value === "object" && !Array.isArray(value) ? { ...value } : { detail: value };
+  if (payload.name !== undefined && payload.name !== stepName) {
+    payload.detailName = payload.name;
+    delete payload.name;
+  }
+  if (payload.error != null && typeof payload.error !== "object") {
+    payload.error = { message: String(payload.error) };
+  }
+  steps.push({ ...payload, name: stepName });
+  return steps;
+}
+
+function pickRegion(detailJson) {
+  const data = detailJson?.data || detailJson || {};
+  return (
+    data.Region ||
+    data.region ||
+    data.EnvInfo?.Region ||
+    data.EnvInfo?.region ||
+    data.Databases?.[0]?.Region ||
+    data.Storages?.[0]?.Region ||
+    data.Functions?.[0]?.Region ||
+    ""
+  );
+}
+
+function collectStorageHosts(detailJson) {
+  const data = detailJson?.data || detailJson || {};
+  const storages = data.Storages || data.Storage || data.storages || [];
+  const list = Array.isArray(storages) ? storages : [storages];
+  const hosts = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    for (const key of ["CdnDomain", "cdnDomain", "Domain", "domain", "Bucket"]) {
+      const value = item[key];
+      if (typeof value === "string" && value.includes(".")) {
+        hosts.push(value.replace(/^https?:\/\//, "").replace(/\/$/, ""));
+      }
+    }
+  }
+  return [...new Set(hosts)];
+}
+
+export async function assertMwTestReady() {
+  const { envId, appEnv } = readLocalMwEnv();
+  if (appEnv !== "mw-test") {
+    throw new Error("hard check failed: APP_ENV is not mw-test");
+  }
+  if (!envId || envId === "env-placeholder-not-real" || !/^mw-[a-z0-9]+$/i.test(envId)) {
+    throw new Error("hard check failed: CLOUDBASE_ENV_ID is missing or not an mw-* test id");
+  }
+  const envList = await runTcb(["env", "list", "--json"]);
+  if (envList.code !== 0) {
+    throw new Error("hard check failed: env list command failed");
+  }
+  const rows = envList.json?.data || [];
+  const row = rows.find((item) => item.EnvId === envId);
+  if (!row) {
+    throw new Error("hard check failed: authorized env is not in env list; refusing cloud operations");
+  }
+  if (row.EnableOverrun === true || row.EnableOverrun === "true") {
+    throw new Error("hard check failed: EnableOverrun is not false");
+  }
+  const personal = row.PackageId === "baas_personal" || row.PackageName === "个人版";
+  if (!personal) {
+    throw new Error("hard check failed: package is not personal");
+  }
+  const detail = await runTcb(["env", "detail", "--json", "--yes"]);
+  if (detail.code !== 0) {
+    throw new Error("hard check failed: env detail command failed");
+  }
+  const region = pickRegion(detail.json);
+  if (region && region !== "ap-shanghai") {
+    throw new Error("hard check failed: region is not ap-shanghai");
+  }
+  if (!region && !/ap-shanghai/.test(detail.stdout || "")) {
+    throw new Error("hard check failed: region could not be confirmed as ap-shanghai");
+  }
+  return {
+    ok: true,
+    appEnv: "mw-test",
+    region: "ap-shanghai",
+    package: "personal",
+    enableOverrun: false,
+    otherEnvCount: rows.filter((item) => item.EnvId !== envId).length,
+    storageHosts: collectStorageHosts(detail.json)
+  };
+}
+
+export function publicObjectUrls(hosts, cloudPath) {
+  const path = String(cloudPath || "").replace(/^\//, "");
+  return (hosts || []).map((host) => `https://${host}/${path}`);
 }
 
 function envIdPattern() {
