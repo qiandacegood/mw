@@ -1,6 +1,16 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import {
+  assertTeardownEndState,
+  assertUnauthorizedStatuses,
+  describeUnauthenticatedClient,
+  interpretCollectionDrop,
+  listedCollectionNames,
+  requireQueryOk,
+  storageObjectCount,
+  validationFunctionNames
+} from "./mw04-assert.mjs";
+import {
   MW_VALIDATION_COLLECTIONS,
   MW_VALIDATION_FUNCTIONS,
   MW_VALIDATION_STORAGE_PREFIX,
@@ -52,6 +62,25 @@ function nosqlCommand(tableName, commandType, command) {
   ];
 }
 
+async function listValidationCollections() {
+  const listed = await runTcb([
+    "db",
+    "nosql",
+    "execute",
+    "--command",
+    JSON.stringify([
+      {
+        TableName: MW_VALIDATION_COLLECTIONS[0],
+        CommandType: "COMMAND",
+        Command: JSON.stringify({ listCollections: 1 })
+      }
+    ]),
+    "--json"
+  ]);
+  requireQueryOk(listed, "listCollections");
+  return { listed, names: listedCollectionNames(listed.json) };
+}
+
 const ready = await assertMwTestReady();
 record("hard_check", ready);
 if (dryRun) {
@@ -62,6 +91,7 @@ const usageBefore = await runTcb(["env", "usage", "--yes"]);
 record("usage_before", { code: usageBefore.code, stdout: usageBefore.stdout });
 
 const fnList = await runTcb(["fn", "list", "--json"]);
+requireQueryOk(fnList, "fn list");
 const listedFunctions = (fnList.json?.data?.Functions || []).map((item) => item.FunctionName);
 const otherFunctionCount = listedFunctions.filter((name) => !exactValidationFunction(name)).length;
 const targetFunctions = MW_VALIDATION_FUNCTIONS.filter((name) => listedFunctions.includes(name));
@@ -74,6 +104,7 @@ record("fn_list", {
 });
 
 const storageList = await runTcb(["storage", "list", "mw-test/validation", "--json"]);
+requireQueryOk(storageList, "storage list");
 const listedObjects = [];
 const rawFiles = storageList.json?.data?.files || storageList.json?.data?.Files || storageList.json?.data || [];
 const fileRows = Array.isArray(rawFiles) ? rawFiles : rawFiles.fileList || rawFiles.list || [];
@@ -92,6 +123,12 @@ record("storage_list", {
 if (invalidObjects.length > 0) {
   throw new Error("refusing teardown: storage list returned a path outside mw-test/validation/");
 }
+
+const collectionsBefore = await listValidationCollections();
+record("list_collections", {
+  code: collectionsBefore.listed.code,
+  validationCount: collectionsBefore.names.filter((name) => name.startsWith("mw_validation_")).length
+});
 
 if (dryRun) {
   record("planned", {
@@ -164,11 +201,13 @@ for (const collection of MW_VALIDATION_COLLECTIONS) {
     ],
     { timeoutMs: 60000 }
   );
+  const dropOutcome = interpretCollectionDrop(dropped);
   record(`collection_drop_${collection}`, {
     code: dropped.code,
     json: dropped.json,
     stdout: dropped.stdout,
-    stderr: dropped.stderr
+    stderr: dropped.stderr,
+    dropStatus: dropOutcome.status
   });
 }
 
@@ -184,23 +223,34 @@ if (listedObjects.length > 0) {
 }
 
 const acl = await runTcb(["storage", "rules", "get", "--json"]);
+requireQueryOk(acl, "storage rules get");
 record("storage_acl", { code: acl.code, json: acl.json, stdout: acl.stdout });
-const aclValue = acl.json?.data?.acl || "";
-if (aclValue && aclValue !== "ADMINONLY") {
-  throw new Error("storage ACL is not ADMINONLY; refusing to change it to a public mode");
-}
 
 const fnAfter = await runTcb(["fn", "list", "--json"]);
-const remainingValidation = (fnAfter.json?.data?.Functions || [])
-  .map((item) => item.FunctionName)
-  .filter((name) => name.startsWith("mw-validation-"));
+requireQueryOk(fnAfter, "fn list after");
+const remainingValidation = validationFunctionNames(fnAfter.json);
 record("fn_after", { code: fnAfter.code, remainingValidationCount: remainingValidation.length });
-if (remainingValidation.length > 0) {
-  throw new Error("mw-validation- functions still present after exact deletes");
-}
 
 const storageAfter = await runTcb(["storage", "list", "mw-test/validation", "--json"]);
+requireQueryOk(storageAfter, "storage list after");
 record("storage_after", { code: storageAfter.code, json: storageAfter.json });
+
+const collectionsAfter = await listValidationCollections();
+record("list_collections_after", {
+  code: collectionsAfter.listed.code,
+  validationCount: collectionsAfter.names.filter((name) => name.startsWith("mw_validation_")).length
+});
+
+const afterReady = await assertMwTestReady();
+record("hard_check_after", afterReady);
+
+assertTeardownEndState({
+  remainingValidationFunctions: remainingValidation.length,
+  storageObjectCount: storageObjectCount(storageAfter.json),
+  listedCollectionNames: collectionsAfter.names,
+  acl: acl.json?.data?.acl,
+  enableOverrun: afterReady.enableOverrun
+});
 
 const leftoverUrls = publicObjectUrls(ready.storageHosts, `${MW_VALIDATION_STORAGE_PREFIX}private-sample.txt`);
 const publicChecks = [];
@@ -213,6 +263,7 @@ for (const url of leftoverUrls) {
   }
 }
 record("unauthorized_storage_get", { count: publicChecks.length, results: publicChecks });
+assertUnauthorizedStatuses(publicChecks);
 
 let clientAccess = { attempted: false };
 try {
@@ -237,10 +288,8 @@ try {
 } catch (error) {
   clientAccess = { attempted: false, error: { message: error && error.message } };
 }
-record("client_direct_db", clientAccess);
-
-const afterReady = await assertMwTestReady();
-record("hard_check_after", afterReady);
+const clientNote = describeUnauthenticatedClient(clientAccess);
+record("client_direct_db", { ...clientAccess, ...clientNote });
 
 const usageAfter = await runTcb(["env", "usage", "--yes"]);
 record("usage_after", { code: usageAfter.code, stdout: usageAfter.stdout });
@@ -259,7 +308,7 @@ console.log(
       mode: "confirm",
       remainingValidationFunctions: remainingValidation.length,
       unauthorized: publicChecks,
-      clientDenied: clientAccess.ok === false,
+      client: clientNote,
       enableOverrun: afterReady.enableOverrun,
       otherEnvCount: afterReady.otherEnvCount
     }),

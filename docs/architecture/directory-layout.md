@@ -68,7 +68,7 @@ F:/MW/main/
     └── e2e/
 ```
 
-开发任务与状态入口分别为 [任务总览](../development/handbook-v0.1/02-roadmap.md)和[实际进度](../development/handbook-v0.1/07-progress.md)。`first-batch/results` 已有 MW01—MW03 结果文件，空目录不再表示未执行。
+开发任务与状态入口分别为 [任务总览](../development/handbook-v0.1/02-roadmap.md)和[实际进度](../development/handbook-v0.1/07-progress.md)。`first-batch/results` 已有 MW01—MW04 结果文件，空目录不再表示未执行。
 
 产品 V1.0 保留历史原文，V1.1 是当前产品说明。技术文件自身使用 V1.0，不表示沿用旧产品规则。空目录在未来 Git 仓库中不会自动保留，实际开发时再纳入文件，不为每个目录制造占位文件。
 
