@@ -4,7 +4,7 @@
 开发根目录：F:/MW/main  
 现行基线：[产品 V1.1](../product/product-spec-v1.1.md)和[技术文档入口](README.md)。
 
-CloudBase 已确定为云平台。MW03 已建立本地工程骨架。MW04 / MW05 **部分完成**：mw-test 已有正式六入口与 `cloudbase_auth`；环境 ID 不进入本仓库。
+CloudBase 已确定为云平台。MW03 已建立本地工程骨架。MW04 / MW05 / MW06 / MW08 已在 mw-test 落地正式入口与会员集合；环境 ID 不进入本仓库。
 
 ## 现有目录树
 
@@ -62,7 +62,7 @@ F:/MW/main/
 │   ├── imports/
 │   └── fixtures/
 ├── cloudfunctions/   # 正式入口 + 保留的 MW04 验证桩源码（mw-validation-* 不得作正式实现）
-├── scripts/          # 共享 JS 生成、小程序构建、MW04/MW05 部署与检查
+├── scripts/          # 共享 JS 生成、小程序构建、MW04/MW05/MW06/MW08 部署与检查
 └── tests/
     ├── integration/
     └── e2e/

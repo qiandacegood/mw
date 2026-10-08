@@ -1,0 +1,12 @@
+<view class="page">
+  <text class="h1">我的</text>
+  <text class="muted">只显示当前可信身份的会员资料，不含 OpenID。</text>
+  <text class="title">状态：{{statusText}}</text>
+  <text class="title">昵称：{{nickname}}</text>
+  <text class="title">头像：{{avatarKey}}</text>
+  <text class="title">总分 / 等级：{{totalScore}} / {{levelId}}</text>
+  <button bindtap="reload">刷新</button>
+  <button bindtap="goRegister">去注册</button>
+  <button bindtap="goProfile">修改资料</button>
+  <text class="title">{{raw}}</text>
+</view>

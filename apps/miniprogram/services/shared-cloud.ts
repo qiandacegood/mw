@@ -62,3 +62,37 @@ export async function callSharedOfficial(entry: "mw-public" | "mw-member"): Prom
     reason: String(reason)
   };
 }
+
+export async function callOfficialAction(
+  entry: "mw-public" | "mw-member",
+  action: string,
+  data: Record<string, unknown> = {},
+  extra: { requestId?: string; idempotencyKey?: string } = {}
+): Promise<Record<string, unknown>> {
+  const local = loadLocal();
+  const ready = evaluateSharedCloudConfig(local.loaded, local.config);
+  if (!ready.ready) {
+    return { ok: false, error: { code: "AUTH_REQUIRED", details: { reason: ready.reason } } };
+  }
+  const resourceEnv = String(local.config?.resourceEnv || "").trim();
+  const resourceAppId = String(local.config?.resourceAppId || "").trim();
+  const cloud = new wx.cloud.Cloud({
+    resourceAppid: resourceAppId,
+    resourceEnv
+  });
+  await cloud.init();
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: extra.requestId || `req_mp_${action}_${Date.now()}`,
+    data
+  };
+  if (extra.idempotencyKey) {
+    payload.idempotencyKey = extra.idempotencyKey;
+  }
+  const res = await cloud.callFunction({
+    name: entry,
+    data: payload
+  });
+  return (res && res.result && typeof res.result === "object" ? res.result : {}) as Record<string, unknown>;
+}

@@ -7,6 +7,8 @@ export const UNTRUSTED_CLIENT_FIELDS = [
   "unionid",
   "unionId",
   "uid",
+  "memberId",
+  "identityId",
   "role",
   "score",
   "vipExpiresAt",

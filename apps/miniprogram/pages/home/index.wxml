@@ -4,4 +4,7 @@
   <text class="title">{{title}}</text>
   <text class="tag">{{access}}</text>
   <button bindtap="loadPaper">重新读取</button>
+  <button bindtap="goMe">我的</button>
+  <button bindtap="goRegister">注册</button>
+  <button bindtap="goMw08">MW08 验证</button>
 </view>

@@ -10,8 +10,9 @@ import {
 
 describe("identity-guard", () => {
   it("treats client identity fields as forged", () => {
-    expect(forgedClientFields({ userId: "mem_fict_x", role: "super", paperId: "p1" })).toEqual([
+    expect(forgedClientFields({ userId: "mem_fict_x", memberId: "mem_forged", role: "super", paperId: "p1" })).toEqual([
       "userId",
+      "memberId",
       "role"
     ]);
     expect(

@@ -13,5 +13,6 @@
 | [scoring-deltas.json](scoring-deltas.json) | 60/80/70 增量；父子分类分不重复加总 |
 | [vip-orders.json](vip-orders.json) | 首次开通与续期；待支付、确认中、已付待开通 |
 | [idempotency.json](idempotency.json) | 同键同输入可重放；同键不同输入冲突 |
+| [member-register.json](member-register.json) | 可信注册信封；不含 OpenID；内容安全记 NOT_RUN |
 
 字段说明见 [fields.md](fields.md)。全部 ID 使用 `*_fict_*` 前缀。金额带 `PLACEHOLDER_PRICE`。

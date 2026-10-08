@@ -1,0 +1,16 @@
+.page { padding: 24px; }
+.h1 { font-size: 20px; font-weight: 600; display: block; }
+.muted, .title { display: block; margin-top: 8px; color: #4a5568; }
+input { margin-top: 12px; padding: 10px; background: #fff; }
+.avatars { display: flex; flex-wrap: wrap; margin-top: 12px; }
+.avatar {
+  width: 56px;
+  height: 56px;
+  margin: 4px;
+  line-height: 56px;
+  text-align: center;
+  background: #edf2f7;
+  color: #2b6cb0;
+}
+.avatar.on { background: #2b6cb0; color: #fff; }
+button { margin-top: 16px; background: #2b6cb0; color: #fff; }

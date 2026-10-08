@@ -1,7 +1,7 @@
 # 思维工坊数据模型与索引 V1.0
 
 日期：2026年10月3日  
-依据：[产品 V1.1](../product/product-spec-v1.1.md)及[技术架构](technical-design-v1.0.md)。数据库采用 CloudBase 文档型数据库，以下为待实现的集合与约束，不表示集合已创建。
+依据：[产品 V1.1](../product/product-spec-v1.1.md)及[技术架构](technical-design-v1.0.md)。数据库采用 CloudBase 文档型数据库。MW08 已在 mw-test 落地 `identities` / `members` / `member_stats`，并复用 `app_config.policies`、`idempotency`、`audit_logs`；其余集合仍待对应任务创建。本节是约束，不表示全部集合已创建。
 
 ## 1 通用约定
 
@@ -17,15 +17,17 @@
 
 | 集合 | 主键及核心字段 | 关键规则 |
 | --- | --- | --- |
-| identities | H(provider,appId,openId)，memberId | 私有身份映射；注册事务内唯一建立 |
-| members | memberId，nickname、avatarKey、status、rankingOptIn、consentVersions、revision | status 为 active、disabled、deleting、deleted；rankingOptIn 默认 false（未参与公开排行）；不混存角色 |
-| member_stats | memberId，totalScore、scoreSeq、levelId、growthVersion、revision | 与交卷事务一起更新；总分不是客户端字段 |
+| identities | `_id = H(provider,appId,openId)`，memberId | 私有身份映射；不存 OPENID 明文。注册事务内按确定性 `_id` 唯一建立，禁止先查后写。 |
+| members | `_id = H(kind,identityId)`，nickname、avatarKey、status、rankingOptIn、consentVersions、revision | status 为 active、disabled、deleting、deleted；rankingOptIn 默认 false；不混存角色、积分或 VIP。协议同意写在 `consentVersions`，不另建协议集合。 |
+| member_stats | `_id = memberId`，totalScore、scoreSeq、levelId、growthVersion、revision | 注册时初始化为 0 / L1；总分不是客户端字段。MW08 不创建勋章或 VIP 账本。 |
 | active_attempts | memberId，attemptId 或 null | 每会员一个进行中记录的并发约束 |
 | admin_users | CloudBase uid，roles、enabled、authVersion | 角色枚举 content、operations、super；预置白名单 |
 | app_config | 固定键 maintenance、catalog、growth、policies 等 | 每键一文档，内容必须有版本；支付密钥不放此集合 |
 | audit_logs | 随机 ID，actorType、actorId、action、target、reason、requestId、beforeHash、afterHash | 只追加，受控查询，不记录完整题目及支付秘密 |
 
-maintenance 中分别保存 contentWrites、attemptStart、attemptSubmit、purchaseCreate、entitlementApply 等开关及原因、jobId，不能用一个总开关误阻断支付回调。catalog 保存当前结构版本及 categoryMetricsGeneration。growth 文档内保存当前生效的少量等级及门槛，授予记录另存。
+maintenance 中分别保存 contentWrites、attemptStart、attemptSubmit、purchaseCreate、entitlementApply 等开关及原因、jobId，不能用一个总开关误阻断支付回调，也不能误阻断 MW08 的注册与资料更新。catalog 保存当前结构版本及 categoryMetricsGeneration。growth 文档内保存当前生效的少量等级及门槛，授予记录另存。policies 保存当前有效的 `agreementVersion` / `privacyVersion`；MW08 使用测试稿版本，正式文案由 MW24 接入。
+
+`identities` / `members` / `member_stats` 均按确定性 `_id` 点读，数据模型第 7 节未为它们规定组合索引；MW08 不另建索引。
 
 ## 3 类目与内容
 

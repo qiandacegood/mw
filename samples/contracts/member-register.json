@@ -1,0 +1,37 @@
+{
+  "request": {
+    "apiVersion": "1",
+    "action": "member.register",
+    "requestId": "req_fict_mw08_register_1",
+    "idempotencyKey": "idem_fict_mw08_register_1",
+    "data": {
+      "agreementVersion": "mw08-test-agreement-v1",
+      "privacyVersion": "mw08-test-privacy-v1",
+      "accepted": true
+    }
+  },
+  "success": {
+    "ok": true,
+    "requestId": "req_fict_mw08_register_1",
+    "serverTime": "2026-10-08T09:00:00.000Z",
+    "data": {
+      "memberId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "nickname": "思维学员AAAA",
+      "avatarKey": "avatar.builtin.01",
+      "status": "active",
+      "rankingOptIn": false,
+      "revision": 1,
+      "stats": { "totalScore": 0, "scoreSeq": 0, "levelId": "L1" },
+      "vip": { "active": false, "expiresAt": null },
+      "draft": { "attemptId": null },
+      "created": true,
+      "replayed": false,
+      "nicknameContentSafety": "NOT_RUN"
+    }
+  },
+  "notes": [
+    "虚构样例，不是真实会员或 OpenID。",
+    "身份只来自云函数 FROM_APPID/FROM_OPENID，请求体不得带 openid/memberId/role。",
+    "nicknameContentSafety=NOT_RUN 表示未开放任意昵称。"
+  ]
+}

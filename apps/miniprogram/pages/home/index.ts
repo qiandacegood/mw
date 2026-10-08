@@ -20,5 +20,14 @@ Page({
       return;
     }
     this.setData({ title: res.error.message, raw: JSON.stringify(res) });
+  },
+  goMe() {
+    wx.navigateTo({ url: "/pages/me/index" });
+  },
+  goRegister() {
+    wx.navigateTo({ url: "/pages/register/index" });
+  },
+  goMw08() {
+    wx.navigateTo({ url: "/pages/mw08/index" });
   }
 });

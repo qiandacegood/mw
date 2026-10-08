@@ -1,0 +1,16 @@
+<view class="page">
+  <text class="h1">会员注册</text>
+  <text class="muted">须主动勾选当前协议版本。不预勾选，不强制手机号，不抓取微信头像昵称。</text>
+  <text class="title">用户协议：{{agreementTitle}} / {{agreementVersion}}</text>
+  <text class="title">隐私政策：{{privacyTitle}} / {{privacyVersion}}</text>
+  <view class="box">
+    <checkbox-group bindchange="onAgree">
+      <label>
+        <checkbox value="agreement" checked="{{accepted}}" />
+        我已阅读并同意当前有效的用户协议和隐私政策
+      </label>
+    </checkbox-group>
+  </view>
+  <button bindtap="submit" disabled="{{busy}}">确认注册</button>
+  <text class="title">{{result}}</text>
+</view>

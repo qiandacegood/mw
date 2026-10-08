@@ -6,6 +6,7 @@ import {
   cloudMaintenanceStore,
   cloudWorkStore
 } from "./modules/cloud-stores.js";
+import { cloudMemberWorkStore, cloudPolicyStore } from "./modules/cloud-member-stores.js";
 import { handleOfficial, type AdminUserRecord, type AdminUserStore, type OfficialEntry } from "./official.js";
 
 function present(value: unknown): boolean {
@@ -127,7 +128,9 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       idempotencyStore: entry === "mw-admin" || entry === "mw-jobs" ? cloudIdempotencyStore() : undefined,
       auditStore: entry === "mw-admin" ? cloudAuditStore() : undefined,
       workStore: entry === "mw-admin" || entry === "mw-jobs" ? cloudWorkStore() : undefined,
-      maintenanceStore: entry === "mw-pay-hook" || entry === "mw-admin" || entry === "mw-jobs" ? cloudMaintenanceStore() : undefined
+      maintenanceStore: entry === "mw-pay-hook" || entry === "mw-admin" || entry === "mw-jobs" ? cloudMaintenanceStore() : undefined,
+      policyStore: entry === "mw-public" || entry === "mw-member" ? cloudPolicyStore() : undefined,
+      memberStore: entry === "mw-member" ? cloudMemberWorkStore() : undefined
     });
   } catch (error) {
     return {

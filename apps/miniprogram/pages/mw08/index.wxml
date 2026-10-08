@@ -1,0 +1,6 @@
+<view class="page">
+  <text class="h1">MW08 验证</text>
+  <text class="muted">使用共享环境可信登录。结果不含 OpenID / AppID / 环境 ID。</text>
+  <button bindtap="runSuite">运行 MW08 套件</button>
+  <text class="title">{{summary}}</text>
+</view>

@@ -5,6 +5,10 @@
 
 本文件定义最容易导致重复加分、半成品发布或权益错乱的写入顺序。它是实现约束，不是已执行结果。
 
+## 0 会员注册唯一性（MW08）
+
+`member.register` 在同一事务内读取 `identities` / `members` / `member_stats` / `idempotency`，再用确定性 `_id` 创建缺失行并追加审计。`identities._id = H(provider,appId,openId)`，`members._id = member_stats._id = H(kind,identityId)`。不能在事务外先查后写。同一 FROM 身份并发或重试只保留一份会员资料；幂等重放不得再写审计或初始化行。失败必须整单回滚，不留孤立 identity / member / member_stats。现有 maintenance 分项不得误阻断注册与资料更新。停用后禁止 `member.updateProfile`，仍允许 `member.me`。
+
 ## 1 原子交卷
 
 收到 attempt.submit 后：

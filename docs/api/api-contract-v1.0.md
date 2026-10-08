@@ -59,9 +59,9 @@ ranking.scope 为 total、category、week、month；category 时必须传有效�
 
 | action | 关键输入 | 响应与权限 |
 | --- | --- | --- |
-| member.register | agreementVersion、privacyVersion、accepted=true | 当前可信微信身份的 memberId；版本过期要求重新阅读 |
-| member.me | 无 | 本人资料、总分、等级、VIP 状态、当前草稿摘要 |
-| member.updateProfile | nickname?、avatarKey?、expectedRevision | 经校验的新资料及 revision |
+| member.register | agreementVersion、privacyVersion、accepted=true | 当前可信微信身份的 memberId；版本过期要求重新阅读。身份只来自 FROM_APPID/FROM_OPENID。 |
+| member.me | 无 | 本人资料、总分、等级、VIP 状态、当前草稿摘要。停用账号仍可查看自身状态。响应不含 OPENID。 |
+| member.updateProfile | nickname?、avatarKey?、expectedRevision | 经校验的新资料及 revision。只接受白名单字段和内置头像。停用后拒绝。 |
 | member.setRanking | enabled、expectedRevision | 参与状态及榜单待刷新提示 |
 | member.categoryScores | categoryId? | 当前结构版本、节点 `directScore`（仅直接挂卷）及 `inclusiveScore`（含后代去重），必须分别命名 |
 | member.medals | cursor、limit | 本人授予与特殊撤销记录 |
@@ -78,6 +78,12 @@ ranking.scope 为 total、category、week、month；category 时必须传有效�
 | attempt.history | paperId?、cursor、limit | 本人已提交记录 |
 | ranking.me | scope、categoryId? | 同 generation 的本人名次、value、前一不同名次分差 |
 | feedback.create | type、paperId?、questionId?、versionId?、text | 反馈标识，不接受任意外链抓取 |
+
+`member.register` 必须主动同意当前 `app_config.policies` 中的协议与隐私版本；缺同意、版本缺失或不匹配一律 `INVALID_ARGUMENT`。同一可信身份并发或重试只产生一个 `identities` / `members` / `member_stats` 文档。默认昵称为系统生成的「思维学员」加内部标识后缀，默认头像为 `avatar.builtin.01`；不抓取微信头像或昵称，不强制手机号。
+
+`member.updateProfile` 只允许 `nickname`、`avatarKey`、`expectedRevision`。昵称 2—16 字，仅汉字、字母、数字和间隔号，禁止空白、URL、保留名。头像只能是 `avatar.builtin.01`—`avatar.builtin.12`。微信内容安全 / msgSecCheck 在 MW08 **未真实验证**（`NOT_RUN`），因此不开放任意昵称。写请求体上限 4096 字节。客户端提交的 `memberId` / `role` / `score` / `openid` 视为伪造身份。
+
+`member.me` 的 VIP 与草稿字段在 MW08 只返回占位：`vip.active=false`、`draft.attemptId=null`。正式 VIP 账本是 MW20，草稿是 MW14。
 
 attempt.save 的 answers 是当前完整已选答案集，最多 100 项；未出现的题号视为未答，不采用“猜测客户端补丁”的合并方式。自动保存请求串行发送，冲突由用户确认取服务端还是当前页面版本，再显式重发。
 

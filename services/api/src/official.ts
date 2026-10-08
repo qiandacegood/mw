@@ -1,10 +1,14 @@
 import {
   API_VERSION,
+  MEMBER_WRITE_MAX_BYTES,
+  NICKNAME_CONTENT_SAFETY,
   adminAuthorized,
   adminHasRole,
   cloudbaseAuthDecision,
+  defaultPolicyRecord,
   errorMessage,
   forgedClientFields,
+  memberWriteTooLarge,
   parseApiRequest,
   paymentNotifyBlockedByMaintenance,
   publicJobView,
@@ -17,6 +21,14 @@ import {
   type ErrorCode
 } from "@mw/shared";
 import type { AuditStore, IdempotencyStore, JobStore, MaintenanceStore, WorkStore } from "./modules/job-stores.js";
+import type { MemberReadStore, MemberWorkStore, PolicyStore } from "./modules/member-stores.js";
+import {
+  readCurrentPolicies,
+  readMemberMe,
+  readMemberSession,
+  registerMember,
+  updateMemberProfile
+} from "./modules/member.js";
 import {
   budgetsWithinLimit,
   jobsTrustFromEvent,
@@ -28,8 +40,8 @@ import {
 
 export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
-export const PUBLIC_ACTIONS = ["public.ping", "home.get"] as const;
-export const MEMBER_ACTIONS = ["member.session"] as const;
+export const PUBLIC_ACTIONS = ["public.ping", "home.get", "policies.current"] as const;
+export const MEMBER_ACTIONS = ["member.session", "member.register", "member.me", "member.updateProfile"] as const;
 export const ADMIN_ACTIONS = ["admin.me", "job.get"] as const;
 export const ADMIN_WRITE_ACTIONS = ["job.resume"] as const;
 
@@ -71,6 +83,8 @@ export interface OfficialContext {
   auditStore?: AuditStore;
   workStore?: WorkStore;
   maintenanceStore?: MaintenanceStore;
+  policyStore?: PolicyStore;
+  memberStore?: MemberReadStore & MemberWorkStore;
 }
 
 export interface MemoryAdminStore extends AdminUserStore {
@@ -259,10 +273,19 @@ export async function handleOfficial(ctx: OfficialContext): Promise<unknown> {
   }
 
   if (ctx.entry === "mw-public") {
-    return handlePublic(request.action, request.requestId, now);
+    return handlePublic(ctx, request.action, request.requestId, now);
   }
   if (ctx.entry === "mw-member") {
-    return handleMember(ctx, request.action, request.requestId, now);
+    if (
+      (request.action === "member.register" || request.action === "member.updateProfile") &&
+      memberWriteTooLarge(byteLength(event))
+    ) {
+      return fail(request.requestId, "INVALID_ARGUMENT", {
+        reason: "PAYLOAD_TOO_LARGE",
+        limit: MEMBER_WRITE_MAX_BYTES
+      });
+    }
+    return handleMember(ctx, request, now);
   }
   if (ctx.entry === "mw-admin") {
     return handleAdmin(ctx, request.action, request.requestId, now);
@@ -270,12 +293,28 @@ export async function handleOfficial(ctx: OfficialContext): Promise<unknown> {
   return fail(request.requestId, "FORBIDDEN", { reason: "UNKNOWN_ENTRY" });
 }
 
-function handlePublic(action: string, requestId: string, now: Date): ApiResponse<unknown> {
+async function handlePublic(
+  ctx: OfficialContext,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
   if (!(PUBLIC_ACTIONS as readonly string[]).includes(action)) {
     return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-public" });
   }
   if (action === "public.ping") {
     return ok(requestId, now, { entry: "mw-public", skeleton: true });
+  }
+  if (action === "policies.current") {
+    const policies = ctx.policyStore ? await readCurrentPolicies(ctx.policyStore, now) : defaultPolicyRecord(now);
+    return ok(requestId, now, {
+      agreementVersion: policies.agreementVersion,
+      privacyVersion: policies.privacyVersion,
+      agreementTitle: policies.agreementTitle,
+      privacyTitle: policies.privacyTitle,
+      placeholder: policies.placeholder === true,
+      note: policies.note
+    });
   }
   return ok(requestId, now, {
     roots: [],
@@ -285,14 +324,13 @@ function handlePublic(action: string, requestId: string, now: Date): ApiResponse
   });
 }
 
-function handleMember(
+async function handleMember(
   ctx: OfficialContext,
-  action: string,
-  requestId: string,
+  request: { action: string; requestId: string; idempotencyKey?: string; data: Record<string, unknown> },
   now: Date
-): ApiResponse<unknown> {
-  if (!(MEMBER_ACTIONS as readonly string[]).includes(action)) {
-    return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-member" });
+): Promise<ApiResponse<unknown>> {
+  if (!(MEMBER_ACTIONS as readonly string[]).includes(request.action)) {
+    return fail(request.requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-member" });
   }
   const identity = sharedMiniIdentity({
     fromAppId: ctx.fromAppId,
@@ -302,12 +340,73 @@ function handleMember(
     allowedAppIds: ctx.allowedAppIds
   });
   if (!identity.trusted) {
-    return fail(requestId, "AUTH_REQUIRED", { reason: identity.reason });
+    return fail(request.requestId, "AUTH_REQUIRED", { reason: identity.reason });
   }
-  return ok(requestId, now, {
-    trusted: true,
-    registered: false,
-    note: "MW05 trusted shared identity only; member.register is MW08"
+  const fromAppId = String(ctx.fromAppId || "").trim();
+  const fromOpenId = String(ctx.fromOpenId || "").trim();
+
+  if (request.action === "member.session") {
+    const session = await readMemberSession(ctx.memberStore, fromAppId, fromOpenId);
+    return ok(request.requestId, now, session);
+  }
+  if (request.action === "member.me") {
+    const result = await readMemberMe(ctx.memberStore, fromAppId, fromOpenId);
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, { reason: result.reason });
+    }
+    return ok(request.requestId, now, result.data);
+  }
+  if (!request.idempotencyKey) {
+    return fail(request.requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  if (!ctx.memberStore) {
+    return fail(request.requestId, "INTERNAL_ERROR", { reason: "MEMBER_STORE_UNAVAILABLE" });
+  }
+  if (request.action === "member.register") {
+    const result = await registerMember({
+      stores: ctx.memberStore,
+      policies: ctx.policyStore,
+      fromAppId,
+      fromOpenId,
+      data: request.data,
+      requestId: request.requestId,
+      idempotencyKey: request.idempotencyKey,
+      now
+    });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {})
+      });
+    }
+    return ok(request.requestId, now, {
+      ...result.data,
+      created: result.created === true,
+      replayed: result.replayed === true,
+      nicknameContentSafety: NICKNAME_CONTENT_SAFETY.status,
+      tx: budgetsWithinLimit(result.budget)
+    });
+  }
+  const result = await updateMemberProfile({
+    stores: ctx.memberStore,
+    fromAppId,
+    fromOpenId,
+    data: request.data,
+    requestId: request.requestId,
+    idempotencyKey: request.idempotencyKey,
+    now
+  });
+  if (!result.ok) {
+    return fail(request.requestId, result.code as ErrorCode, {
+      reason: result.reason,
+      ...(result.issues ? { issues: result.issues } : {})
+    });
+  }
+  return ok(request.requestId, now, {
+    ...result.data,
+    replayed: result.replayed === true,
+    nicknameContentSafety: NICKNAME_CONTENT_SAFETY.status,
+    tx: budgetsWithinLimit(result.budget)
   });
 }
 

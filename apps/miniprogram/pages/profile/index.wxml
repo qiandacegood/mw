@@ -1,0 +1,16 @@
+<view class="page">
+  <text class="h1">个人资料</text>
+  <text class="muted">只能改昵称和内置头像。昵称采用保守字符集，内容安全平台能力记为 NOT_RUN。</text>
+  <input value="{{nickname}}" bindinput="onNickname" maxlength="16" placeholder="2-16 个汉字或字母数字" />
+  <view class="avatars">
+    <view
+      wx:for="{{avatars}}"
+      wx:key="*this"
+      class="avatar {{item === avatarKey ? 'on' : ''}}"
+      data-key="{{item}}"
+      bindtap="onAvatar"
+    >{{index + 1}}</view>
+  </view>
+  <button bindtap="save">保存</button>
+  <text class="title">{{result}}</text>
+</view>
