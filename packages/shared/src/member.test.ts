@@ -3,6 +3,8 @@ import {
   BUILTIN_AVATAR_KEYS,
   DEFAULT_AVATAR_KEY,
   NICKNAME_CONTENT_SAFETY,
+  auditDocId,
+  concurrentRegisterPassed,
   defaultNickname,
   identityDocId,
   matchPolicyVersions,
@@ -26,6 +28,13 @@ describe("member identity and profile rules", () => {
     expect(memberDocId(first)).toBe(memberDocId(first));
     expect(memberDocId(first)).not.toBe(memberDocId(other));
     expect(defaultNickname(memberDocId(first))).toMatch(/^思维学员[0-9A-F]{4}$/);
+    const auditA = auditDocId({ requestId: "req_a", action: "member.register", target: `members/${memberDocId(first)}` });
+    const auditB = auditDocId({ requestId: "req_a", action: "member.register", target: `members/${memberDocId(first)}` });
+    expect(auditA).toBe(auditB);
+    expect(auditA).toHaveLength(64);
+    expect(concurrentRegisterPassed({ ok: true, memberId: memberDocId(first) }, { ok: true, memberId: memberDocId(first) })).toBe(true);
+    expect(concurrentRegisterPassed({ ok: true, memberId: memberDocId(first) }, { ok: false, memberId: memberDocId(first) })).toBe(false);
+    expect(concurrentRegisterPassed({ ok: true, memberId: memberDocId(first) }, { ok: true, memberId: memberDocId(other) })).toBe(false);
   });
 
   it("accepts conservative nicknames and builtin avatars only", () => {

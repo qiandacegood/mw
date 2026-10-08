@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { authorizedEnvId, assertMwTestReady, projectRoot, runTcb } from "./mw04-lib.mjs";
 import { parseNosqlCount } from "./mw06-lib.mjs";
-import { MW08_COLLECTIONS, mw08LeftoverDecision, redactMw08 } from "./mw08-lib.mjs";
+import { MW08_COLLECTIONS, emptyMw08KnownIds, knownIdCountOf, mw08LeftoverDecision, redactMw08 } from "./mw08-lib.mjs";
 
 function parseAcl(aclResult) {
   if (!aclResult || aclResult.code !== 0) return { obtained: false, acl: "" };
@@ -27,13 +27,16 @@ function collectionNames(json) {
   return [];
 }
 
-function knownIds() {
+function loadState() {
   const path = join(projectRoot(), "configs", "mw08-verify-state.json");
   if (!existsSync(path)) {
-    return { identities: [], members: [], stats: [], idempotency: [], audits: [] };
+    return { wroteDocs: false, knownIds: emptyMw08KnownIds() };
   }
   const parsed = JSON.parse(readFileSync(path, "utf8"));
-  return parsed.knownIds || { identities: [], members: [], stats: [], idempotency: [], audits: [] };
+  return {
+    wroteDocs: parsed.wroteDocs === true,
+    knownIds: parsed.knownIds || emptyMw08KnownIds()
+  };
 }
 
 const ready = await assertMwTestReady();
@@ -77,7 +80,8 @@ if (!collectionsConfirmed) {
   collectionsConfirmed = probesOk && MW08_COLLECTIONS.every((name) => names.includes(name));
 }
 
-const ids = knownIds();
+const state = loadState();
+const ids = state.knownIds;
 const leftoverQueries = [
   ...ids.identities.map((id) => ({ collection: "identities", query: { _id: id } })),
   ...ids.members.map((id) => ({ collection: "members", query: { _id: id } })),
@@ -140,7 +144,9 @@ const decision = mw08LeftoverDecision({
   acl: aclParsed.acl,
   enableOverrun: ready.enableOverrun,
   enableOverrunConfirmed: true,
-  otherEnvChanged: false
+  otherEnvChanged: false,
+  wroteDocs: state.wroteDocs,
+  knownIds: ids
 });
 
 console.log(
@@ -149,8 +155,10 @@ console.log(
       ...decision,
       collectionNames: names,
       otherEnvCount: ready.otherEnvCount,
-      knownIdCount:
-        ids.identities.length + ids.members.length + ids.stats.length + ids.idempotency.length + ids.audits.length
+      knownIdCount: knownIdCountOf(ids),
+      wroteDocs: state.wroteDocs,
+      cloudWriteClaimed: state.wroteDocs,
+      exactIdSweepOnly: true
     }),
     null,
     2

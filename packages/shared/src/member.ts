@@ -32,6 +32,8 @@ export const NICKNAME_CONTENT_SAFETY = {
   note: "微信内容安全 / msgSecCheck 未在 MW08 真实验证。昵称只接受保守字符集，不开放任意昵称。"
 } as const;
 
+export const AUDIT_ID_FIELDS = ["requestId", "action", "target"] as const;
+
 export const MEMBER_PROFILE_FIELDS = ["nickname", "avatarKey", "expectedRevision"] as const;
 export const MEMBER_REGISTER_FIELDS = ["agreementVersion", "privacyVersion", "accepted"] as const;
 export const MEMBER_SERVER_FIELDS = [
@@ -90,6 +92,20 @@ export function identityDocId(appId: string, openId: string): string {
 
 export function memberDocId(identityId: string): string {
   return hashNamedFields({ kind: "member", identityId }, MEMBER_ID_FIELDS);
+}
+
+export function auditDocId(input: { requestId: string; action: string; target: string }): string {
+  return hashNamedFields(
+    { requestId: input.requestId, action: input.action, target: input.target },
+    AUDIT_ID_FIELDS
+  );
+}
+
+export function concurrentRegisterPassed(left: { ok?: boolean; memberId?: string }, right: {
+  ok?: boolean;
+  memberId?: string;
+}): boolean {
+  return left.ok === true && right.ok === true && Boolean(left.memberId) && left.memberId === right.memberId;
 }
 
 export function defaultNickname(memberId: string): string {

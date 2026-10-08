@@ -44,15 +44,35 @@ for (const name of MW05_OFFICIAL_FUNCTIONS) {
   });
 }
 writeMw06Cloudbaserc(existingEnvs);
-record("cloudbaserc", { written: true, deployEntries: MW08_DEPLOY_ENTRIES });
+const deployEntries = process.argv.includes("--member-only") ? ["mw-member"] : MW08_DEPLOY_ENTRIES;
+record("cloudbaserc", { written: true, deployEntries });
 
-for (const name of MW08_DEPLOY_ENTRIES) {
+for (const name of deployEntries) {
   const deployed = await runTcb(["fn", "deploy", name, "--force"], { timeoutMs: 300000 });
   record(`deploy_${name}`, { code: deployed.code, ok: deployed.code === 0 });
   if (deployed.code !== 0) {
     throw new Error(`deploy ${name} failed`);
   }
   evidence.deployed.push(name);
+}
+
+if (process.argv.includes("--member-only")) {
+  evidence.finishedAt = new Date().toISOString();
+  writeJson(join(tmp, "mw08-deploy-evidence.json"), redactMw08(evidence));
+  console.log(
+    JSON.stringify(
+      redactMw08({
+        ok: true,
+        deployed: evidence.deployed,
+        memberOnly: true,
+        enableOverrun: ready.enableOverrun,
+        otherEnvCount: ready.otherEnvCount
+      }),
+      null,
+      2
+    )
+  );
+  process.exit(0);
 }
 
 const created = {};

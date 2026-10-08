@@ -28,6 +28,7 @@
     "mw08:deploy": "node scripts/mw08-deploy.mjs",
     "mw08:verify": "node scripts/mw08-verify.mjs",
     "mw08:cleanup": "node scripts/mw08-cleanup.mjs",
+    "mw08:import-known-ids": "node scripts/mw08-import-known-ids.mjs",
     "mw08:verify-leftovers": "node scripts/mw08-leftover-verify.mjs"
   },
   "engines": {

@@ -1,4 +1,5 @@
 import {
+  auditDocId,
   defaultPolicyRecord,
   type AuditEntry,
   type ConsentVersions,
@@ -325,7 +326,8 @@ export function cloudMemberWorkStore(): MemberWorkStore & MemberReadStore {
         }
         if (next.audit) {
           writeCount += 1;
-          await tx.collection(MW08_COLLECTIONS.auditLogs).add(auditWrite(next.audit));
+          const auditId = auditDocId(next.audit);
+          await tx.collection(MW08_COLLECTIONS.auditLogs).doc(auditId).set(auditWrite(next.audit));
         }
         return next;
       });
@@ -378,7 +380,8 @@ export function cloudMemberWorkStore(): MemberWorkStore & MemberReadStore {
         }
         if (next.audit) {
           writeCount += 1;
-          await tx.collection(MW08_COLLECTIONS.auditLogs).add(auditWrite(next.audit));
+          const auditId = auditDocId(next.audit);
+          await tx.collection(MW08_COLLECTIONS.auditLogs).doc(auditId).set(auditWrite(next.audit));
         }
         return next;
       });

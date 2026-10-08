@@ -6,6 +6,7 @@ interface WxToast {
 declare const wx: {
   showToast(opts: WxToast): void;
   navigateTo(opts: { url: string }): void;
+  setClipboardData(opts: { data: string; success?: () => void }): void;
   cloud: {
     Cloud: new (opts: { resourceAppid: string; resourceEnv: string }) => {
       init: () => Promise<void>;
@@ -41,6 +42,7 @@ interface PageOptions {
   submit?: (this: PageInstance) => void | Promise<void>;
   save?: (this: PageInstance) => void | Promise<void>;
   runSuite?: (this: PageInstance) => void | Promise<void>;
+  copyKnownIds?: (this: PageInstance) => void;
 }
 
 declare function Page(options: PageOptions): void;

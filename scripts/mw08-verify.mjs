@@ -146,6 +146,7 @@ evidence.ok = Object.values(required).every(Boolean);
 writeJson(join(tmp, "mw08-verify-evidence.json"), redactMw08(evidence));
 writeJson(join(projectRoot(), "configs", "mw08-verify-state.json"), redactMw08({
   marker: MW08_MARKER,
+  wroteDocs: false,
   knownIds: evidence.knownIds,
   collections: MW08_COLLECTIONS,
   finishedAt: evidence.finishedAt

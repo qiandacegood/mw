@@ -1,6 +1,6 @@
 # 07 思维工坊实际进度
 
-开发手册 v0.1｜更新日期：2026年10月8日  
+开发手册 v0.1｜更新日期：2026年10月9日  
 [任务总览](02-roadmap.md)｜[手册入口](README.md)
 
 本文件是开发执行状态入口。任务总览规定应做什么，本文件只记录实际做到哪里；证据和限制写入各任务结果，再由此处链接。
@@ -12,7 +12,7 @@
 - mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；MW04 真实剩余仅为 **P08/P10/P11 PARTIAL**。P08 已补记本次落地的 `jobs` / `audit_logs` 索引，其余未来索引仍 PARTIAL。已锁定 Nodejs20.19 与 SDK。正式六入口、`cloudbase_auth`、`admin_users` 与 MW06 四集合已部署。**没有生产环境、没有真实支付**。
 - MW07-A 已于 2026-10-08 按官方现行页与思维工坊项目小程序后台完成资格核对：已认证企业、类目「工具 > 信息查询」已通过、未备案、虚拟支付入口存在且条件满足但**尚未开通**。未把 A14/A20 或 T20/T26 标为通过。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
-- 下一项建议：先补 MW08 的共享环境可信 FROM 验证，或按安排进入 MW09（三级类目）。MW07-B 待用户完成虚拟支付开通后再启动；该缺口不阻止 MW08—MW19。
+- 下一项建议：先用开发者工具补齐 MW08 的共享环境可信 FROM 正路径，再决定是否进入 MW09。本轮不启动 MW09。MW07-B 待用户完成虚拟支付开通后再启动。
 
 ## 任务状态
 
@@ -86,4 +86,12 @@
 | MW05 | [mw05-result.md](first-batch/results/mw05-result.md)（已完成：P04/P05/P06 手工验证已闭合） |
 | MW06 | [mw06-result.md](first-batch/results/mw06-result.md)（最终整改后已完成：alreadyResumed 收敛收紧、缺 workStore 失败关闭、nonceReplay 必选、tokenTargets 仅 mw-jobs；真实 timer NOT_RUN；未启动 MW07） |
 | MW07-A | [mw07a-result.md](first-batch/results/mw07a-result.md)（官方现行页与项目小程序后台已核对：已认证企业、未备案、虚拟支付可申请未开通；B 受阻；未标 A14/A20、T20/T26 通过） |
-| MW08 | [mw08-result.md](first-batch/results/mw08-result.md)（部分完成：本地四项检查通过；mw-test 负向与集合/ACL 已核验；可信 FROM 注册/me/资料/并发 NOT_RUN；未标 A01/A26/A31、T01 通过；未启动 MW09） |
+| MW08 | [mw08-result.md](first-batch/results/mw08-result.md)（部分完成：基线 `062aa94` 整改后本地重试/争用测试与验证页判定已修；mw-test 负向与 leftover 空扫已核验；可信 FROM 注册/重放/me/资料/并发仍 NOT_RUN；未标 A01/A26/A31、T01 通过；未启动 MW09） |
+
+## 本轮执行记录（2026-10-09）
+
+只整改 MW08，不启动 MW09，不实现虚拟支付 / VIP / 订单 / 退款。MW07 保持 A 已完成、B 等待虚拟支付审核。没有把 A01—A31 或 T01—T30 标为已通过。
+
+| 任务 | 结果 |
+| --- | --- |
+| MW08 整改 | [mw08-result.md](first-batch/results/mw08-result.md)（相对 `062aa94`：有界重试与归并、可争用本地测试、验证页防误报、leftover `wroteDocs`；四项本地检查为 0；只部署 `mw-member`；开发者工具 FROM 正路径 NOT_RUN，故仍为部分完成） |

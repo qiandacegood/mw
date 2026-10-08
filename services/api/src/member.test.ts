@@ -7,7 +7,7 @@ import {
 } from "@mw/shared";
 import { handleOfficial } from "./official.js";
 import { memoryMaintenanceStore } from "./modules/job-stores.js";
-import { memoryMemberBundle, memoryPolicyStore } from "./modules/member-stores.js";
+import { contendingMemberBundle, memoryMemberBundle, memoryPolicyStore } from "./modules/member-stores.js";
 
 const allowedAppIds = ["wxmwallowedappid0001"];
 const now = new Date("2026-10-08T09:00:00.000Z");
@@ -213,6 +213,101 @@ describe("MW08 member register, me and profile", () => {
     expect(stores.members.size).toBe(1);
     expect(stores.stats.size).toBe(1);
     expect(stores.audits.filter((row) => row.action === "member.register")).toHaveLength(1);
+  });
+
+  it("retries after a submitted peer conflict and converges to one member", async () => {
+    const stores = contendingMemberBundle();
+    const [left, right] = await Promise.all([
+      handleOfficial(
+        ctx(
+          "mw-member",
+          req("member.register", registerData(), { idempotencyKey: "contend-1", requestId: "req_contend_1" }),
+          fromA,
+          stores
+        )
+      ),
+      handleOfficial(
+        ctx(
+          "mw-member",
+          req("member.register", registerData(), { idempotencyKey: "contend-2", requestId: "req_contend_2" }),
+          fromA,
+          stores
+        )
+      )
+    ]);
+    expect(left).toMatchObject({ ok: true });
+    expect(right).toMatchObject({ ok: true });
+    const leftId = (left as { data: { memberId: string } }).data.memberId;
+    const rightId = (right as { data: { memberId: string } }).data.memberId;
+    expect(leftId).toBe(rightId);
+    expect(leftId).toMatch(/^[0-9a-f]{64}$/);
+    expect(stores.identities.size).toBe(1);
+    expect(stores.members.size).toBe(1);
+    expect(stores.stats.size).toBe(1);
+    expect(stores.audits.filter((row) => row.action === "member.register")).toHaveLength(1);
+
+    const replay = await handleOfficial(
+      ctx(
+        "mw-member",
+        req("member.register", registerData(), { idempotencyKey: "contend-1", requestId: "req_contend_replay" }),
+        fromA,
+        stores
+      )
+    );
+    expect(replay).toMatchObject({ ok: true, data: { memberId: leftId, replayed: true, created: false } });
+    expect(stores.audits.filter((row) => row.action === "member.register")).toHaveLength(1);
+    expect(stores.idem.size).toBe(2);
+  });
+
+  it("returns the existing member after retryable conflicts instead of SERVICE_BUSY", async () => {
+    const stores = memoryMemberBundle();
+    const first = (await handleOfficial(
+      ctx(
+        "mw-member",
+        req("member.register", registerData(), { idempotencyKey: "busy-1", requestId: "req_busy_1" }),
+        fromA,
+        stores
+      )
+    )) as { ok: true; data: { memberId: string } };
+    const original = stores.transactRegister.bind(stores);
+    stores.transactRegister = async () => {
+      throw new Error("DATABASE_TRANSACTION_CONFLICT");
+    };
+    const recovered = await handleOfficial(
+      ctx(
+        "mw-member",
+        req("member.register", registerData(), { idempotencyKey: "busy-2", requestId: "req_busy_2" }),
+        fromA,
+        stores
+      )
+    );
+    stores.transactRegister = original;
+    expect(recovered).toMatchObject({
+      ok: true,
+      data: { memberId: first.data.memberId, created: false }
+    });
+    expect(stores.identities.size).toBe(1);
+    expect(stores.members.size).toBe(1);
+    expect(stores.stats.size).toBe(1);
+    expect(stores.audits.filter((row) => row.action === "member.register")).toHaveLength(1);
+  });
+
+  it("retries a profile write after a recoverable transaction conflict", async () => {
+    const stores = contendingMemberBundle();
+    await handleOfficial(
+      ctx("mw-member", req("member.register", registerData(), { idempotencyKey: "prof-retry-1" }), fromA, stores)
+    );
+    stores.profileThrowsLeft = 1;
+    const updated = await handleOfficial(
+      ctx(
+        "mw-member",
+        req("member.updateProfile", { nickname: "冲突后可改", expectedRevision: 1 }, { idempotencyKey: "prof-retry-2" }),
+        fromA,
+        stores
+      )
+    );
+    expect(updated).toMatchObject({ ok: true, data: { nickname: "冲突后可改", revision: 2 } });
+    expect(stores.profileThrowsLeft).toBe(0);
   });
 
   it("returns a redacted member.me payload", async () => {

@@ -132,6 +132,7 @@ export type MemoryMemberBundle = MemberReadStore &
     idem: Map<string, IdempotencyRecord>;
     audits: AuditEntry[];
     disable(memberId: string): void;
+    profileThrowsLeft?: number;
   };
 
 function cloneIdentity(row: IdentityRecord): IdentityRecord {
@@ -280,6 +281,154 @@ export function memoryMemberBundle(): MemoryMemberBundle {
       return run;
     }
   };
+  return bundle;
+}
+
+export function contendingMemberBundle(): MemoryMemberBundle {
+  const identities = new Map<string, IdentityRecord>();
+  const members = new Map<string, MemberRecord>();
+  const stats = new Map<string, MemberStatsRecord>();
+  const idem = new Map<string, IdempotencyRecord>();
+  const audits: AuditEntry[] = [];
+  const emptyWaiters = new Map<string, Array<() => void>>();
+  let applyLock: Promise<unknown> = Promise.resolve();
+  let crashAfter: MemoryMemberBundle["crashAfter"] = null;
+  let profileThrowsLeft = 0;
+
+  function applyRegister<T>(mutation: MemberRegisterMutation<T>) {
+    if (mutation.identity) identities.set(mutation.identity.identityId, cloneIdentity(mutation.identity));
+    if (mutation.member) members.set(mutation.member.memberId, cloneMember(mutation.member));
+    if (mutation.stats) stats.set(mutation.stats.memberId, cloneStats(mutation.stats));
+    if (mutation.idem) idem.set(mutation.idem.id, cloneIdem(mutation.idem));
+    if (mutation.audit) audits.push({ ...mutation.audit });
+  }
+
+  function applyProfile<T>(mutation: MemberProfileMutation<T>) {
+    if (mutation.member) members.set(mutation.member.memberId, cloneMember(mutation.member));
+    if (mutation.idem) idem.set(mutation.idem.id, cloneIdem(mutation.idem));
+    if (mutation.audit) audits.push({ ...mutation.audit });
+  }
+
+  function waitIfEmptySnapshot(identityId: string, hasIdentity: boolean): Promise<void> {
+    if (hasIdentity) return Promise.resolve();
+    return new Promise((resolve) => {
+      const pending = emptyWaiters.get(identityId) ?? [];
+      pending.push(resolve);
+      emptyWaiters.set(identityId, pending);
+      if (pending.length >= 2) {
+        emptyWaiters.delete(identityId);
+        for (const release of pending) release();
+        return;
+      }
+      setTimeout(() => {
+        const current = emptyWaiters.get(identityId);
+        if (!current || !current.includes(resolve)) return;
+        emptyWaiters.delete(identityId);
+        for (const release of current) release();
+      }, 30);
+    });
+  }
+
+  const bundle: MemoryMemberBundle = {
+    identities,
+    members,
+    stats,
+    idem,
+    audits,
+    get crashAfter() {
+      return crashAfter;
+    },
+    set crashAfter(value) {
+      crashAfter = value;
+    },
+    disable(memberId: string) {
+      const current = members.get(memberId);
+      if (current) {
+        members.set(memberId, { ...current, status: "disabled", revision: current.revision + 1 });
+      }
+    },
+    async getIdentity(identityId) {
+      const row = identities.get(identityId);
+      return row ? cloneIdentity(row) : undefined;
+    },
+    async getMember(memberId) {
+      const row = members.get(memberId);
+      return row ? cloneMember(row) : undefined;
+    },
+    async getStats(memberId) {
+      const row = stats.get(memberId);
+      return row ? cloneStats(row) : undefined;
+    },
+    async transactRegister(identityId, memberId, idempotencyId, mutate) {
+      const started = Date.now();
+      const snap: MemberRegisterSnapshot = {
+        identity: identities.get(identityId) ? cloneIdentity(identities.get(identityId) as IdentityRecord) : undefined,
+        member: members.get(memberId) ? cloneMember(members.get(memberId) as MemberRecord) : undefined,
+        stats: stats.get(memberId) ? cloneStats(stats.get(memberId) as MemberStatsRecord) : undefined,
+        idem: idem.get(idempotencyId) ? cloneIdem(idem.get(idempotencyId) as IdempotencyRecord) : undefined
+      };
+      await waitIfEmptySnapshot(identityId, Boolean(snap.identity));
+      const mutation = mutate(snap);
+      const apply = applyLock.then(() => {
+        if (mutation.identity && identities.has(mutation.identity.identityId)) {
+          throw new Error("TX_CONFLICT");
+        }
+        let writes = 0;
+        if (mutation.identity) writes += 1;
+        if (mutation.member) writes += 1;
+        if (mutation.stats) writes += 1;
+        if (mutation.idem) writes += 1;
+        if (mutation.audit) writes += 1;
+        if (crashAfter === "identity" && mutation.identity) throw new Error("CRASH_AFTER_IDENTITY");
+        if (crashAfter === "member" && mutation.member) throw new Error("CRASH_AFTER_MEMBER");
+        if (crashAfter === "stats" && mutation.stats) throw new Error("CRASH_AFTER_STATS");
+        if (crashAfter === "idempotency" && mutation.idem) throw new Error("CRASH_AFTER_IDEMPOTENCY");
+        if (crashAfter === "audit" && mutation.audit) throw new Error("CRASH_AFTER_AUDIT");
+        applyRegister(mutation);
+        return {
+          mutation,
+          budget: { reads: 4, writes, total: 4 + writes, elapsedMs: Date.now() - started }
+        };
+      });
+      applyLock = apply.then(
+        () => undefined,
+        () => undefined
+      );
+      return apply;
+    },
+    async transactProfile(identityId, memberId, idempotencyId, mutate) {
+      if (profileThrowsLeft > 0) {
+        profileThrowsLeft -= 1;
+        throw new Error("TX_CONFLICT");
+      }
+      const started = Date.now();
+      const mutation = mutate({
+        identity: identities.get(identityId) ? cloneIdentity(identities.get(identityId) as IdentityRecord) : undefined,
+        member: members.get(memberId) ? cloneMember(members.get(memberId) as MemberRecord) : undefined,
+        stats: stats.get(memberId) ? cloneStats(stats.get(memberId) as MemberStatsRecord) : undefined,
+        idem: idem.get(idempotencyId) ? cloneIdem(idem.get(idempotencyId) as IdempotencyRecord) : undefined
+      });
+      let writes = 0;
+      if (mutation.member) writes += 1;
+      if (mutation.idem) writes += 1;
+      if (mutation.audit) writes += 1;
+      applyProfile(mutation);
+      return {
+        mutation,
+        budget: { reads: 3, writes, total: 3 + writes, elapsedMs: Date.now() - started }
+      };
+    }
+  };
+  Object.defineProperty(bundle, "profileThrowsLeft", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      return profileThrowsLeft;
+    },
+    set(value: number) {
+      profileThrowsLeft = Number(value) || 0;
+    }
+  });
   return bundle;
 }
 
