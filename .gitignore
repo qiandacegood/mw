@@ -10,6 +10,8 @@ cloudbaserc.json
 configs/local.json
 configs/mw04-state.json
 configs/mw05-state.json
+configs/mw06-state.json
+configs/mw06-verify-state.json
 apps/admin/.env.local
 apps/miniprogram/cloud.local.js
 apps/miniprogram/services/cloud.runtime.js

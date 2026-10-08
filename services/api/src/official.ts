@@ -6,6 +6,9 @@ import {
   errorMessage,
   forgedClientFields,
   parseApiRequest,
+  paymentNotifyBlockedByMaintenance,
+  publicJobView,
+  rejectUnknownKeys,
   sharedMiniIdentity,
   toUtcIso,
   type AdminRole,
@@ -13,12 +16,23 @@ import {
   type ApiResponse,
   type ErrorCode
 } from "@mw/shared";
+import type { AuditStore, IdempotencyStore, JobStore, MaintenanceStore } from "./modules/job-stores.js";
+import {
+  budgetsWithinLimit,
+  continueDemoJob,
+  jobsTrustFromEvent,
+  probeIdempotency,
+  processDemoCommand,
+  readJob,
+  resumeDefinedJob
+} from "./modules/transaction-jobs.js";
 
 export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
 export const PUBLIC_ACTIONS = ["public.ping", "home.get"] as const;
 export const MEMBER_ACTIONS = ["member.session"] as const;
-export const ADMIN_ACTIONS = ["admin.me"] as const;
+export const ADMIN_ACTIONS = ["admin.me", "job.get"] as const;
+export const ADMIN_WRITE_ACTIONS = ["job.resume"] as const;
 
 export type OfficialEntry =
   | "mw-public"
@@ -52,6 +66,11 @@ export interface OfficialContext {
   authUid?: string;
   adminStore?: AdminUserStore;
   trustedScheduler?: boolean;
+  jobsSecret?: string;
+  jobStore?: JobStore;
+  idempotencyStore?: IdempotencyStore;
+  auditStore?: AuditStore;
+  maintenanceStore?: MaintenanceStore;
 }
 
 export interface MemoryAdminStore extends AdminUserStore {
@@ -215,6 +234,9 @@ export async function handleOfficial(ctx: OfficialContext): Promise<unknown> {
   if (ctx.entry === "cloudbase_auth") {
     return handleCloudbaseAuth(ctx);
   }
+  if (ctx.entry === "mw-jobs") {
+    return handleJobs(ctx);
+  }
 
   const event = unwrapFunctionEvent(ctx.event);
   const forged = forgedDenied(event);
@@ -224,10 +246,7 @@ export async function handleOfficial(ctx: OfficialContext): Promise<unknown> {
     return handleUpload(event, requestIdOf(event));
   }
   if (ctx.entry === "mw-pay-hook") {
-    return handlePayHook(event);
-  }
-  if (ctx.entry === "mw-jobs") {
-    return handleJobs({ ...ctx, event });
+    return handlePayHook(ctx, event);
   }
 
   const parsed = parseApiRequest(event);
@@ -301,18 +320,76 @@ async function handleAdmin(
   if (action === "admin.register") {
     return fail(requestId, "FORBIDDEN", { reason: "PUBLIC_ADMIN_REGISTER_DENIED" });
   }
-  if (!(ADMIN_ACTIONS as readonly string[]).includes(action)) {
+  const isRead = (ADMIN_ACTIONS as readonly string[]).includes(action);
+  const isWrite = (ADMIN_WRITE_ACTIONS as readonly string[]).includes(action);
+  if (!isRead && !isWrite) {
     return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
   }
   const admin = await requireAdmin(ctx, requestId);
   if ("failure" in admin) return admin.failure;
+  if (action === "admin.me") {
+    return ok(requestId, now, {
+      roles: admin.record.roles,
+      enabled: admin.record.enabled,
+      authVersion: admin.record.authVersion,
+      canContent: adminHasRole(admin.record.roles, "content"),
+      canOperations: adminHasRole(admin.record.roles, "operations"),
+      canSuper: adminHasRole(admin.record.roles, "super")
+    });
+  }
+  if (!ctx.jobStore) {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "JOB_STORE_UNAVAILABLE" });
+  }
+  const event = unwrapFunctionEvent(ctx.event);
+  const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+  const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+  const extra = rejectUnknownKeys(data, ["jobId", "reason"]);
+  if (extra.length) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: [`unknown fields: ${extra.join(",")}`] });
+  }
+  const jobId = typeof data.jobId === "string" ? data.jobId : "";
+  if (!jobId) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["jobId required"] });
+  }
+  if (action === "job.get") {
+    const job = await readJob(ctx.jobStore, jobId);
+    if (!job) return fail(requestId, "NOT_FOUND", { reason: "JOB_NOT_FOUND" });
+    return ok(requestId, now, job);
+  }
+  if (!adminHasRole(admin.record.roles, "super")) {
+    return fail(requestId, "FORBIDDEN", { reason: "SUPER_REQUIRED" });
+  }
+  if (typeof rec.idempotencyKey !== "string" || rec.idempotencyKey.length === 0) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  if (!ctx.idempotencyStore || !ctx.auditStore) {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "JOB_STORE_UNAVAILABLE" });
+  }
+  const reason = typeof data.reason === "string" ? data.reason : "";
+  if (!reason) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["reason required"] });
+  }
+  const resumed = await resumeDefinedJob({
+    jobStore: ctx.jobStore,
+    idempotencyStore: ctx.idempotencyStore,
+    auditStore: ctx.auditStore,
+    actorId: admin.record.uid,
+    jobId,
+    reason,
+    requestId,
+    idempotencyKey: rec.idempotencyKey,
+    now
+  });
+  if (!resumed.ok) {
+    const code = (resumed.code as ErrorCode | undefined) || "VERSION_CONFLICT";
+    return fail(requestId, code, { reason: resumed.reason });
+  }
+  const budget = budgetsWithinLimit(resumed.budget);
   return ok(requestId, now, {
-    roles: admin.record.roles,
-    enabled: admin.record.enabled,
-    authVersion: admin.record.authVersion,
-    canContent: adminHasRole(admin.record.roles, "content"),
-    canOperations: adminHasRole(admin.record.roles, "operations"),
-    canSuper: adminHasRole(admin.record.roles, "super")
+    job: resumed.job,
+    replayed: resumed.replayed === true,
+    pending: resumed.pending === true,
+    tx: budget
   });
 }
 
@@ -342,7 +419,14 @@ function handleUpload(event: unknown, requestId: string): ApiResponse<unknown> |
   };
 }
 
-function handlePayHook(event: unknown): Record<string, unknown> {
+async function handlePayHook(ctx: OfficialContext, event: unknown): Promise<Record<string, unknown>> {
+  if (ctx.maintenanceStore) {
+    const config = await ctx.maintenanceStore.get();
+    const blocked = paymentNotifyBlockedByMaintenance(config, "mw-pay-hook");
+    if (blocked.blocked) {
+      return { ok: false, entry: "mw-pay-hook", reason: "MAINTENANCE_SHOULD_NOT_BLOCK_NOTIFY" };
+    }
+  }
   const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
   const hasSignature = Boolean(rec.signature || rec.sign);
   if (!hasSignature) {
@@ -351,11 +435,67 @@ function handlePayHook(event: unknown): Record<string, unknown> {
   return { ok: false, entry: "mw-pay-hook", reason: "NOT_A_REAL_PAYMENT_CHANNEL" };
 }
 
-function handleJobs(ctx: OfficialContext): Record<string, unknown> {
-  const rec = ctx.event && typeof ctx.event === "object" ? (ctx.event as Record<string, unknown>) : {};
-  const clientLike = Boolean(rec.fromClient) || forgedClientFields(ctx.event).length > 0;
-  if (clientLike || !ctx.trustedScheduler) {
-    return { ok: false, entry: "mw-jobs", reason: "CLIENT_INVOKE_DENIED" };
+function jobsEventWithoutPlatform(event: unknown): unknown {
+  if (!event || typeof event !== "object") return event;
+  const rec = { ...(event as Record<string, unknown>) };
+  delete rec.userInfo;
+  delete rec.tcbContext;
+  return rec;
+}
+
+async function handleJobs(ctx: OfficialContext): Promise<Record<string, unknown>> {
+  const event = jobsEventWithoutPlatform(ctx.event);
+  const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+  const clientLike = Boolean(rec.fromClient) || forgedClientFields(event).length > 0;
+  const now = ctx.now ?? new Date();
+  const trust = jobsTrustFromEvent({
+    event,
+    fromAppId: ctx.fromAppId,
+    fromOpenId: ctx.fromOpenId,
+    authUid: ctx.authUid,
+    secret: ctx.jobsSecret,
+    now
+  });
+  if (clientLike || !trust.trusted) {
+    return { ok: false, entry: "mw-jobs", reason: trust.reason || "CLIENT_INVOKE_DENIED" };
   }
-  return { ok: false, entry: "mw-jobs", reason: "NO_TRUSTED_SERVER_TRIGGER" };
+  if (!ctx.jobStore || !trust.invoke) {
+    return { ok: false, entry: "mw-jobs", reason: "NO_TRUSTED_SERVER_TRIGGER" };
+  }
+  if (trust.invoke.action === "idempotency.probe") {
+    if (!ctx.idempotencyStore) {
+      return { ok: false, entry: "mw-jobs", reason: "STORE_UNAVAILABLE" };
+    }
+    const probed = await probeIdempotency(ctx.idempotencyStore, {
+      actorId: trust.invoke.actorId || "",
+      action: "mw06.test.write",
+      idempotencyKey: trust.invoke.idempotencyKey || "",
+      payload: trust.invoke.payload ?? {},
+      requestId: requestIdOf(event)
+    });
+    return { entry: "mw-jobs", ...probed };
+  }
+  if (trust.invoke.command === "continue") {
+    const token = trust.invoke.fencingToken;
+    if (typeof token !== "number" || !trust.invoke.jobId) {
+      return { ok: false, entry: "mw-jobs", reason: "FENCING_TOKEN_REQUIRED" };
+    }
+    const continued = await continueDemoJob(ctx.jobStore, trust.invoke.jobId, token, now);
+    return {
+      ok: !continued.mutation.error,
+      entry: "mw-jobs",
+      reason: continued.mutation.error,
+      job: continued.mutation.result ? publicJobView(continued.mutation.result) : undefined,
+      tx: budgetsWithinLimit(continued.budget)
+    };
+  }
+  const processed = await processDemoCommand(ctx.jobStore, trust.invoke, now);
+  return {
+    ok: processed.ok,
+    entry: "mw-jobs",
+    reason: processed.reason,
+    job: processed.job ? publicJobView(processed.job) : undefined,
+    fencingToken: processed.token,
+    tx: budgetsWithinLimit(processed.budget)
+  };
 }

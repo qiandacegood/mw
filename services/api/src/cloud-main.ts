@@ -1,4 +1,10 @@
 import { parseAllowedMiniAppIds } from "@mw/shared";
+import {
+  cloudAuditStore,
+  cloudIdempotencyStore,
+  cloudJobStore,
+  cloudMaintenanceStore
+} from "./modules/cloud-stores.js";
 import { handleOfficial, type AdminUserRecord, type AdminUserStore, type OfficialEntry } from "./official.js";
 
 function present(value: unknown): boolean {
@@ -114,7 +120,12 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       resourceAppId: wx.resourceAppId,
       resourceOpenId: wx.resourceOpenId,
       authUid,
-      adminStore: entry === "mw-admin" ? cloudAdminStore() : undefined
+      adminStore: entry === "mw-admin" ? cloudAdminStore() : undefined,
+      jobsSecret: process.env.MW_JOBS_INVOKE_TOKEN,
+      jobStore: entry === "mw-admin" || entry === "mw-jobs" ? cloudJobStore() : undefined,
+      idempotencyStore: entry === "mw-admin" || entry === "mw-jobs" ? cloudIdempotencyStore() : undefined,
+      auditStore: entry === "mw-admin" ? cloudAuditStore() : undefined,
+      maintenanceStore: entry === "mw-pay-hook" || entry === "mw-admin" || entry === "mw-jobs" ? cloudMaintenanceStore() : undefined
     });
   } catch (error) {
     return {

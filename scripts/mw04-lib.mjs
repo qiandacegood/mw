@@ -297,6 +297,25 @@ export function parseInvokePayload(stdout) {
   }
 }
 
+export function extractFnResult(invoke) {
+  const data = invoke?.json?.data;
+  if (data && typeof data.RetMsg === "string" && data.RetMsg.trim()) {
+    try {
+      return JSON.parse(data.RetMsg);
+    } catch {
+      const parsed = parseInvokePayload(data.RetMsg);
+      if (parsed) return parsed;
+    }
+  }
+  if (invoke?.json?.result && typeof invoke.json.result === "object" && invoke.json.result !== null) {
+    return invoke.json.result;
+  }
+  if (data && typeof data.ok === "boolean") {
+    return data;
+  }
+  return parseInvokePayload(data?.RetMsg || invoke?.stdout || "");
+}
+
 export async function invokeFn(name, data, options = {}) {
   const root = projectRoot();
   const tmp = join(root, "tmp", "mw04");
@@ -306,6 +325,6 @@ export async function invokeFn(name, data, options = {}) {
   const result = await runTcb(["fn", "invoke", name, "-d", `@${dataPath}`, "--json"], {
     timeoutMs: options.timeoutMs || 180000
   });
-  const payload = result.json?.result || result.json?.data || parseInvokePayload(result.stdout);
+  const payload = extractFnResult(result) || result.json?.result || result.json?.data || parseInvokePayload(result.stdout);
   return { ...result, payload, dataPath };
 }

@@ -8,6 +8,12 @@ export {
   UPLOAD_LIMIT_BYTES
 } from "./official.js";
 export type { AdminUserRecord, OfficialContext, OfficialEntry } from "./official.js";
+export {
+  memoryAuditStore,
+  memoryIdempotencyStore,
+  memoryJobStore,
+  memoryMaintenanceStore
+} from "./modules/job-stores.js";
 export { handlePublicEntry } from "./entrypoints/mw-public.js";
 export { handleMemberEntry } from "./entrypoints/mw-member.js";
 export { handleAdminEntry } from "./entrypoints/mw-admin.js";

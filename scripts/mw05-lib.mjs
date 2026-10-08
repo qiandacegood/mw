@@ -61,8 +61,8 @@ export function requireAdminUid() {
   return adminUid;
 }
 
-export function functionConfigs(allowedMiniAppIds) {
-  const envVariables = { MW_ALLOWED_MINI_APPIDS: allowedMiniAppIds || "" };
+export function functionConfigs(allowedMiniAppIds, extraEnv = {}) {
+  const envVariables = { MW_ALLOWED_MINI_APPIDS: allowedMiniAppIds || "", ...extraEnv };
   return [
     { name: "cloudbase_auth", timeout: 10, memorySize: 256, envVariables },
     { name: "mw-public", timeout: 10, memorySize: 256, envVariables },

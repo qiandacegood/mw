@@ -1,7 +1,11 @@
 {
   "comment": "Traditional document-database client rules. Default deny. Real env id stays in local .env.",
   "database": {
-    "admin_users": { "read": false, "write": false }
+    "admin_users": { "read": false, "write": false },
+    "jobs": { "read": false, "write": false },
+    "idempotency": { "read": false, "write": false },
+    "audit_logs": { "read": false, "write": false },
+    "app_config": { "read": false, "write": false }
   },
   "storage": {
     "acl": "ADMINONLY",

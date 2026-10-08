@@ -17,7 +17,8 @@ const secrets = [
   env.WECHAT_APP_ID,
   env.MW_RESOURCE_APPID,
   env.VIRTUAL_PAY_APP_KEY,
-  env.WECHAT_APP_SECRET
+  env.WECHAT_APP_SECRET,
+  env.MW_JOBS_INVOKE_TOKEN
 ].filter((value) => value && !/placeholder|example|xxxx|your-/i.test(value));
 
 for (const file of tracked) {

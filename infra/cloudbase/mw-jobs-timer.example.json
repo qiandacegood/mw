@@ -1,0 +1,11 @@
+{
+  "comment": "Timer template only. Do not deploy a high-frequency trigger. Type/Timer alone is never a trusted source; mw-jobs still requires a signed serverInvoke.",
+  "functionName": "mw-jobs",
+  "triggers": [
+    {
+      "name": "mw-jobs-tick-template",
+      "type": "timer",
+      "config": "0 0 */6 * * * *"
+    }
+  ]
+}
