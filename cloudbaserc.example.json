@@ -5,68 +5,60 @@
   "functionRoot": "./cloudfunctions",
   "functions": [
     {
-      "name": "mw-validation-runtime22",
+      "name": "cloudbase_auth",
       "timeout": 10,
-      "runtime": "Nodejs22.21",
-      "memorySize": 128,
+      "runtime": "Nodejs20.19",
+      "memorySize": 256,
       "handler": "index.main",
-      "installDependency": false
+      "installDependency": true
     },
     {
-      "name": "mw-validation-probe",
-      "timeout": 60,
+      "name": "mw-public",
+      "timeout": 10,
+      "runtime": "Nodejs20.19",
+      "memorySize": 256,
+      "handler": "index.main",
+      "installDependency": true
+    },
+    {
+      "name": "mw-member",
+      "timeout": 15,
+      "runtime": "Nodejs20.19",
+      "memorySize": 256,
+      "handler": "index.main",
+      "installDependency": true
+    },
+    {
+      "name": "mw-admin",
+      "timeout": 15,
+      "runtime": "Nodejs20.19",
+      "memorySize": 256,
+      "handler": "index.main",
+      "installDependency": true
+    },
+    {
+      "name": "mw-upload",
+      "timeout": 30,
       "runtime": "Nodejs20.19",
       "memorySize": 512,
       "handler": "index.main",
       "installDependency": true
     },
     {
-      "name": "mw-validation-public",
+      "name": "mw-pay-hook",
       "timeout": 10,
       "runtime": "Nodejs20.19",
       "memorySize": 256,
       "handler": "index.main",
-      "installDependency": false
+      "installDependency": true
     },
     {
-      "name": "mw-validation-member",
-      "timeout": 10,
-      "runtime": "Nodejs20.19",
-      "memorySize": 256,
-      "handler": "index.main",
-      "installDependency": false
-    },
-    {
-      "name": "mw-validation-admin",
-      "timeout": 10,
-      "runtime": "Nodejs20.19",
-      "memorySize": 256,
-      "handler": "index.main",
-      "installDependency": false
-    },
-    {
-      "name": "mw-validation-upload",
-      "timeout": 30,
+      "name": "mw-jobs",
+      "timeout": 60,
       "runtime": "Nodejs20.19",
       "memorySize": 512,
       "handler": "index.main",
-      "installDependency": false
-    },
-    {
-      "name": "mw-validation-pay-hook",
-      "timeout": 10,
-      "runtime": "Nodejs20.19",
-      "memorySize": 256,
-      "handler": "index.main",
-      "installDependency": false
-    },
-    {
-      "name": "mw-validation-jobs",
-      "timeout": 10,
-      "runtime": "Nodejs20.19",
-      "memorySize": 256,
-      "handler": "index.main",
-      "installDependency": false
+      "installDependency": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 # MW04 CloudBase 环境与关键能力验证
 
-开发手册 v0.1｜任务状态：部分完成（结果见 [results/mw04-result.md](results/mw04-result.md)）  
+开发手册 v0.1｜任务状态：部分完成（MW05 补验后仍部分完成，结果见 [results/mw04-result.md](results/mw04-result.md)）  
 [任务总览](../02-roadmap.md)｜[实际进度](../07-progress.md)
 
 ## 目标与可见结果

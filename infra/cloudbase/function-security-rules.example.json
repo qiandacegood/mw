@@ -1,0 +1,11 @@
+{
+  "comment": "Function invoke rules. Default deny. cloudbase_auth is the shared-env gate and only grants mw-public/mw-member in auth.custom.allow.",
+  "*": { "invoke": false },
+  "cloudbase_auth": { "invoke": true },
+  "mw-public": { "invoke": true },
+  "mw-member": { "invoke": "auth != null" },
+  "mw-admin": { "invoke": "auth.loginType != 'ANONYMOUS' && auth != null" },
+  "mw-upload": { "invoke": false },
+  "mw-pay-hook": { "invoke": false },
+  "mw-jobs": { "invoke": false }
+}

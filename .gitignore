@@ -9,6 +9,13 @@
 cloudbaserc.json
 configs/local.json
 configs/mw04-state.json
+configs/mw05-state.json
+apps/admin/.env.local
+apps/miniprogram/cloud.local.js
+cloudfunctions/**/runtime.cjs
+cloudfunctions/**/function-template.js
+!cloudfunctions/_official/function-template.js
+cloudfunctions/_official/runtime.sha256
 
 # Dependencies and generated output
 node_modules/

@@ -1,5 +1,6 @@
-import { notWired } from "../cloudbase-guard.js";
+import { handleOfficial } from "../official.js";
+import type { OfficialContext } from "../official.js";
 
-export function main(): never {
-  return notWired("mw-admin");
+export function handleAdminEntry(ctx: Omit<OfficialContext, "entry">) {
+  return handleOfficial({ ...ctx, entry: "mw-admin" });
 }

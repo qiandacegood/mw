@@ -1,15 +1,21 @@
 {
   "comment": "Traditional document-database client rules. Default deny. Real env id stays in local .env.",
   "database": {
-    "mw_validation_docs": { "read": false, "write": false },
-    "mw_validation_tx": { "read": false, "write": false },
-    "mw_validation_index": { "read": false, "write": false },
-    "mw_validation_admin_users": { "read": false, "write": false },
-    "mw_validation_files": { "read": false, "write": false }
+    "admin_users": { "read": false, "write": false }
   },
   "storage": {
     "acl": "ADMINONLY",
     "clientRead": false,
     "clientWrite": false
+  },
+  "functions": {
+    "*": { "invoke": false },
+    "cloudbase_auth": { "invoke": true },
+    "mw-public": { "invoke": true },
+    "mw-member": { "invoke": "auth != null" },
+    "mw-admin": { "invoke": "auth.loginType != 'ANONYMOUS' && auth != null" },
+    "mw-upload": { "invoke": false },
+    "mw-pay-hook": { "invoke": false },
+    "mw-jobs": { "invoke": false }
   }
 }

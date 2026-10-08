@@ -1,31 +1,61 @@
 <script setup lang="ts">
-import { handleIsolatedAction } from "@mw/api";
 import { ref } from "vue";
+import { createAdminApp, loginAndReadAdmin, signOutAdmin, type AdminSession } from "./cloudbase-web";
 
-const paperId = ref("paper_fict_logic_l3");
-const output = ref("尚未调用");
+const username = ref("");
+const password = ref("");
+const status = ref("尚未登录。请在本页输入用户名和密码，不要把密码发给对话。");
+const session = ref<AdminSession | null>(null);
+const busy = ref(false);
 
-function loadPaper(): void {
-  const res = handleIsolatedAction({
-    apiVersion: "1",
-    action: "paper.detail",
-    requestId: `req_admin_${Date.now()}`,
-    data: { paperId: paperId.value }
-  });
-  output.value = JSON.stringify(res, null, 2);
+async function login(): Promise<void> {
+  busy.value = true;
+  status.value = "正在登录…";
+  try {
+    const app = await createAdminApp();
+    const result = await loginAndReadAdmin(app, username.value, password.value);
+    password.value = "";
+    session.value = result;
+    status.value = result.error
+      ? `登录未获得后台权限：${result.error}`
+      : `已登录。角色 ${result.roles.join(",") || "无"}`;
+  } catch (error) {
+    password.value = "";
+    session.value = { loggedIn: false, uidPresent: false, roles: [], error: "登录失败" };
+    status.value = error instanceof Error ? error.message : "登录失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function logout(): Promise<void> {
+  try {
+    const app = await createAdminApp();
+    await signOutAdmin(app);
+  } catch {
+    /* still clear local view */
+  }
+  session.value = null;
+  status.value = "已退出";
 }
 </script>
 
 <template>
   <main>
-    <h1>思维工坊后台最小页</h1>
-    <p>隔离模拟接口 paper.detail，未连接 CloudBase。</p>
+    <h1>思维工坊后台登录</h1>
+    <p>使用 CloudBase 用户名密码。密码只在浏览器本次提交，不写入记录。</p>
     <label>
-      paperId
-      <input v-model="paperId" />
+      用户名
+      <input v-model="username" autocomplete="username" />
     </label>
-    <button type="button" @click="loadPaper">读取试卷详情</button>
-    <pre>{{ output }}</pre>
+    <label>
+      密码
+      <input v-model="password" type="password" autocomplete="current-password" />
+    </label>
+    <button type="button" :disabled="busy" @click="login">登录并读取 admin.me</button>
+    <button type="button" class="ghost" :disabled="busy" @click="logout">退出</button>
+    <p class="status">{{ status }}</p>
+    <pre v-if="session">{{ JSON.stringify(session, null, 2) }}</pre>
   </main>
 </template>
 
@@ -55,5 +85,12 @@ button {
   border: 0;
   padding: 10px;
   border-radius: 8px;
+}
+button.ghost {
+  background: #edf2f7;
+  color: #2d3748;
+}
+.status {
+  color: #4a5568;
 }
 </style>

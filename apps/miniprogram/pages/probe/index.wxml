@@ -1,0 +1,9 @@
+<view class="page">
+  <text class="h1">共享环境调用</text>
+  <text class="muted">只显示是否取得可信 FROM 上下文，不显示 AppID/OpenID。</text>
+  <text class="tag">{{ready}}</text>
+  <button bindtap="runPublic">调用 mw-public</button>
+  <text class="title">{{publicResult}}</text>
+  <button bindtap="runMember">调用 mw-member</button>
+  <text class="title">{{memberResult}}</text>
+</view>

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
@@ -29,7 +29,7 @@ async function removeGeneratedJs(dir) {
       await removeGeneratedJs(full);
       continue;
     }
-    if (name.endsWith(".js") && !name.endsWith(".test.js")) {
+    if (name.endsWith(".js") && !name.endsWith(".test.js") && !name.endsWith(".example.js") && name !== "cloud.local.js") {
       await rm(full, { force: true });
     }
   }
@@ -52,6 +52,12 @@ async function collectServiceEntries(dir, acc) {
 }
 
 await removeGeneratedJs(mp);
+
+const localCloud = join(mp, "cloud.local.js");
+const localCloudExample = join(mp, "cloud.local.example.js");
+if (!existsSync(localCloud) && existsSync(localCloudExample)) {
+  await copyFile(localCloudExample, localCloud);
+}
 
 const appJsonPath = join(mp, "app.json");
 if (!existsSync(appJsonPath)) fail("apps/miniprogram/app.json is missing");

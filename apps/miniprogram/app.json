@@ -1,5 +1,5 @@
 {
-  "pages": ["pages/home/index"],
+  "pages": ["pages/home/index", "pages/probe/index"],
   "window": {
     "navigationBarTitleText": "思维工坊",
     "navigationBarBackgroundColor": "#2B6CB0",
