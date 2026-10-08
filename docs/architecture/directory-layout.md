@@ -105,6 +105,6 @@ infra/cloudbase 下建立按环境参数化的部署描述、database-collection
 
 ## 资料与版本管理
 
-已在 F:/MW/main 初始化本地 Git，未创建远程仓库、未推送。现有 .gitignore 排除常见依赖、构建结果、环境秘密、运行数据和备份，不能替代提交前检查。
+已在 F:/MW/main 初始化 Git，基线提交为 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。现有 .gitignore 排除常见依赖、构建结果、环境秘密、运行数据和备份，不能替代提交前检查。
 
 .env.example 仅在需要时列变量名与无效占位值。真实环境、支付秘密、生产日志、会员与订单明细均不得写入源码。后续修改需同步现行产品、技术和决定记录，历史文件继续保留历史语义。

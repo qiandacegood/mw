@@ -10,7 +10,7 @@
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
 - **MW01、MW02、MW03 已完成**；MW04—MW30 未开始。
 - 已有本地工程骨架与单元测试，**没有云端部署、没有创建 CloudBase 资源、没有真实支付**。
-- 已在 `F:/MW/main` 初始化本地 Git，无远程、无推送。本轮已重新 `git add`；本机仍无 `user.name` / `user.email`，未改 git config，基线提交仍未生成。
+- 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
 - 建议下一项为 MW04 CloudBase 环境与关键能力验证；无可用测试环境时只做准备，不能标整项通过。
 
 ## 任务状态
