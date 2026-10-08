@@ -46,6 +46,17 @@ describe("official identity and entry boundaries", () => {
       ok: false,
       error: { code: "FORBIDDEN", details: { reason: "ACTION_DENIED" } }
     });
+
+    const tree = await handleOfficial({
+      entry: "mw-public",
+      event: publicReq("category.tree"),
+      allowedAppIds,
+      now
+    });
+    expect(tree).toMatchObject({
+      ok: true,
+      data: { nodes: [], writeConcurrency: "expectedTreeVersion" }
+    });
   });
 
   it("member requires FROM_APPID/FROM_OPENID and ignores resource APPID/OPENID", async () => {

@@ -15,6 +15,8 @@ import {
   rejectUnknownKeys,
   sharedMiniIdentity,
   toUtcIso,
+  PARENT_CHANGE_NOTE,
+  CATEGORY_TREE_FIELDS,
   type AdminRole,
   type ApiFailure,
   type ApiResponse,
@@ -37,13 +39,30 @@ import {
   readJob,
   resumeDefinedJob
 } from "./modules/transaction-jobs.js";
+import {
+  contentWritesBlocked,
+  createCategory,
+  deleteCategory,
+  readCategoryTree,
+  seedInitialCategories,
+  updateCategory
+} from "./modules/category.js";
+import type { CategoryUsageStore, CategoryWorkStore } from "./modules/category-stores.js";
+import { emptyCategoryUsage } from "./modules/category-stores.js";
 
 export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
-export const PUBLIC_ACTIONS = ["public.ping", "home.get", "policies.current"] as const;
+export const PUBLIC_ACTIONS = ["public.ping", "home.get", "policies.current", "category.tree"] as const;
 export const MEMBER_ACTIONS = ["member.session", "member.register", "member.me", "member.updateProfile"] as const;
-export const ADMIN_ACTIONS = ["admin.me", "job.get"] as const;
-export const ADMIN_WRITE_ACTIONS = ["job.resume"] as const;
+export const ADMIN_ACTIONS = ["admin.me", "job.get", "category.tree"] as const;
+export const ADMIN_WRITE_ACTIONS = [
+  "job.resume",
+  "category.create",
+  "category.update",
+  "category.delete",
+  "category.seed"
+] as const;
+export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit"] as const;
 
 export type OfficialEntry =
   | "mw-public"
@@ -85,6 +104,8 @@ export interface OfficialContext {
   maintenanceStore?: MaintenanceStore;
   policyStore?: PolicyStore;
   memberStore?: MemberReadStore & MemberWorkStore;
+  categoryStore?: CategoryWorkStore;
+  categoryUsage?: CategoryUsageStore;
 }
 
 export interface MemoryAdminStore extends AdminUserStore {
@@ -316,11 +337,22 @@ async function handlePublic(
       note: policies.note
     });
   }
+  if (action === "category.tree") {
+    const event = unwrapFunctionEvent(ctx.event);
+    const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+    const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+    const extra = rejectUnknownKeys(data, [...CATEGORY_TREE_FIELDS]);
+    if (extra.length) {
+      return fail(requestId, "INVALID_ARGUMENT", { issues: [`unknown fields: ${extra.join(",")}`] });
+    }
+    const tree = await readCategoryTree(ctx.categoryStore, { knownVersion: data.knownVersion, publicView: true });
+    return ok(requestId, now, tree.data);
+  }
   return ok(requestId, now, {
     roots: [],
     recommended: [],
     catalogVersion: 0,
-    note: "MW05 public skeleton; catalog is MW09+"
+    note: "MW05 public skeleton; category.tree is available, paper browse is MW13"
   });
 }
 
@@ -419,13 +451,23 @@ async function handleAdmin(
   if (action === "admin.register") {
     return fail(requestId, "FORBIDDEN", { reason: "PUBLIC_ADMIN_REGISTER_DENIED" });
   }
+  const isMw18 = (ADMIN_MW18_ACTIONS as readonly string[]).includes(action);
   const isRead = (ADMIN_ACTIONS as readonly string[]).includes(action);
   const isWrite = (ADMIN_WRITE_ACTIONS as readonly string[]).includes(action);
-  if (!isRead && !isWrite) {
+  if (!isRead && !isWrite && !isMw18) {
     return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
   }
   const admin = await requireAdmin(ctx, requestId);
   if ("failure" in admin) return admin.failure;
+  if (isMw18) {
+    return fail(requestId, "INVALID_ARGUMENT", {
+      reason: "PARENT_CHANGE_REQUIRES_MW18",
+      note: PARENT_CHANGE_NOTE
+    });
+  }
+  if (action === "category.tree" || action.startsWith("category.")) {
+    return handleAdminCategory(ctx, admin.record, action, requestId, now);
+  }
   if (action === "admin.me") {
     return ok(requestId, now, {
       roles: admin.record.roles,
@@ -491,6 +533,82 @@ async function handleAdmin(
     pending: false,
     tx: budget
   });
+}
+
+async function handleAdminCategory(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  const event = unwrapFunctionEvent(ctx.event);
+  const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+  const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+  if (action === "category.tree") {
+    const extra = rejectUnknownKeys(data, [...CATEGORY_TREE_FIELDS]);
+    if (extra.length) {
+      return fail(requestId, "INVALID_ARGUMENT", { issues: [`unknown fields: ${extra.join(",")}`] });
+    }
+    const tree = await readCategoryTree(ctx.categoryStore, { knownVersion: data.knownVersion, publicView: false });
+    return ok(requestId, now, tree.data);
+  }
+  if (!adminHasRole(admin.roles, "content")) {
+    return fail(requestId, "FORBIDDEN", { reason: "CONTENT_ROLE_REQUIRED" });
+  }
+  if (typeof rec.idempotencyKey !== "string" || rec.idempotencyKey.length === 0) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  if (!ctx.categoryStore) {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "CATEGORY_STORE_UNAVAILABLE" });
+  }
+  const blocked = contentWritesBlocked(ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined);
+  if (blocked) {
+    return fail(requestId, blocked.code as ErrorCode, { reason: blocked.reason, ...blocked.details });
+  }
+  if (action === "category.seed") {
+    const extra = rejectUnknownKeys(data, ["expectedTreeVersion"]);
+    if (extra.length) {
+      return fail(requestId, "INVALID_ARGUMENT", { issues: [`unknown fields: ${extra.join(",")}`] });
+    }
+    const result = await seedInitialCategories({
+      store: ctx.categoryStore,
+      actorId: admin.uid,
+      requestId,
+      idempotencyKey: rec.idempotencyKey,
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true, writeConcurrency: "expectedTreeVersion" });
+  }
+  const common = {
+    store: ctx.categoryStore,
+    actorId: admin.uid,
+    data,
+    requestId,
+    idempotencyKey: rec.idempotencyKey,
+    now
+  };
+  const result =
+    action === "category.create"
+      ? await createCategory(common)
+      : action === "category.update"
+        ? await updateCategory(common)
+        : await deleteCategory({ ...common, usage: ctx.categoryUsage || emptyCategoryUsage() });
+  if (!result.ok) {
+    return fail(requestId, result.code as ErrorCode, {
+      reason: result.reason,
+      ...(result.issues ? { issues: result.issues } : {}),
+      ...(result.details || {})
+    });
+  }
+  return ok(requestId, now, { ...result.data, replayed: result.replayed === true, writeConcurrency: "expectedTreeVersion" });
 }
 
 function handleUpload(event: unknown, requestId: string): ApiResponse<unknown> | Record<string, unknown> {

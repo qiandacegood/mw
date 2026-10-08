@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callAdminJob, loginAndReadAdmin, type AdminSession } from "./cloudbase-web";
+import { callAdminCategory, callAdminJob, loginAndReadAdmin, type AdminSession } from "./cloudbase-web";
 
 function fakeApp(options: {
   uid?: string;
@@ -67,6 +67,32 @@ describe("admin job helpers", () => {
     expect(calls[1]).toMatchObject({
       name: "mw-admin",
       data: { action: "job.resume", idempotencyKey: "mw06/test/admin_resume" }
+    });
+  });
+});
+
+describe("admin category helpers", () => {
+  it("calls category actions through mw-admin and keeps parent change off this page", async () => {
+    const calls: unknown[] = [];
+    const app = {
+      auth: () => ({
+        signInWithPassword: async () => ({}),
+        getLoginState: async () => ({ user: { uid: "uid_super" } }),
+        signOut: async () => ({})
+      }),
+      callFunction: async (input: { name: string; data: unknown }) => {
+        calls.push(input);
+        return { result: { ok: true, data: { treeVersion: 1, nodes: [], writeConcurrency: "expectedTreeVersion" } } };
+      }
+    };
+    const tree = await callAdminCategory(app, "category.tree", {});
+    const created = await callAdminCategory(app, "category.create", { name: "测试", expectedTreeVersion: 1 }, "mw09/admin/create");
+    expect(tree.ok).toBe(true);
+    expect(created.ok).toBe(true);
+    expect(calls[0]).toMatchObject({ name: "mw-admin", data: { action: "category.tree" } });
+    expect(calls[1]).toMatchObject({
+      name: "mw-admin",
+      data: { action: "category.create", idempotencyKey: "mw09/admin/create" }
     });
   });
 });

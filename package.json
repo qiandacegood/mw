@@ -12,7 +12,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check:prototypes": "node scripts/check-prototype-scripts.mjs",
-    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && node scripts/mw04-record.test.mjs && node scripts/mw04-assert.test.mjs && node scripts/mw05-secret-scan.test.mjs && node scripts/mw06-assert.test.mjs && node scripts/mw08-assert.test.mjs && npm run test --workspaces --if-present",
+    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && node scripts/mw04-record.test.mjs && node scripts/mw04-assert.test.mjs && node scripts/mw05-secret-scan.test.mjs && node scripts/mw06-assert.test.mjs && node scripts/mw08-assert.test.mjs && node scripts/mw09-assert.test.mjs && npm run test --workspaces --if-present",
     "build": "node scripts/ensure-shared-js.mjs && node scripts/mw05-emit-runtime.mjs && npm run build --workspaces --if-present",
     "mw05:write-local": "node scripts/mw05-write-local.mjs",
     "mw05:emit": "node scripts/mw05-emit-runtime.mjs",
@@ -29,7 +29,12 @@
     "mw08:verify": "node scripts/mw08-verify.mjs",
     "mw08:cleanup": "node scripts/mw08-cleanup.mjs",
     "mw08:import-known-ids": "node scripts/mw08-import-known-ids.mjs",
-    "mw08:verify-leftovers": "node scripts/mw08-leftover-verify.mjs"
+    "mw08:verify-leftovers": "node scripts/mw08-leftover-verify.mjs",
+    "mw09:deploy": "node scripts/mw09-deploy.mjs",
+    "mw09:verify": "node scripts/mw09-verify.mjs",
+    "mw09:cleanup": "node scripts/mw09-cleanup.mjs",
+    "mw09:import-known-ids": "node scripts/mw09-import-known-ids.mjs",
+    "mw09:verify-leftovers": "node scripts/mw09-leftover-verify.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -1,7 +1,7 @@
 # 思维工坊数据模型与索引 V1.0
 
 日期：2026年10月3日  
-依据：[产品 V1.1](../product/product-spec-v1.1.md)及[技术架构](technical-design-v1.0.md)。数据库采用 CloudBase 文档型数据库。MW08 已在 mw-test 落地 `identities` / `members` / `member_stats`，并复用 `app_config.policies`、`idempotency`、`audit_logs`；其余集合仍待对应任务创建。本节是约束，不表示全部集合已创建。
+依据：[产品 V1.1](../product/product-spec-v1.1.md)及[技术架构](technical-design-v1.0.md)。数据库采用 CloudBase 文档型数据库。MW08 已在 mw-test 落地 `identities` / `members` / `member_stats`，并复用 `app_config.policies`、`idempotency`、`audit_logs`；MW09 已落地 `categories` / `category_names` 与 `app_config.catalog`。其余集合仍待对应任务创建。本节是约束，不表示全部集合已创建。
 
 ## 1 通用约定
 

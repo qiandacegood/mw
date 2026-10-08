@@ -72,12 +72,37 @@ export async function signOutAdmin(app: CloudApp): Promise<void> {
   await app.auth().signOut();
 }
 
+export type AdminCallResult = {
+  ok?: boolean;
+  data?: Record<string, unknown>;
+  error?: { code?: string; message?: string; details?: { reason?: string; note?: string } };
+};
+
+export async function callAdminCategory(
+  app: CloudApp,
+  action: "category.tree" | "category.create" | "category.update" | "category.delete" | "category.seed",
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action !== "category.tree") {
+    payload.idempotencyKey = idempotencyKey || `mw09/admin/${action}/${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
 export async function callAdminJob(
   app: CloudApp,
   action: "job.get" | "job.resume",
   data: { jobId: string; reason?: string },
   idempotencyKey?: string
-): Promise<{ ok?: boolean; data?: unknown; error?: { code?: string; message?: string; details?: { reason?: string } } }> {
+): Promise<AdminCallResult> {
   const payload: Record<string, unknown> = {
     apiVersion: "1",
     action,
