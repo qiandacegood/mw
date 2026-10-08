@@ -8,10 +8,11 @@
 ## 当前状态
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
-- **MW01、MW02、MW03、MW05、MW06 已完成**；**MW04 部分完成**；MW07—MW30 未开始。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
+- **MW01、MW02、MW03、MW05、MW06 已完成**；**MW04 部分完成**；**MW07 部分完成（A 已完成，B 未开始/受阻）**；MW08—MW30 未开始。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
 - mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；MW04 真实剩余仅为 **P08/P10/P11 PARTIAL**。P08 已补记本次落地的 `jobs` / `audit_logs` 索引，其余未来索引仍 PARTIAL。已锁定 Nodejs20.19 与 SDK。正式六入口、`cloudbase_auth`、`admin_users` 与 MW06 四集合已部署。**没有生产环境、没有真实支付**。
+- MW07-A 已于 2026-10-08 按官方现行页与思维工坊项目小程序后台完成资格核对：已认证企业、类目「工具 > 信息查询」已通过、未备案、虚拟支付入口存在且条件满足但**尚未开通**。未把 A14/A20 或 T20/T26 标为通过。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
-- 下一项建议为 MW07-A（虚拟支付资格核对）。
+- 下一项建议为 MW08（会员注册与个人资料）。MW07-B 待用户完成虚拟支付开通后再启动；该缺口不阻止 MW08—MW19。
 
 ## 任务状态
 
@@ -23,7 +24,7 @@
 | MW04 | CloudBase 环境与关键能力验证 | [部分完成](first-batch/results/mw04-result.md) |
 | MW05 | 可信入口与后台权限 | [已完成](first-batch/results/mw05-result.md) |
 | MW06 | 业务事务与持久任务基础 | [已完成](first-batch/results/mw06-result.md)（整改闭环后恢复） |
-| MW07 | 虚拟支付资格与接入验证 | 未开始 |
+| MW07 | 虚拟支付资格与接入验证 | [部分完成（A 已完成，B 未开始/受阻）](first-batch/results/mw07a-result.md) |
 | MW08 | 会员注册与个人资料 | 未开始 |
 | MW09 | 三级类目基础管理 | 未开始 |
 | MW10 | 图片素材与题库管理 | 未开始 |
@@ -65,7 +66,7 @@
 
 | 里程碑 | 当前状态 |
 | --- | --- |
-| M0 开发条件就绪 | 未达到（缺 MW04 收口与 MW07-A） |
+| M0 开发条件就绪 | 未达到（缺 MW04 收口；MW07-A 已完成，B 未开始） |
 | M1 练习闭环 | 未达到 |
 | M2 成长与内容维护 | 未达到 |
 | M3 交易与运营闭环 | 未达到 |
@@ -84,3 +85,4 @@
 | MW04 | [mw04-result.md](first-batch/results/mw04-result.md)（部分完成：P01—P07/P09/P12 PASS；P08/P10/P11 PARTIAL；HTTP 4.9/5.1 均为 413） |
 | MW05 | [mw05-result.md](first-batch/results/mw05-result.md)（已完成：P04/P05/P06 手工验证已闭合） |
 | MW06 | [mw06-result.md](first-batch/results/mw06-result.md)（最终整改后已完成：alreadyResumed 收敛收紧、缺 workStore 失败关闭、nonceReplay 必选、tokenTargets 仅 mw-jobs；真实 timer NOT_RUN；未启动 MW07） |
+| MW07-A | [mw07a-result.md](first-batch/results/mw07a-result.md)（官方现行页与项目小程序后台已核对：已认证企业、未备案、虚拟支付可申请未开通；B 受阻；未标 A14/A20、T20/T26 通过） |
