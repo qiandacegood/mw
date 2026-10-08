@@ -5,7 +5,7 @@ describe("audit redaction", () => {
   it("redacts secrets and does not keep raw identity or answers", () => {
     const sanitized = sanitizeAuditValue({
       jobId: "mw06/test/job_1",
-      password: "x",
+      password: ["keep-out"],
       openId: "wx-open-id",
       answer: ["A", "B"],
       CLOUDBASE_ENV_ID: "mw-secret-env",
@@ -28,6 +28,6 @@ describe("audit redaction", () => {
       now: new Date("2026-10-08T12:00:00.000Z")
     });
     expect(entry.beforeHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(JSON.stringify(entry)).not.toContain("x");
+    expect(JSON.stringify(entry)).not.toContain("keep-out");
   });
 });
