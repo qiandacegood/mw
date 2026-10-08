@@ -1,6 +1,6 @@
 # MW05 可信入口与后台权限
 
-开发手册 v0.1｜任务状态：进行中（结果见 [results/mw05-result.md](results/mw05-result.md)）  
+开发手册 v0.1｜任务状态：已完成（结果见 [results/mw05-result.md](results/mw05-result.md)）  
 [任务总览](../02-roadmap.md)｜[实际进度](../07-progress.md)
 
 ## 目标与可见结果

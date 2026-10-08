@@ -12,6 +12,7 @@ configs/mw04-state.json
 configs/mw05-state.json
 apps/admin/.env.local
 apps/miniprogram/cloud.local.js
+apps/miniprogram/services/cloud.runtime.js
 cloudfunctions/**/runtime.cjs
 cloudfunctions/**/function-template.js
 !cloudfunctions/_official/function-template.js

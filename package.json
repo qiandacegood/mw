@@ -14,6 +14,7 @@
     "check:prototypes": "node scripts/check-prototype-scripts.mjs",
     "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && node scripts/mw04-record.test.mjs && node scripts/mw04-assert.test.mjs && node scripts/mw05-secret-scan.test.mjs && npm run test --workspaces --if-present",
     "build": "node scripts/ensure-shared-js.mjs && node scripts/mw05-emit-runtime.mjs && npm run build --workspaces --if-present",
+    "mw05:write-local": "node scripts/mw05-write-local.mjs",
     "mw05:emit": "node scripts/mw05-emit-runtime.mjs",
     "mw05:deploy": "node scripts/mw05-deploy.mjs",
     "mw05:http-probe": "node scripts/mw05-http-probe.mjs",

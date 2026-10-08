@@ -4,6 +4,7 @@ export {
   handleCloudbaseAuth,
   handleOfficial,
   memoryAdminStore,
+  unwrapFunctionEvent,
   UPLOAD_LIMIT_BYTES
 } from "./official.js";
 export type { AdminUserRecord, OfficialContext, OfficialEntry } from "./official.js";

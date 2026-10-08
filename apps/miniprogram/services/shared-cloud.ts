@@ -14,16 +14,25 @@ type SharedCallResult = {
 
 function loadLocal(): LocalCloud {
   try {
-    return require("../cloud.local.js") as LocalCloud;
+    return require("./cloud.runtime") as LocalCloud;
   } catch {
-    return {};
+    try {
+      return require("../cloud.local") as LocalCloud;
+    } catch {
+      return {};
+    }
   }
+}
+
+function missingReason(local: LocalCloud): string {
+  if (!local.resourceEnv && !local.resourceAppId) return "LOCAL_SHARED_REQUIRE_FAILED";
+  return "LOCAL_SHARED_CONFIG_MISSING";
 }
 
 export function sharedCloudReady(): { ready: boolean; reason: string } {
   const local = loadLocal();
   if (!local.resourceEnv || !local.resourceAppId) {
-    return { ready: false, reason: "LOCAL_SHARED_CONFIG_MISSING" };
+    return { ready: false, reason: missingReason(local) };
   }
   return { ready: true, reason: "LOCAL_SHARED_CONFIG_PRESENT" };
 }
@@ -31,7 +40,7 @@ export function sharedCloudReady(): { ready: boolean; reason: string } {
 export async function callSharedOfficial(entry: "mw-public" | "mw-member"): Promise<SharedCallResult> {
   const local = loadLocal();
   if (!local.resourceEnv || !local.resourceAppId) {
-    return { ok: false, entry, trustedFromContext: false, reason: "LOCAL_SHARED_CONFIG_MISSING" };
+    return { ok: false, entry, trustedFromContext: false, reason: missingReason(local) };
   }
   const cloud = new wx.cloud.Cloud({
     resourceAppid: local.resourceAppId,

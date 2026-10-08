@@ -104,15 +104,32 @@ export function writeAdminLocalEnv() {
   return dest;
 }
 
+export function writeMiniprogramPrivateConfig() {
+  const { allowedMiniAppIds } = readMw05LocalConfig();
+  const appid = String(allowedMiniAppIds || "")
+    .split(/[,\s]+/)
+    .filter(Boolean)[0] || "wx_placeholder_appid";
+  const dest = join(projectRoot(), "apps", "miniprogram", "project.private.config.json");
+  writeJson(dest, {
+    appid,
+    projectname: "mw-miniprogram",
+    libVersion: "2.32.3"
+  });
+  return dest;
+}
+
+function miniprogramCloudModuleSource(envId, resourceAppId, allowedMiniAppIds) {
+  return `module.exports = {\n  resourceEnvPresent: ${Boolean(envId)},\n  resourceAppIdPresent: ${Boolean(resourceAppId && !/placeholder/i.test(resourceAppId))},\n  allowedMiniAppIdPresent: ${Boolean(allowedMiniAppIds && !/placeholder/i.test(allowedMiniAppIds))},\n  resourceEnv: ${JSON.stringify(envId)},\n  resourceAppId: ${JSON.stringify(resourceAppId)},\n  callerAppId: ${JSON.stringify(String(allowedMiniAppIds || "").split(/[,\s]+/)[0] || "")}\n};\n`;
+}
+
 export function writeMiniprogramLocalCloud() {
   const { envId } = readLocalMwEnv();
   const { resourceAppId, allowedMiniAppIds } = readMw05LocalConfig();
+  const source = miniprogramCloudModuleSource(envId, resourceAppId, allowedMiniAppIds);
   const dest = join(projectRoot(), "apps", "miniprogram", "cloud.local.js");
-  writeFileSync(
-    dest,
-    `module.exports = {\n  resourceEnvPresent: ${Boolean(envId)},\n  resourceAppIdPresent: ${Boolean(resourceAppId && !/placeholder/i.test(resourceAppId))},\n  allowedMiniAppIdPresent: ${Boolean(allowedMiniAppIds && !/placeholder/i.test(allowedMiniAppIds))},\n  resourceEnv: ${JSON.stringify(envId)},\n  resourceAppId: ${JSON.stringify(resourceAppId)},\n  callerAppId: ${JSON.stringify(allowedMiniAppIds.split(/[,\s]+/)[0] || "")}\n};\n`,
-    "utf8"
-  );
+  const runtimeDest = join(projectRoot(), "apps", "miniprogram", "services", "cloud.runtime.js");
+  writeFileSync(dest, source, "utf8");
+  writeFileSync(runtimeDest, source, "utf8");
   return dest;
 }
 

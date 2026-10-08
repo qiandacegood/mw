@@ -91,9 +91,51 @@ function ok<T>(requestId: string, now: Date, data: T): ApiResponse<T> {
   };
 }
 
+const BUSINESS_KEYS = ["apiVersion", "action", "requestId", "idempotencyKey", "data"] as const;
+
+export function unwrapFunctionEvent(event: unknown): unknown {
+  if (!event || typeof event !== "object") {
+    return event;
+  }
+  const rec = event as Record<string, unknown>;
+  if (typeof rec.body === "string") {
+    try {
+      const parsed = JSON.parse(rec.body);
+      if (parsed && typeof parsed === "object") {
+        return unwrapFunctionEvent(parsed);
+      }
+    } catch {
+      /* keep going */
+    }
+  }
+  const nested = rec.data;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    const inner = nested as Record<string, unknown>;
+    if (
+      inner.apiVersion !== undefined &&
+      typeof inner.action === "string" &&
+      typeof inner.requestId === "string" &&
+      inner.data &&
+      typeof inner.data === "object"
+    ) {
+      return unwrapFunctionEvent(inner);
+    }
+  }
+  const out: Record<string, unknown> = {};
+  let found = false;
+  for (const key of BUSINESS_KEYS) {
+    if (key in rec) {
+      out[key] = rec[key];
+      found = true;
+    }
+  }
+  return found ? out : event;
+}
+
 function requestIdOf(event: unknown): string {
-  if (event && typeof event === "object" && "requestId" in event) {
-    const value = (event as { requestId?: unknown }).requestId;
+  const body = unwrapFunctionEvent(event);
+  if (body && typeof body === "object" && "requestId" in body) {
+    const value = (body as { requestId?: unknown }).requestId;
     if (typeof value === "string" && value.length > 0) return value;
   }
   return "unknown";
@@ -174,22 +216,23 @@ export async function handleOfficial(ctx: OfficialContext): Promise<unknown> {
     return handleCloudbaseAuth(ctx);
   }
 
-  const forged = forgedDenied(ctx.event);
+  const event = unwrapFunctionEvent(ctx.event);
+  const forged = forgedDenied(event);
   if (forged) return forged;
 
   if (ctx.entry === "mw-upload") {
-    return handleUpload(ctx.event, requestIdOf(ctx.event));
+    return handleUpload(event, requestIdOf(event));
   }
   if (ctx.entry === "mw-pay-hook") {
-    return handlePayHook(ctx.event);
+    return handlePayHook(event);
   }
   if (ctx.entry === "mw-jobs") {
-    return handleJobs(ctx);
+    return handleJobs({ ...ctx, event });
   }
 
-  const parsed = parseApiRequest(ctx.event);
+  const parsed = parseApiRequest(event);
   if (parsed.issues.length || !parsed.request) {
-    return fail(requestIdOf(ctx.event), "INVALID_ARGUMENT", { issues: parsed.issues });
+    return fail(requestIdOf(event), "INVALID_ARGUMENT", { issues: parsed.issues });
   }
   const request = parsed.request;
   if (request.apiVersion !== API_VERSION) {

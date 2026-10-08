@@ -14,8 +14,7 @@
   "packOptions": {
     "ignore": [
       { "type": "suffix", "value": ".test.ts" },
-      { "type": "file", "value": "package.json" },
-      { "type": "file", "value": "cloud.local.js" }
+      { "type": "file", "value": "package.json" }
     ]
   }
 }

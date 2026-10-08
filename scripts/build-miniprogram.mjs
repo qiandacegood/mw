@@ -29,7 +29,13 @@ async function removeGeneratedJs(dir) {
       await removeGeneratedJs(full);
       continue;
     }
-    if (name.endsWith(".js") && !name.endsWith(".test.js") && !name.endsWith(".example.js") && name !== "cloud.local.js") {
+    if (
+      name.endsWith(".js") &&
+      !name.endsWith(".test.js") &&
+      !name.endsWith(".example.js") &&
+      name !== "cloud.local.js" &&
+      name !== "cloud.runtime.js"
+    ) {
       await rm(full, { force: true });
     }
   }
@@ -55,8 +61,13 @@ await removeGeneratedJs(mp);
 
 const localCloud = join(mp, "cloud.local.js");
 const localCloudExample = join(mp, "cloud.local.example.js");
+const runtimeCloud = join(mp, "services", "cloud.runtime.js");
 if (!existsSync(localCloud) && existsSync(localCloudExample)) {
   await copyFile(localCloudExample, localCloud);
+}
+if (!existsSync(runtimeCloud) && existsSync(localCloudExample)) {
+  await mkdir(join(mp, "services"), { recursive: true });
+  await copyFile(localCloudExample, runtimeCloud);
 }
 
 const appJsonPath = join(mp, "app.json");

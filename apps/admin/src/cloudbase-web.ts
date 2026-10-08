@@ -4,6 +4,8 @@ export type AdminSession = {
   roles: string[];
   enabled?: boolean;
   error?: string;
+  errorCode?: string;
+  errorReason?: string;
 };
 
 type CloudApp = {
@@ -47,13 +49,15 @@ export async function loginAndReadAdmin(app: CloudApp, username: string, passwor
       data: {}
     }
   });
-  const body = result?.result as { ok?: boolean; data?: { roles?: string[]; enabled?: boolean }; error?: { code?: string; message?: string } };
+  const body = unwrapCallResult(result);
   if (!body?.ok) {
     return {
       loggedIn: false,
       uidPresent,
       roles: [],
-      error: body?.error?.message || "后台拒绝"
+      error: body?.error?.message || "后台拒绝",
+      errorCode: body?.error?.code,
+      errorReason: body?.error?.details?.reason
     };
   }
   return {
@@ -66,4 +70,24 @@ export async function loginAndReadAdmin(app: CloudApp, username: string, passwor
 
 export async function signOutAdmin(app: CloudApp): Promise<void> {
   await app.auth().signOut();
+}
+
+function unwrapCallResult(result: unknown): {
+  ok?: boolean;
+  data?: { roles?: string[]; enabled?: boolean };
+  error?: { code?: string; message?: string; details?: { reason?: string } };
+} {
+  if (!result || typeof result !== "object") return {};
+  const rec = result as Record<string, unknown>;
+  const candidates = [rec.result, rec.data, rec];
+  for (const item of candidates) {
+    if (item && typeof item === "object" && ("ok" in item || "error" in item)) {
+      return item as {
+        ok?: boolean;
+        data?: { roles?: string[]; enabled?: boolean };
+        error?: { code?: string; message?: string; details?: { reason?: string } };
+      };
+    }
+  }
+  return {};
 }

@@ -8,10 +8,10 @@
 ## 当前状态
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
-- **MW01、MW02、MW03 已完成**；**MW04 部分完成**；**MW05 部分完成**；MW06—MW30 未开始。
-- mw-test 上 P01—P12 已逐项记录：P05 正式微信仍为 NOT_RUN；P04/P06/P08/P10/P11 为 PARTIAL。已锁定 Nodejs20.19 与 SDK。正式六入口与 `cloudbase_auth`、`admin_users` 已部署。**没有生产环境、没有真实支付、没有开发者工具确认的 FROM 上下文、没有已完成的后台密码登录**。
+- **MW01、MW02、MW03、MW05 已完成**；**MW04 部分完成**；MW06—MW30 未开始。
+- mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；P08/P10/P11 为 PARTIAL。已锁定 Nodejs20.19 与 SDK。正式六入口与 `cloudbase_auth`、`admin_users` 已部署。真实后台登录已闭合（`loggedIn=true`，`roles` 含 `super`）。开发者工具共享调用已取得可信 FROM。**没有生产环境、没有真实支付**。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
-- 下一项建议为 MW06（业务事务与持久任务基础），但 MW05 的真实登录与 P05 手工验证仍待用户完成。
+- 下一项建议为 MW06（业务事务与持久任务基础）。
 
 ## 任务状态
 
@@ -21,7 +21,7 @@
 | MW02 | 页面原型与视觉规范 | [已完成](first-batch/results/mw02-result.md) |
 | MW03 | 工程骨架与本地检查 | [已完成](first-batch/results/mw03-result.md) |
 | MW04 | CloudBase 环境与关键能力验证 | [部分完成](first-batch/results/mw04-result.md) |
-| MW05 | 可信入口与后台权限 | [部分完成](first-batch/results/mw05-result.md) |
+| MW05 | 可信入口与后台权限 | [已完成](first-batch/results/mw05-result.md) |
 | MW06 | 业务事务与持久任务基础 | 未开始 |
 | MW07 | 虚拟支付资格与接入验证 | 未开始 |
 | MW08 | 会员注册与个人资料 | 未开始 |
@@ -81,5 +81,5 @@
 | MW01 | [mw01-result.md](first-batch/results/mw01-result.md)（整改后仍为已完成） |
 | MW02 | [mw02-result.md](first-batch/results/mw02-result.md)（第三轮后台走查后仍为已完成） |
 | MW03 | [mw03-result.md](first-batch/results/mw03-result.md)（串行 npm test×5 均为 0；DevTools NOT_RUN） |
-| MW04 | [mw04-result.md](first-batch/results/mw04-result.md)（部分完成：P05 仍 NOT_RUN；P04/P06/P08/P10/P11 PARTIAL；HTTP 4.9/5.1 均为 413） |
-| MW05 | [mw05-result.md](first-batch/results/mw05-result.md)（部分完成：正式入口与 admin_users 已部署；真实登录与 FROM 上下文待手工） |
+| MW04 | [mw04-result.md](first-batch/results/mw04-result.md)（部分完成：P01—P07/P09/P12 PASS；P08/P10/P11 PARTIAL；HTTP 4.9/5.1 均为 413） |
+| MW05 | [mw05-result.md](first-batch/results/mw05-result.md)（已完成：P04/P05/P06 手工验证已闭合） |

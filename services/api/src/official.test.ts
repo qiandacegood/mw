@@ -124,6 +124,65 @@ describe("official identity and entry boundaries", () => {
     });
   });
 
+  it("accepts Web SDK platform wrappers and still rejects forged business fields", async () => {
+    const store = memoryAdminStore([
+      { uid: "uid_super_1", roles: ["super"], enabled: true, authVersion: 1 }
+    ]);
+    const wrapped = await handleOfficial({
+      entry: "mw-admin",
+      event: {
+        userInfo: { openId: "platform_openid", uid: "platform_uid" },
+        tcbContext: { session_id: "s1" },
+        apiVersion: "1",
+        action: "admin.me",
+        requestId: "req_web_admin",
+        data: {}
+      },
+      allowedAppIds,
+      authUid: "uid_super_1",
+      adminStore: store,
+      now
+    });
+    expect(wrapped).toMatchObject({ ok: true, data: { roles: ["super"] } });
+
+    const nested = await handleOfficial({
+      entry: "mw-admin",
+      event: {
+        data: {
+          apiVersion: "1",
+          action: "admin.me",
+          requestId: "req_nested_admin",
+          data: {}
+        },
+        userInfo: { uid: "platform_uid" }
+      },
+      allowedAppIds,
+      authUid: "uid_super_1",
+      adminStore: store,
+      now
+    });
+    expect(nested).toMatchObject({ ok: true, data: { roles: ["super"] } });
+
+    const forged = await handleOfficial({
+      entry: "mw-admin",
+      event: {
+        userInfo: { uid: "platform_uid" },
+        apiVersion: "1",
+        action: "admin.me",
+        requestId: "req_forged_admin",
+        data: { role: "super" }
+      },
+      allowedAppIds,
+      authUid: "uid_super_1",
+      adminStore: store,
+      now
+    });
+    expect(forged).toMatchObject({
+      ok: false,
+      error: { details: { reason: "CLIENT_IDENTITY_IGNORED" } }
+    });
+  });
+
   it("enabled super admin can read admin.me and cannot register publicly", async () => {
     const store = memoryAdminStore([
       { uid: "uid_super_1", roles: ["super"], enabled: true, authVersion: 1 }

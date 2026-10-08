@@ -17,6 +17,7 @@ import {
   requireAdminUid,
   writeAdminLocalEnv,
   writeMiniprogramLocalCloud,
+  writeMiniprogramPrivateConfig,
   writeMw05Cloudbaserc
 } from "./mw05-lib.mjs";
 
@@ -45,6 +46,7 @@ record("emit_runtime", { ok: true, log: "emitted" });
 writeMw05Cloudbaserc();
 writeAdminLocalEnv();
 writeMiniprogramLocalCloud();
+writeMiniprogramPrivateConfig();
 const local = readMw05LocalConfig();
 const whitelistEmpty = !local.allowedMiniAppIds || /placeholder/i.test(local.allowedMiniAppIds);
 record("whitelist", { configured: !whitelistEmpty, failClosedIfEmpty: true });
