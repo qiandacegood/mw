@@ -1,0 +1,26 @@
+{
+  "name": "mw",
+  "private": true,
+  "version": "0.0.1",
+  "description": "思维工坊本地工程骨架。不创建云资源，不部署。",
+  "workspaces": [
+    "apps/admin",
+    "apps/miniprogram",
+    "packages/shared",
+    "services/api"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "check:prototypes": "node scripts/check-prototype-scripts.mjs",
+    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && npm run test --workspaces --if-present",
+    "build": "node scripts/ensure-shared-js.mjs && npm run build --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.2",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

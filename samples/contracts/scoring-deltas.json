@@ -1,0 +1,112 @@
+{
+  "comment": "两套互不混用的虚构核算。mem_fict_1001 只做混合卷，交卷当时 totalScore=80。mem_fict_1003 另有三张逻辑卷，分类汇总当时 totalScore=190。",
+  "samePaperSequence": {
+    "memberId": "mem_fict_1001",
+    "asOf": "2026-10-07T04:00:00.000Z",
+    "note": "该会员此时只有 paper_fict_mixed_01 的成绩，总分等于该卷最高分 80。",
+    "paperId": "paper_fict_mixed_01",
+    "maxScore": 100,
+    "attempts": [
+      {
+        "attemptId": "att_fict_3001",
+        "score": 60,
+        "previousBest": 0,
+        "delta": 60,
+        "bestScoreAfter": 60,
+        "submittedAt": "2026-10-05T02:00:00.000Z",
+        "weekKey": "2026-10-05",
+        "monthKey": "2026-10"
+      },
+      {
+        "attemptId": "att_fict_3002",
+        "score": 80,
+        "previousBest": 60,
+        "delta": 20,
+        "bestScoreAfter": 80,
+        "submittedAt": "2026-10-06T03:00:00.000Z",
+        "weekKey": "2026-10-05",
+        "monthKey": "2026-10"
+      },
+      {
+        "attemptId": "att_fict_3003",
+        "score": 70,
+        "previousBest": 80,
+        "delta": 0,
+        "bestScoreAfter": 80,
+        "submittedAt": "2026-10-07T04:00:00.000Z",
+        "weekKey": "2026-10-05",
+        "monthKey": "2026-10"
+      }
+    ],
+    "paperBest": 80,
+    "totalScoreFromThisPaper": 80,
+    "memberTotalScore": 80
+  },
+  "attempt.submit.successAt80": {
+    "ok": true,
+    "requestId": "req_fict_submit_080",
+    "serverTime": "2026-10-06T03:00:00.000Z",
+    "data": {
+      "attemptId": "att_fict_3002",
+      "memberId": "mem_fict_1001",
+      "score": 80,
+      "maxScore": 100,
+      "correctCount": 16,
+      "questionCount": 20,
+      "bestScore": 80,
+      "delta": 20,
+      "totalScore": 80,
+      "levelId": "L1",
+      "gradeRevision": 1,
+      "submittedAt": "2026-10-06T03:00:00.000Z"
+    }
+  },
+  "categoryScoresDoNotDoubleCount": {
+    "memberId": "mem_fict_1003",
+    "asOf": "2026-10-07T05:00:00.000Z",
+    "note": "另一虚构会员。一级卷 50、二级卷 60、三级卷 80。一级含后代 190，二级 140，三级 80。总分 190，不是 50+140+80，也不是 mem_fict_1001 的 80。",
+    "bests": [
+      { "paperId": "paper_fict_logic_l1", "categoryId": "cat_fict_logic", "bestScore": 50, "access": "free" },
+      { "paperId": "paper_fict_logic_l2", "categoryId": "cat_fict_logic_deduction", "bestScore": 60, "access": "free" },
+      { "paperId": "paper_fict_logic_l3", "categoryId": "cat_fict_logic_condition", "bestScore": 80, "access": "vip" }
+    ],
+    "member.categoryScores.response": {
+      "ok": true,
+      "requestId": "req_fict_cs_001",
+      "serverTime": "2026-10-07T05:00:00.000Z",
+      "data": {
+        "memberId": "mem_fict_1003",
+        "catalogVersion": 12,
+        "totalScore": 190,
+        "nodes": [
+          {
+            "categoryId": "cat_fict_logic",
+            "directScore": 50,
+            "inclusiveScore": 190
+          },
+          {
+            "categoryId": "cat_fict_logic_deduction",
+            "directScore": 60,
+            "inclusiveScore": 140
+          },
+          {
+            "categoryId": "cat_fict_logic_condition",
+            "directScore": 80,
+            "inclusiveScore": 80
+          }
+        ]
+      }
+    },
+    "illegal": {
+      "sumParentPlusChildrenAsTotal": 270,
+      "rejectedBecause": "父子分类分不可再叠加为总分"
+    },
+    "unifiedRanking": {
+      "scope": "total",
+      "memberId": "mem_fict_1003",
+      "value": 190,
+      "includesFreeAndVip": true,
+      "forbiddenParams": ["access", "freeOnly", "accessFilter"]
+    }
+  }
+}

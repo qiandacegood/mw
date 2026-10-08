@@ -1,0 +1,104 @@
+{
+  "comment": "虚构题面。未交卷响应不得含正确答案或解析。少选不得分。",
+  "paper": {
+    "paperId": "paper_fict_mixed_01",
+    "paperVersionId": "paperver_fict_mixed_01_v3",
+    "title": "混合题型样卷（虚构）",
+    "access": "free",
+    "difficulty": "beginner",
+    "questionCount": 3,
+    "maxScore": 15
+  },
+  "attempt.questionPage.response.unsubmitted": {
+    "ok": true,
+    "requestId": "req_fict_qpage_001",
+    "serverTime": "2026-10-03T02:05:00.000Z",
+    "data": {
+      "attemptId": "att_fict_2001",
+      "paperVersionId": "paperver_fict_mixed_01_v3",
+      "chunkNo": 0,
+      "state": "inProgress",
+      "forbiddenKeysNote": "本响应不得出现 answer、analysis、correctOptionIds",
+      "items": [
+        {
+          "questionId": "q_fict_single_01",
+          "type": "single",
+          "stem": "若前提为真，下列哪项必然为真？（虚构题）",
+          "points": 5,
+          "options": [
+            { "optionId": "A", "text": "结论必然成立" },
+            { "optionId": "B", "text": "结论可能不成立" },
+            { "optionId": "C", "text": "无法判断" }
+          ]
+        },
+        {
+          "questionId": "q_fict_multi_01",
+          "type": "multi",
+          "stem": "下列哪些属于充分条件推理的检查项？（虚构题，界面只标多选题，不显示正确项数量）",
+          "points": 5,
+          "options": [
+            { "optionId": "A", "text": "前提是否足以推出结论" },
+            { "optionId": "B", "text": "是否存在遗漏条件" },
+            { "optionId": "C", "text": "字体是否美观" },
+            { "optionId": "D", "text": "反例能否推翻必然性" }
+          ]
+        },
+        {
+          "questionId": "q_fict_judge_01",
+          "type": "judge",
+          "stem": "判断题：未作答计 0 分，不视为系统失败。（虚构题）",
+          "points": 5,
+          "options": [
+            { "optionId": "TRUE", "text": "正确" },
+            { "optionId": "FALSE", "text": "错误" }
+          ]
+        }
+      ]
+    }
+  },
+  "serverPrivateAnswers.notReturnedBeforeSubmit": {
+    "q_fict_single_01": { "correctOptionIds": ["A"], "analysis": "虚构解析：前提为真则结论必然成立。" },
+    "q_fict_multi_01": { "correctOptionIds": ["A", "B", "D"], "analysis": "虚构解析：C 与推理无关；少选不得分。" },
+    "q_fict_judge_01": { "correctOptionIds": ["TRUE"], "analysis": "虚构解析：未作答按 0 分。" }
+  },
+  "partialMultiSelect": {
+    "questionId": "q_fict_multi_01",
+    "selectedOptionIds": ["A", "B"],
+    "correctOptionIds": ["A", "B", "D"],
+    "score": 0,
+    "note": "少选，集合不完全相同，0 分，不倒扣"
+  },
+  "attempt.analysis.response.afterSubmit": {
+    "ok": true,
+    "requestId": "req_fict_analysis_001",
+    "serverTime": "2026-10-03T02:20:00.000Z",
+    "data": {
+      "attemptId": "att_fict_2001",
+      "state": "submitted",
+      "chunkNo": 0,
+      "items": [
+        {
+          "questionId": "q_fict_single_01",
+          "selectedOptionIds": ["A"],
+          "correctOptionIds": ["A"],
+          "score": 5,
+          "analysis": "虚构解析：前提为真则结论必然成立。"
+        },
+        {
+          "questionId": "q_fict_multi_01",
+          "selectedOptionIds": ["A", "B"],
+          "correctOptionIds": ["A", "B", "D"],
+          "score": 0,
+          "analysis": "虚构解析：C 与推理无关；少选不得分。"
+        },
+        {
+          "questionId": "q_fict_judge_01",
+          "selectedOptionIds": ["TRUE"],
+          "correctOptionIds": ["TRUE"],
+          "score": 5,
+          "analysis": "虚构解析：未作答按 0 分。"
+        }
+      ]
+    }
+  }
+}

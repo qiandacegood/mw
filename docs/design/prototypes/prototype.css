@@ -1,0 +1,99 @@
+:root {
+  --brand: #2b6cb0;
+  --brand-dark: #2c5282;
+  --accent: #d69e2e;
+  --ok: #276749;
+  --warn: #c05621;
+  --danger: #c53030;
+  --bg: #edf2f7;
+  --card: #fff;
+  --text: #1a202c;
+  --muted: #4a5568;
+  --line: #e2e8f0;
+  --disabled: #a0aec0;
+  font-family: system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+a { color: var(--brand); }
+.topbar {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 10px 16px; background: #1a202c; color: #fff;
+}
+.topbar label { font-size: 12px; color: #cbd5e0; }
+.topbar select, .topbar button {
+  border: 0; border-radius: 6px; padding: 6px 8px;
+}
+.layout { display: flex; gap: 20px; padding: 20px; align-items: flex-start; flex-wrap: wrap; }
+.phone {
+  width: 375px; min-height: 720px; background: var(--card);
+  border: 1px solid #cbd5e0; border-radius: 24px; overflow: hidden;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); display: flex; flex-direction: column;
+}
+.desktop {
+  width: 960px; min-height: 640px; background: var(--card);
+  border: 1px solid #cbd5e0; border-radius: 12px; overflow: hidden; display: flex;
+}
+.status { font-size: 12px; padding: 6px 12px; }
+.status.ok { background: #c6f6d5; color: var(--ok); }
+.status.warn { background: #feebc8; color: var(--warn); }
+.status.err { background: #fed7d7; color: var(--danger); }
+.status.info { background: #bee3f8; color: var(--brand-dark); }
+.screen { flex: 1; padding: 16px; overflow: auto; }
+h1 { font-size: 20px; margin: 0 0 12px; }
+h2 { font-size: 16px; margin: 16px 0 8px; }
+p, li { font-size: 14px; line-height: 1.55; color: var(--muted); }
+.card {
+  background: #f7fafc; border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px; margin-bottom: 10px;
+}
+.row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.btn {
+  display: inline-block; border: 0; border-radius: 10px; padding: 10px 14px;
+  background: var(--brand); color: #fff; cursor: pointer; font-size: 14px;
+}
+.btn.secondary { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
+.btn.ghost { background: transparent; color: var(--brand); }
+.btn.warn { background: var(--warn); }
+.btn[disabled] { background: var(--disabled); cursor: not-allowed; }
+.tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #e2e8f0; }
+.tag.vip { background: #faf089; color: #744210; }
+.tabs { display: flex; border-top: 1px solid var(--line); }
+.tabs button {
+  flex: 1; border: 0; background: #fff; padding: 10px 0; color: var(--muted); cursor: pointer;
+}
+.tabs button.active { color: var(--brand); font-weight: 600; }
+.notes {
+  max-width: 360px; background: #fff; border-radius: 12px; padding: 16px;
+  border: 1px solid var(--line);
+}
+.nav { width: 200px; background: #1a365d; color: #fff; padding: 12px 0; }
+.nav button {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  color: #bee3f8; padding: 10px 16px; cursor: pointer;
+}
+.nav button.active { background: #2b6cb0; color: #fff; }
+.hidden { display: none !important; }
+.option { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 8px 0; cursor: pointer; }
+.option.sel { border-color: var(--brand); background: #ebf8ff; }
+.skeleton { height: 14px; background: linear-gradient(90deg,#edf2f7,#e2e8f0,#edf2f7); border-radius: 6px; margin: 8px 0; }
+.large { font-size: 20px; }
+.logo { width: 36px; height: 36px; border-radius: 8px; }
+.modal {
+  border: 1px dashed var(--brand); background: #ebf8ff; padding: 12px; border-radius: 10px; margin-top: 12px;
+}
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th, .table td { border-bottom: 1px solid var(--line); padding: 8px; text-align: left; }
+.badge { font-size: 11px; color: #744210; }
+.crumb { font-size: 13px; color: var(--brand); margin-bottom: 8px; }
+.crumb button { border: 0; background: none; color: var(--brand); cursor: pointer; padding: 0; }
+.qimg { width: 100%; max-height: 140px; object-fit: contain; background: #edf2f7; border-radius: 8px; cursor: zoom-in; }
+.zoom {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.72);
+  display: flex; align-items: center; justify-content: center; z-index: 40; padding: 24px;
+}
+.zoom img { max-width: min(90vw, 640px); max-height: 80vh; background: #fff; border-radius: 8px; }
+.zoom .close {
+  position: absolute; top: 16px; right: 16px; background: #fff; color: #1a202c;
+  border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer;
+}

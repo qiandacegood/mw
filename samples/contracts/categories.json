@@ -1,0 +1,131 @@
+{
+  "comment": "虚构类目树。一级逻辑思维直接挂卷；二级演绎推理；三级条件判断。反例不得入库。",
+  "treeVersion": 12,
+  "nodes": [
+    {
+      "categoryId": "cat_fict_logic",
+      "parentId": null,
+      "depth": 1,
+      "ancestorIds": [],
+      "name": "逻辑思维",
+      "normalizedName": "逻辑思维",
+      "sort": 10,
+      "enabled": true,
+      "deletedAt": null,
+      "directPaperCount": 1,
+      "inclusivePaperCount": 3
+    },
+    {
+      "categoryId": "cat_fict_logic_deduction",
+      "parentId": "cat_fict_logic",
+      "depth": 2,
+      "ancestorIds": ["cat_fict_logic"],
+      "name": "演绎推理",
+      "normalizedName": "演绎推理",
+      "sort": 10,
+      "enabled": true,
+      "deletedAt": null,
+      "directPaperCount": 1,
+      "inclusivePaperCount": 2
+    },
+    {
+      "categoryId": "cat_fict_logic_condition",
+      "parentId": "cat_fict_logic_deduction",
+      "depth": 3,
+      "ancestorIds": ["cat_fict_logic", "cat_fict_logic_deduction"],
+      "name": "条件判断",
+      "normalizedName": "条件判断",
+      "sort": 10,
+      "enabled": true,
+      "deletedAt": null,
+      "directPaperCount": 1,
+      "inclusivePaperCount": 1
+    }
+  ],
+  "papersHungOnEachLevel": [
+    {
+      "paperId": "paper_fict_logic_l1",
+      "categoryId": "cat_fict_logic",
+      "title": "逻辑入门练习（虚构）",
+      "access": "free",
+      "difficulty": "beginner",
+      "maxScore": 50
+    },
+    {
+      "paperId": "paper_fict_logic_l2",
+      "categoryId": "cat_fict_logic_deduction",
+      "title": "演绎推理练习（虚构）",
+      "access": "free",
+      "difficulty": "intermediate",
+      "maxScore": 60
+    },
+    {
+      "paperId": "paper_fict_logic_l3",
+      "categoryId": "cat_fict_logic_condition",
+      "title": "条件判断练习（虚构）",
+      "access": "vip",
+      "difficulty": "challenge",
+      "maxScore": 80
+    }
+  ],
+  "rejectedExamples": [
+    {
+      "reason": "CATEGORY_DEPTH_LIMIT",
+      "attempt": {
+        "parentId": "cat_fict_logic_condition",
+        "name": "第四级反例"
+      },
+      "expectedDepth": 4
+    },
+    {
+      "reason": "CATEGORY_CYCLE",
+      "attempt": {
+        "categoryId": "cat_fict_logic",
+        "parentId": "cat_fict_logic_condition"
+      },
+      "note": "把祖先移入后代，形成环"
+    },
+    {
+      "reason": "CATEGORY_CYCLE",
+      "attempt": {
+        "categoryId": "cat_fict_logic_deduction",
+        "parentId": "cat_fict_logic_deduction"
+      },
+      "note": "自身为父"
+    }
+  ],
+  "category.tree.response": {
+    "ok": true,
+    "requestId": "req_fict_cat_tree_001",
+    "serverTime": "2026-10-03T02:00:00.000Z",
+    "data": {
+      "treeVersion": 12,
+      "nodes": [
+        {
+          "id": "cat_fict_logic",
+          "parentId": null,
+          "depth": 1,
+          "name": "逻辑思维",
+          "sort": 10,
+          "enabled": true
+        },
+        {
+          "id": "cat_fict_logic_deduction",
+          "parentId": "cat_fict_logic",
+          "depth": 2,
+          "name": "演绎推理",
+          "sort": 10,
+          "enabled": true
+        },
+        {
+          "id": "cat_fict_logic_condition",
+          "parentId": "cat_fict_logic_deduction",
+          "depth": 3,
+          "name": "条件判断",
+          "sort": 10,
+          "enabled": true
+        }
+      ]
+    }
+  }
+}

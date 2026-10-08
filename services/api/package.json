@@ -1,0 +1,16 @@
+{
+  "name": "@mw/api",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node ../../scripts/ensure-shared-js.mjs && vitest run --config vitest.config.ts",
+    "build": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@mw/shared": "0.0.1"
+  }
+}

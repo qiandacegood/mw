@@ -1,0 +1,7 @@
+<view class="page">
+  <text class="h1">思维工坊</text>
+  <text class="muted">隔离模拟 paper.detail，未连接 CloudBase</text>
+  <text class="title">{{title}}</text>
+  <text class="tag">{{access}}</text>
+  <button bindtap="loadPaper">重新读取</button>
+</view>

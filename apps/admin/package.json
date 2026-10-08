@@ -1,0 +1,22 @@
+{
+  "name": "@mw/admin",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "test": "node ../../scripts/ensure-shared-js.mjs && vitest run --config vitest.config.ts",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@mw/api": "0.0.1",
+    "@mw/shared": "0.0.1",
+    "vue": "^3.5.22"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "vite": "^7.1.9",
+    "vue-tsc": "^3.1.0"
+  }
+}

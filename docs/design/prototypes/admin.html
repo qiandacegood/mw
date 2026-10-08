@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>思维工坊后台走查原型（占位）</title>
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <div class="topbar">
+    <strong>后台走查</strong>
+    <label>角色
+      <select id="role">
+        <option value="content">题库管理员</option>
+        <option value="operations">运营管理员</option>
+        <option value="super">超级管理员</option>
+      </select>
+    </label>
+    <label>页面状态
+      <select id="ui">
+        <option value="default">默认</option>
+        <option value="empty">空白</option>
+        <option value="loading">加载</option>
+        <option value="error">错误</option>
+        <option value="processing">处理中</option>
+      </select>
+    </label>
+    <a href="index.html" style="color:#90cdf4">返回入口</a>
+  </div>
+  <div class="layout">
+    <div class="desktop">
+      <aside class="nav" id="nav"></aside>
+      <div class="screen" id="screen"></div>
+    </div>
+    <aside class="notes" id="notes"></aside>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let page = "admin-home";
+    const ALL = [
+      ["admin-login", "登录", "all"],
+      ["admin-home", "工作台", "all"],
+      ["admin-categories", "类目", "content"],
+      ["admin-questions", "题库", "content"],
+      ["admin-papers", "试卷", "content"],
+      ["admin-import", "导入", "content"],
+      ["admin-members", "会员", "operations"],
+      ["admin-orders", "订单", "operations"],
+      ["admin-growth", "成长配置", "super"],
+      ["admin-ranking", "榜单治理", "super"],
+      ["admin-ops", "反馈统计", "operations"],
+      ["admin-users", "管理员", "super"]
+    ];
+    function role() { return $("role").value; }
+    function can(need) {
+      if (need === "all") return true;
+      if (role() === "super") return true;
+      if (need === "content") return role() === "content" || role() === "super";
+      if (need === "operations") return role() === "operations" || role() === "super";
+      return role() === need;
+    }
+    function go(id) { page = id; render(); }
+    function banner() {
+      const u = $("ui").value;
+      if (u === "loading") return `<div class="skeleton"></div><div class="skeleton"></div>`;
+      if (u === "error") return `<div class="status err">FORBIDDEN 或校验失败。requestId=req_fict_admin</div>`;
+      if (u === "empty") return `<div class="card">无数据。按权限显示新建。</div>`;
+      if (u === "processing") return `<div class="status warn">任务处理中，保持维护标记，不能标成功跳过校验。</div>`;
+      return "";
+    }
+    const views = {
+      "admin-login": () => `<h1>后台登录</h1><p>CloudBase 账号密码。无公开「注册为管理员」。</p>
+        <div class="card">账号 · 密码</div><button class="btn" onclick="go('admin-home')">登录</button>`,
+      "admin-home": () => `<h1>工作台</h1>${banner()}
+        <div class="card">内容写入：开 · 交卷：开 · 有 1 个导入批次待查看</div>
+        <div class="card">已付未开通：0（超过 2 分钟需报警，待 MW04 后接真实指标）</div>`,
+      "admin-categories": () => `<h1>类目</h1>${banner()}
+        <p>最多三级。改父级必须预览。</p>
+        <table class="table"><tr><th>名称</th><th>深度</th><th>挂卷</th></tr>
+        <tr><td>逻辑思维</td><td>1</td><td>1 直接 / 3 含后代</td></tr>
+        <tr><td>演绎推理</td><td>2</td><td>1 / 2</td></tr>
+        <tr><td>条件判断</td><td>3</td><td>1 / 1</td></tr></table>
+        <div class="modal">预览：移动后最深为 4 级 → CATEGORY_DEPTH_LIMIT，拒绝。</div>`,
+      "admin-questions": () => `<h1>题库</h1>${banner()}
+        <p>单选 / 多选 / 判断。解析必填。图片 ≤2MB，JPG/PNG/WebP。</p>
+        <div class="card">q_fict_multi_01 · 多选 · 版本 v3 · 已发布引用不可覆盖</div>`,
+      "admin-papers": () => `<h1>试卷</h1>${banner()}
+        <p>1–100 题，发布生成不可变快照。免费/VIP 发布后不互转。</p>
+        <button class="btn secondary">整卷预览</button>
+        <button class="btn">发布</button>
+        <button class="btn warn">紧急撤回</button>`,
+      "admin-import": () => `<h1>导入</h1>${banner()}
+        <p>CSV ≤5MB / 1000 行。先题库后试卷。</p>
+        <div class="card">batch_fict_01 · validated · 阻断错误则整批拒绝</div>
+        <div class="modal">半批在 committed 前按 ID 也不可见。</div>`,
+      "admin-members": () => `<h1>会员</h1>${banner()}
+        <p>内部 ID、昵称、VIP、等级。不展示无必要的微信身份。</p>
+        ${role()==="content" ? `<div class="status err">题库角色不能查看订单明细。</div>` : `<div class="card">mem_fict_1001 · 总分 80（混合卷当时）</div><div class="card">mem_fict_1003 · 总分 190 · 有效 VIP</div>`}`,
+      "admin-orders": () => `<h1>订单</h1>${banner()}
+        ${role()==="content" ? `<div class="status err">无权限</div>` : `
+        <div class="card">ord_fict_9001 · paid / processing · 9900 分（占位价）</div>
+        <p>运营可审核退款建议。${role()==="super" ? `<button class="btn warn">执行退款</button>` : `<button class="btn" disabled>执行退款（需超级管理员）</button>`}</p>
+        <p>Apple 订单不显示商户退款。</p>`}`,
+      "admin-growth": () => can("super") ? `<h1>成长配置</h1>${banner()}
+        <p>L1–L6 建议门槛，上线前待定。预览影响人数后发布。</p>` : `<div class="status err">FORBIDDEN</div>`,
+      "admin-ranking": () => can("super") ? `<h1>榜单治理</h1>${banner()}
+        <p>禁榜需原因。快照未写齐不切换 generation。</p>` : `<div class="status err">FORBIDDEN</div>`,
+      "admin-ops": () => `<h1>反馈与统计</h1>${banner()}
+        <p>注册数、交卷次数（含重复）、有效 VIP、收款与退款。流水不当利润。</p>
+        <div class="card">反馈绑定 paperVersion + question version</div>`,
+      "admin-users": () => can("super") ? `<h1>管理员</h1>${banner()}
+        <p>预置账号。禁止删除最后一个可用超级管理员。无公开注册。</p>` : `<div class="status err">FORBIDDEN</div>`
+    };
+    function render() {
+      $("nav").innerHTML = ALL.filter(([id, name, need]) => {
+        if (id === "admin-login") return true;
+        if (need === "content") return role() !== "operations";
+        if (need === "operations") return role() !== "content";
+        if (id === "admin-members" || id === "admin-orders" || id === "admin-ops") return role() !== "content";
+        if (need === "super") return role() === "super";
+        return true;
+      }).map(([id, name]) => `<button class="${id===page?"active":""}" onclick="go('${id}')">${name}</button>`).join("");
+      if (!views[page]) page = "admin-home";
+      $("screen").innerHTML = views[page]();
+      $("notes").innerHTML = `<h2>走查提示</h2>
+        <p>用角色切换核对侧栏：题库无订单明细；运营无执行退款；super 可见预览确认。</p>
+        <p>处理中状态用于导入、迁移、纠错，不能跳过校验标成功。</p>
+        <p><a href="miniprogram.html">小程序原型</a></p>`;
+    }
+    $("role").addEventListener("change", render);
+    $("ui").addEventListener("change", render);
+    render();
+  </script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "desc": "占位 sitemap，非正式发布配置",
+  "rules": [
+    { "action": "allow", "page": "*" }
+  ]
+}

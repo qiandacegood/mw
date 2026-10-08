@@ -1,0 +1,40 @@
+# Local credentials and environment values
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Dependencies and generated output
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+*.log
+apps/miniprogram/miniprogram_npm/
+apps/miniprogram/app.js
+apps/miniprogram/services/*.js
+apps/miniprogram/pages/**/*.js
+
+# Local state and sensitive runtime data
+/var/
+/tmp/
+/runtime/
+/backups/
+/uploads/
+/exports/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Local editor and WeChat developer settings
+.idea/
+.vscode/
+project.private.config.json
+Thumbs.db
+.DS_Store

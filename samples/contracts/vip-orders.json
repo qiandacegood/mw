@@ -1,0 +1,94 @@
+{
+  "comment": "虚构会员与占位商品。价格非正式售价。时间按 24 小时/天核算。",
+  "memberId": "mem_fict_1002",
+  "placeholderPlan": {
+    "planId": "plan_fict_30d_v1",
+    "planVersion": 1,
+    "title": "30 天体验套餐（占位）",
+    "days": 30,
+    "durationSeconds": 2592000,
+    "priceFen": 9900,
+    "priceNote": "PLACEHOLDER_PRICE"
+  },
+  "firstGrant": {
+    "grantedAt": "2026-10-03T02:00:00.000Z",
+    "grantedAtBeijing": "2026-10-03 10:00:00",
+    "expiresAt": "2026-11-02T02:00:00.000Z",
+    "expiresAtBeijing": "2026-11-02 10:00:00",
+    "formula": "expiresAt = grantedAt + 30 * 86400"
+  },
+  "renewalWhileActive": {
+    "currentExpiresAt": "2026-11-02T02:00:00.000Z",
+    "grantedAt": "2026-10-20T02:00:00.000Z",
+    "expiresAt": "2026-12-02T02:00:00.000Z",
+    "expiresAtBeijing": "2026-12-02 10:00:00",
+    "formula": "expiresAt = max(currentExpiresAt, grantedAt) + 30 * 86400"
+  },
+  "order.create.pending": {
+    "ok": true,
+    "requestId": "req_fict_order_pending",
+    "serverTime": "2026-10-03T01:50:00.000Z",
+    "data": {
+      "orderId": "ord_fict_9001",
+      "channelBizNo": "chbiz_fict_9001",
+      "amountFen": 9900,
+      "durationSeconds": 2592000,
+      "payState": "pending",
+      "grantState": "pending",
+      "refundState": "none",
+      "displayStatus": "待支付",
+      "payDeadlineAt": "2026-10-03T02:05:00.000Z"
+    }
+  },
+  "order.get.confirming": {
+    "ok": true,
+    "requestId": "req_fict_order_confirming",
+    "serverTime": "2026-10-03T01:52:00.000Z",
+    "data": {
+      "orderId": "ord_fict_9001",
+      "payState": "confirming",
+      "grantState": "pending",
+      "refundState": "none",
+      "displayStatus": "确认中",
+      "availableActions": ["order.refresh"]
+    }
+  },
+  "order.get.paidPendingGrant": {
+    "ok": true,
+    "requestId": "req_fict_order_paid_pending",
+    "serverTime": "2026-10-03T01:58:00.000Z",
+    "data": {
+      "orderId": "ord_fict_9001",
+      "payState": "paid",
+      "grantState": "pending",
+      "refundState": "none",
+      "paidAt": "2026-10-03T01:57:30.000Z",
+      "displayStatus": "已支付",
+      "userHint": "已支付，权益开通中",
+      "availableActions": ["order.refresh"],
+      "forbidRepurchaseHint": true
+    }
+  },
+  "order.get.processingGrant": {
+    "ok": true,
+    "requestId": "req_fict_order_processing",
+    "serverTime": "2026-10-03T01:59:00.000Z",
+    "data": {
+      "orderId": "ord_fict_9001",
+      "payState": "paid",
+      "grantState": "processing",
+      "refundState": "none",
+      "displayStatus": "开通中"
+    }
+  },
+  "vip.status.afterFirstGrant": {
+    "ok": true,
+    "requestId": "req_fict_vip_status",
+    "serverTime": "2026-10-03T02:00:00.000Z",
+    "data": {
+      "active": true,
+      "expiresAt": "2026-11-02T02:00:00.000Z",
+      "reconcileState": "ok"
+    }
+  }
+}

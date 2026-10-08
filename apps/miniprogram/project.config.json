@@ -1,0 +1,20 @@
+{
+  "miniprogramRoot": "./",
+  "projectname": "mw-miniprogram-placeholder",
+  "appid": "wx_placeholder_appid",
+  "compileType": "miniprogram",
+  "setting": {
+    "es6": true,
+    "minified": true,
+    "enhance": true,
+    "coverView": true
+  },
+  "simulatorType": "wechat",
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [
+      { "type": "suffix", "value": ".test.ts" },
+      { "type": "file", "value": "package.json" }
+    ]
+  }
+}

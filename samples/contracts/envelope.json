@@ -1,0 +1,31 @@
+{
+  "comment": "虚构信封。时间带 Z。分页 cursor 不透明。",
+  "success": {
+    "ok": true,
+    "requestId": "req_fict_envelope_001",
+    "serverTime": "2026-10-03T02:00:00.000Z",
+    "data": {
+      "items": [],
+      "nextCursor": null,
+      "limit": 20
+    }
+  },
+  "error": {
+    "ok": false,
+    "requestId": "req_fict_envelope_002",
+    "error": {
+      "code": "VIP_REQUIRED",
+      "message": "本试卷需要有效 VIP",
+      "retryable": false,
+      "details": {
+        "paperId": "paper_fict_logic_vip_01"
+      }
+    }
+  },
+  "pagination": {
+    "defaultLimit": 20,
+    "maxLimit": 100,
+    "cursorOpaque": true,
+    "forbidClientOffset": true
+  }
+}

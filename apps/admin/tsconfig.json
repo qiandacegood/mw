@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "lib": ["ES2022", "DOM"],
+    "types": ["vite/client", "node"],
+    "noEmit": true,
+    "paths": {
+      "@mw/api": ["../../services/api/src/index.ts"],
+      "@mw/shared": ["../../packages/shared/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts"]
+}

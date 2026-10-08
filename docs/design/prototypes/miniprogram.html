@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>思维工坊小程序走查原型（占位）</title>
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <div class="topbar">
+    <strong>小程序走查</strong>
+    <label>角色
+      <select id="role">
+        <option value="guest">游客</option>
+        <option value="free">免费会员</option>
+        <option value="vip">有效 VIP</option>
+        <option value="expired">过期 VIP</option>
+      </select>
+    </label>
+    <label>页面状态
+      <select id="ui">
+        <option value="default">默认</option>
+        <option value="empty">空白</option>
+        <option value="loading">加载</option>
+        <option value="error">错误</option>
+        <option value="processing">处理中</option>
+      </select>
+    </label>
+    <label>页面
+      <select id="page"></select>
+    </label>
+    <label><input type="checkbox" id="large"> 大字号</label>
+    <a href="index.html" style="color:#90cdf4">返回入口</a>
+  </div>
+  <div class="layout">
+    <div class="phone">
+      <div id="banner"></div>
+      <div class="screen" id="screen"></div>
+      <nav class="tabs" id="tabs"></nav>
+    </div>
+    <aside class="notes" id="notes"></aside>
+  </div>
+  <div id="zoom" class="zoom hidden" role="dialog" aria-label="图片放大">
+    <button type="button" class="close" id="zoomClose">关闭</button>
+    <img id="zoomImg" alt="放大后的占位图片">
+  </div>
+  <script>
+    const PAGES = [
+      ["home", "首页"],
+      ["category", "分类"],
+      ["paper-list", "试卷列表"],
+      ["paper-detail", "试卷详情"],
+      ["quiz", "答题"],
+      ["answer-card", "答题卡"],
+      ["result", "结果"],
+      ["analysis", "解析"],
+      ["ranking", "排行榜"],
+      ["vip", "VIP 中心"],
+      ["checkout", "确认支付结果"],
+      ["orders", "我的订单"],
+      ["order-detail", "订单详情"],
+      ["me", "我的"],
+      ["register", "注册"],
+      ["profile", "个人资料"]
+    ];
+    const TABS = { home: "home", category: "category", "paper-list": "category", ranking: "ranking", me: "me" };
+    const CATS = {
+      l1: { id: "l1", name: "逻辑思维", parent: null, child: "l2" },
+      l2: { id: "l2", name: "演绎推理", parent: "l1", child: "l3" },
+      l3: { id: "l3", name: "条件判断", parent: "l2", child: null }
+    };
+    const PAPERS = {
+      free: {
+        id: "paper_fict_logic_l1",
+        title: "逻辑入门练习（虚构）",
+        access: "free",
+        goal: "熟悉题型",
+        meta: "10 题 · 满分 50 · 入门",
+        cat: "l1"
+      },
+      vip: {
+        id: "paper_fict_logic_l3",
+        title: "条件判断练习（虚构）",
+        access: "vip",
+        goal: "识别充分条件",
+        meta: "20 题 · 满分 80 · 挑战",
+        cat: "l3"
+      }
+    };
+    const IMG = "../../../assets/brand/logo-placeholder.svg";
+    const ctx = { paper: "free", cat: "l1" };
+    const $ = (id) => document.getElementById(id);
+    const pageSel = $("page");
+    PAGES.forEach(([id, name]) => {
+      const o = document.createElement("option");
+      o.value = id; o.textContent = name; pageSel.appendChild(o);
+    });
+
+    function go(id) { pageSel.value = id; render(); }
+    function goPaper(kind) { ctx.paper = kind; go("paper-detail"); }
+    function goCat(id) { ctx.cat = id; go("category"); }
+    function goList(id) { ctx.cat = id; go("paper-list"); }
+    function role() { return $("role").value; }
+    function ui() { return $("ui").value; }
+    function isMember() { return role() !== "guest"; }
+    function paper() { return PAPERS[ctx.paper]; }
+    function paperGate() {
+      if (!isMember()) return "register";
+      if (ctx.paper === "free") return "ok";
+      if (role() === "vip") return "ok";
+      if (role() === "expired") return "draft";
+      return "vip-required";
+    }
+    function crumbs() {
+      const trail = [];
+      let cur = ctx.cat;
+      while (cur) { trail.unshift(CATS[cur]); cur = CATS[cur].parent; }
+      const parts = [`<button type="button" onclick="goCat('l1')">分类</button>`];
+      trail.forEach((node, i) => {
+        if (i < trail.length - 1) parts.push(`<button type="button" onclick="goCat('${node.id}')">${node.name}</button>`);
+        else parts.push(`<span>${node.name}</span>`);
+      });
+      return `<div class="crumb">${parts.join(" / ")}</div>`;
+    }
+
+    function overlay(kind, extra) {
+      if (ui() === "loading") return `<div class="card"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><p>加载中…</p></div>`;
+      if (ui() === "error") return `<div class="card status err">网络失败或服务繁忙。可重试。requestId=req_fict_walk_${kind}</div><button class="btn" onclick="render()">重试</button>`;
+      if (ui() === "empty") return extra.empty || `<div class="card">这里还没有内容。</div>`;
+      if (ui() === "processing") return extra.processing || `<div class="card status warn">处理中，请勿重复提交。</div>`;
+      return null;
+    }
+
+    function startOrDraftButton() {
+      const gate = paperGate();
+      if (gate === "register") return `<button class="btn" onclick="go('register')">注册后开始</button>`;
+      if (gate === "vip-required") return `<div class="card status warn" data-code="VIP_REQUIRED">服务端拒绝：本试卷需要有效 VIP。草稿不会被创建。</div><button class="btn" onclick="go('vip')">去开通</button>`;
+      if (gate === "draft") return `<div class="card status warn">VIP 已过期。已有草稿保留，不删除已答内容。</div><button class="btn" onclick="go('quiz')">查看已保存草稿</button><button class="btn secondary" onclick="go('vip')">续期后继续 / 交卷</button>`;
+      return `<button class="btn" onclick="go('quiz')">开始练习</button>`;
+    }
+
+    const views = {
+      home() {
+        const o = overlay("home", { empty: `<div class="card">暂无推荐卷。可从分类浏览。</div>` });
+        if (o) return o;
+        const badge = role()==="vip"?"VIP 至 11-02 10:00": role()==="expired"?"VIP 已过期":"免费会员";
+        return `
+          <div class="row"><img class="logo" src="${IMG}" alt="占位标志"><h1>思维工坊</h1></div>
+          <p>用选择与解析练习思路。分数不代表智力测评。</p>
+          ${isMember() ? `<div class="card row"><span>总分 ${role()==="free"?"50":"190"} · L3</span><span class="tag ${role()==="vip"?"vip":""}">${badge}</span></div>` : `<button class="btn" onclick="go('register')">注册后练习</button>`}
+          ${role()==="expired" ? `<div class="card"><strong>继续草稿</strong><p>条件判断练习（VIP）· 已答 8/20 · 草稿保留</p><button class="btn" onclick="goPaper('vip')">查看已保存答案</button></div>` : ""}
+          ${role()==="free" || role()==="vip" ? `<div class="card"><strong>继续练习</strong><p>逻辑入门练习（免费）· 已答 3/10</p><button class="btn" onclick="goPaper('free')">继续</button></div>` : ""}
+          <div class="card" onclick="goCat('l1')"><strong>逻辑思维</strong><p>含后代 3 卷 · 逐级进入</p></div>
+          <div class="card" onclick="goPaper('free')"><span class="tag">免费</span> 逻辑入门练习（虚构）</div>
+        `;
+      },
+      category() {
+        const o = overlay("category", { empty: `<div class="card">该类目暂无试卷。</div>` });
+        if (o) return o;
+        const node = CATS[ctx.cat];
+        return `${crumbs()}<h1>${node.name}</h1>
+          ${node.child ? `<div class="card" onclick="goCat('${node.child}')">进入下级：${CATS[node.child].name}</div>` : `<p>已到第三级，不能再往下。</p>`}
+          <div class="card" onclick="goList('${node.id}')">查看本级及后代试卷</div>`;
+      },
+      "paper-list"() {
+        const o = overlay("list", { empty: `<div class="card">当前筛选无结果。<button class="btn secondary" onclick="render()">清空筛选</button></div>` });
+        if (o) return o;
+        const node = CATS[ctx.cat];
+        return `${crumbs()}<h1>${node.name} · 试卷</h1>
+          <p>筛选：难度 · 免费/VIP · 未做/已做。此筛选不到排行榜。</p>
+          ${ctx.cat === "l1" ? `<div class="card" onclick="goPaper('free')"><span class="tag">免费</span> 逻辑入门练习（虚构） · 入门 · 50 分</div>` : ""}
+          ${ctx.cat !== "l3" ? `<div class="card" onclick="goCat('${node.child || "l3"}')">下级类目 ${node.child ? CATS[node.child].name : ""}</div>` : ""}
+          <div class="card" onclick="goPaper('vip')"><span class="tag vip">VIP</span> 条件判断练习（虚构） · 挑战 · 80 分</div>`;
+      },
+      "paper-detail"() {
+        const o = overlay("detail", { empty: `<div class="card">试卷已下架，不能新开始。已开始的快照仍可完成。</div>` });
+        if (o) return o;
+        const p = paper();
+        return `<h1>${p.title}</h1>
+          <p>目标：${p.goal}。${p.meta}</p>
+          <p>本页不含答案。权限：<span class="tag ${p.access==="vip"?"vip":""}">${p.access==="vip"?"VIP":"免费"}</span></p>
+          ${startOrDraftButton()}
+          <div class="modal">已有进行中草稿时，开始另一卷必须选择继续或放弃。</div>
+          <p><button class="btn secondary" onclick="goPaper(ctx.paper==='free'?'vip':'free')">查看${ctx.paper==="free"?"VIP":"免费"}卷详情</button></p>`;
+      },
+      quiz() {
+        if (!isMember()) return `<div class="card">请先注册。</div><button class="btn" onclick="go('register')">去注册</button>`;
+        const gate = paperGate();
+        if (gate === "vip-required") {
+          return `<div class="card status warn" data-code="VIP_REQUIRED">服务端拒绝开始 VIP 卷。免费会员不能进入答题页改答案。</div><button class="btn" onclick="go('vip')">去开通</button>`;
+        }
+        const o = overlay("quiz", { empty: null, processing: `<div class="card status warn">正在交卷，请勿重复点击。</div>` });
+        if (o && ui() !== "empty") return o;
+        const draft = gate === "draft";
+        return `<div class="row"><h1>${draft ? "草稿（已保存）" : "第 2 题 / 20"}</h1><span class="status ${draft?"ok":"warn"}">${draft ? "已保存 · 未删除" : "保存中…"}</span></div>
+          <p>${paper().title} · ${paper().access === "vip" ? "VIP 卷" : "免费卷"}</p>
+          ${draft ? `<div class="card status warn">恢复或交卷需有效 VIP。草稿保留，不删除已答内容。</div>` : ""}
+          <span class="tag">多选题</span>
+          <p class="stem">下列哪些属于充分条件推理的检查项？（虚构题）</p>
+          <img class="qimg" src="${IMG}" alt="题干预占位图" onclick="openZoom('${IMG}')">
+          <div class="option sel">A. 前提是否足以推出结论</div>
+          <div class="option sel">B. 是否存在遗漏条件</div>
+          <div class="option">C. 字体是否美观</div>
+          <div class="option">D. 反例能否推翻必然性</div>
+          <p>少选不得分。不显示正确项数量。</p>
+          <div class="row">
+            <button class="btn secondary">上一题</button>
+            <button class="btn secondary" onclick="go('answer-card')">答题卡</button>
+            <button class="btn">下一题</button>
+          </div>
+          ${draft
+            ? `<button class="btn warn" style="margin-top:12px" onclick="go('vip')">续期后交卷</button><p>交卷被服务端拒绝，草稿仍在。</p>`
+            : `<button class="btn warn" style="margin-top:12px" onclick="go('result')">交卷</button>`}`;
+      },
+      "answer-card"() {
+        if (paperGate() === "vip-required") return `<div class="card status warn">VIP_REQUIRED</div>`;
+        const draft = paperGate() === "draft";
+        return `<h1>答题卡</h1>
+          <p>已答 8 · 未答 12。交卷前可修改已保存答案。</p>
+          <div class="card">1 已答 · 2 当前 · 3 未答 · … · 20 未答</div>
+          ${draft ? `<div class="modal">过期 VIP：可看草稿，确认交卷会提示续期，不删草稿。</div>` : `<div class="modal">存在未答题，未答计 0 分。</div>`}
+          <button class="btn" onclick="go('quiz')">回第 2 题</button>
+          ${draft
+            ? `<button class="btn warn" onclick="go('vip')">续期后确认交卷</button>`
+            : `<button class="btn warn" onclick="go('result')">确认交卷</button>`}`;
+      },
+      result() {
+        if (paperGate() === "draft") return `<div class="card status warn">过期后不能交卷。草稿仍保留。</div><button class="btn" onclick="go('quiz')">返回草稿</button>`;
+        const o = overlay("result", { processing: `<div class="card status warn">评分处理中，将查询原答题记录，不新建一轮。</div>` });
+        if (o && ui() !== "empty") return o;
+        return `<h1>本次 ${ctx.paper==="free"?"40 / 50":"80 / 100"}</h1>
+          <p>历史最高已更新 · 本次新增 +${ctx.paper==="free"?"40":"20"}</p>
+          <p>等级仍为 L3。正确率仅展示，不代替加权分。</p>
+          <button class="btn" onclick="go('analysis')">查看解析</button>
+          <button class="btn secondary" onclick="go('paper-detail')">再次练习</button>`;
+      },
+      analysis() {
+        if (!isMember()) return `<div class="card">仅本人已交卷可看解析。</div>`;
+        return `<h1>解析</h1>
+          <label><input type="checkbox"> 只看错题及未答</label>
+          <div class="card"><strong>第 2 题 · 0 分</strong>
+            <p>selectedOptionIds: A B · correctOptionIds: A B D</p>
+            <p>虚构解析：C 与推理无关；少选不得分。</p>
+            <img class="qimg" src="${IMG}" alt="解析占位图" onclick="openZoom('${IMG}')">
+          </div>
+          <button class="btn secondary" onclick="go('result')">返回结果</button>`;
+      },
+      ranking() {
+        const o = overlay("ranking", { empty: `<div class="card">本榜暂无上榜用户（零分不上榜）。</div>`, processing: `<div class="card status info">榜单更新中，仍展示上一完整代。</div>` });
+        if (o) return o;
+        return `<h1>排行榜</h1>
+          <p>总分 · 分类 · 本周 · 本月　更新于 10:07 · 免费与 VIP 统一计入</p>
+          <div class="card">1 思*芽 100　1 探*者 100　3 你 80（差 20）</div>
+          ${!isMember() ? `<p>登录后可看本人名次。</p>` : `<div class="card">未参与公开排行。成绩仍累计。<button class="btn secondary">开启</button></div>`}`;
+      },
+      vip() {
+        if (!isMember()) return `<div class="card">注册后可购买 VIP。</div><button class="btn" onclick="go('register')">去注册</button>`;
+        const o = overlay("vip", { empty: `<div class="card">暂无可售套餐。</div>` });
+        if (o) return o;
+        return `<h1>VIP 中心</h1>
+          <p>状态：${role()==="vip"?"有效至 2026-11-02 10:00:00": role()==="expired"?"已过期 · 草稿仍保留":"未开通"}</p>
+          <div class="card"><strong>30 天</strong><p>¥99.00 · PLACEHOLDER_PRICE · 非正式售价</p><button class="btn" onclick="go('checkout')">确认购买</button></div>
+          ${role()==="expired" ? `<button class="btn secondary" onclick="go('quiz')">返回未删除的草稿</button>` : ""}
+          <p>一天按 24 小时。购买不加分。</p>`;
+      },
+      checkout() {
+        const o = overlay("pay", { processing: `<div class="card status warn">确认支付结果中… 客户端成功不是开通依据。</div>` });
+        if (o) return o;
+        return `<h1>确认支付结果</h1>
+          <div class="card status warn">已支付，权益开通中</div>
+          <button class="btn" onclick="go('order-detail')">刷新状态</button>
+          <p>请勿再买一次。取消收银台不等于已关闭。</p>`;
+      },
+      orders() {
+        if (!isMember()) return `<div class="card">登录后查看本人订单。</div>`;
+        const o = overlay("orders", { empty: `<div class="card">还没有订单。</div>` });
+        if (o) return o;
+        return `<h1>我的订单</h1>
+          <div class="card" onclick="go('order-detail')">ord_fict_9001 · 待支付 · 9900 分</div>
+          <div class="card" onclick="go('order-detail')">确认中</div>
+          <div class="card" onclick="go('order-detail')">已支付 / 开通中</div>`;
+      },
+      "order-detail"() {
+        return `<h1>订单详情</h1>
+          <p>内部单号 ord_fict_9001 · 渠道号 chbiz_fict_9001</p>
+          <p>payState=paid · grantState=processing · 展示：开通中</p>
+          <button class="btn">刷新</button>
+          <p class="badge">Android 可申请商户退款审核；iOS 仅 App Store 指引，无商户退款按钮。</p>`;
+      },
+      me() {
+        if (!isMember()) return `<h1>我的</h1><button class="btn" onclick="go('register')">登录 / 注册</button><p>游客可先去首页浏览。</p>`;
+        return `<h1>我的</h1>
+          <div class="card">默认昵称 思工_1001 · ${role()==="expired"?"VIP 已过期": role()==="vip"?"VIP 有效":"免费会员"}</div>
+          <div class="card" onclick="go('profile')">资料与头像</div>
+          <div class="card" onclick="go('vip')">VIP ${role()==="vip"?"有效":"开通 / 续期"}</div>
+          <div class="card" onclick="go('orders')">订单</div>
+          <div class="card">排行参与：未开启</div>`;
+      },
+      register() {
+        return `<h1>注册</h1>
+          <p>用户协议与隐私说明（测试稿）。</p>
+          <label><input type="checkbox"> 我已阅读并同意（默认不勾选）</label>
+          <p><button class="btn" onclick="document.getElementById('role').value='free'; go('home')">同意并注册</button></p>
+          <button class="btn secondary" onclick="go('home')">先浏览</button>`;
+      },
+      profile() {
+        return `<h1>个人资料</h1>
+          <p>昵称长度校验；内置头像。不强制手机号。</p>
+          <div class="card">展示昵称 · 默认头像</div>
+          <button class="btn secondary" onclick="go('me')">返回</button>`;
+      }
+    };
+
+    function openZoom(src) {
+      $("zoomImg").src = src;
+      $("zoom").classList.remove("hidden");
+    }
+    function closeZoom() { $("zoom").classList.add("hidden"); }
+    $("zoomClose").addEventListener("click", closeZoom);
+    $("zoom").addEventListener("click", (e) => { if (e.target.id === "zoom") closeZoom(); });
+
+    function render() {
+      const page = pageSel.value;
+      $("screen").className = "screen" + ($("large").checked ? " large" : "");
+      $("screen").innerHTML = views[page]();
+      const tab = TABS[page];
+      $("tabs").classList.toggle("hidden", !tab);
+      if (tab) {
+        $("tabs").innerHTML = ["home|首页","category|分类","ranking|排行榜","me|我的"].map((x) => {
+          const [id, name] = x.split("|");
+          return `<button class="${id===tab?"active":""}" onclick="go('${id}')">${name}</button>`;
+        }).join("");
+      }
+      const b = $("banner");
+      b.innerHTML = "";
+      if (ui() === "processing" && ["home","category","paper-list"].includes(page)) {
+        b.innerHTML = `<div class="status info">内容维护中：不能新开始或交卷，订单与草稿可用。</div>`;
+      }
+      $("notes").innerHTML = `<h2>走查提示</h2>
+        <p>当前：${PAGES.find(p=>p[0]===page)[1]} · ${$("role").selectedOptions[0].text} · ${paper().access} 卷 · ${CATS[ctx.cat].name}</p>
+        <ul>
+          <li>免费会员：免费详情 → 开始 → 答题卡 → 交卷 → 结果 → 解析。</li>
+          <li>免费会员点 VIP 详情：VIP_REQUIRED，不能开始。</li>
+          <li>分类：逻辑思维 → 演绎推理 → 条件判断，面包屑可返回。</li>
+          <li>过期 VIP：首页草稿 → 可看已保存答案 → 交卷/恢复提示续期。</li>
+          <li>题图与解析图可点开放大，再点关闭。</li>
+        </ul>
+        <p><a href="admin.html">后台原型</a> · <a href="../state-matrix.md">状态矩阵</a></p>`;
+    }
+    ["role","ui","page","large"].forEach((id) => $(id).addEventListener("change", render));
+    render();
+  </script>
+</body>
+</html>
