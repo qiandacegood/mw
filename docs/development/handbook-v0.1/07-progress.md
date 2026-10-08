@@ -8,11 +8,12 @@
 ## 当前状态
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
-- **MW01、MW02、MW03、MW05、MW06 已完成**；**MW04 部分完成**；**MW07 部分完成（A 已完成，B 未开始/受阻）**；**MW08 部分完成**；MW09—MW30 未开始。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
+- **MW01、MW02、MW03、MW05、MW06、MW08 已完成**；**MW04 部分完成**；**MW07 部分完成（A 已完成，B 未开始/受阻）**；MW09—MW30 未开始。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
 - mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；MW04 真实剩余仅为 **P08/P10/P11 PARTIAL**。P08 已补记本次落地的 `jobs` / `audit_logs` 索引，其余未来索引仍 PARTIAL。已锁定 Nodejs20.19 与 SDK。正式六入口、`cloudbase_auth`、`admin_users` 与 MW06 四集合已部署。**没有生产环境、没有真实支付**。
 - MW07-A 已于 2026-10-08 按官方现行页与思维工坊项目小程序后台完成资格核对：已认证企业、类目「工具 > 信息查询」已通过、未备案、虚拟支付入口存在且条件满足但**尚未开通**。未把 A14/A20 或 T20/T26 标为通过。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
-- 下一项建议：先用开发者工具补齐 MW08 的共享环境可信 FROM 正路径，再决定是否进入 MW09。本轮不启动 MW09。MW07-B 待用户完成虚拟支付开通后再启动。
+- MW08 代码整改 `a763d0f` 仍有效。其后曾有一轮 automator 自动跑页、导入 knownIds、精确删除 9 条，属非用户手点，不能标完成，也不改写成当时已手点通过。本轮由用户在微信开发者工具手点「运行 MW08 套件」与「复制 knownIds」闭合可信 FROM 正路径：并发唯一性来自这次手点摘要（`raceSameMember=true`）；写入新哈希 knownIds 后精确清理，`leftoverDocs=0`、`cloudWriteClaimed=true`、`wroteDocs=true`。
+- 下一项建议：MW08 已由用户手点开发者工具闭合，可再决定是否进入 MW09。本轮不启动 MW09。MW07-B 待用户完成虚拟支付开通后再启动。
 
 ## 任务状态
 
@@ -25,7 +26,7 @@
 | MW05 | 可信入口与后台权限 | [已完成](first-batch/results/mw05-result.md) |
 | MW06 | 业务事务与持久任务基础 | [已完成](first-batch/results/mw06-result.md)（整改闭环后恢复） |
 | MW07 | 虚拟支付资格与接入验证 | [部分完成（A 已完成，B 未开始/受阻）](first-batch/results/mw07a-result.md) |
-| MW08 | 会员注册与个人资料 | [部分完成](first-batch/results/mw08-result.md) |
+| MW08 | 会员注册与个人资料 | [已完成](first-batch/results/mw08-result.md) |
 | MW09 | 三级类目基础管理 | 未开始 |
 | MW10 | 图片素材与题库管理 | 未开始 |
 | MW11 | 试卷编排与发布快照 | 未开始 |
@@ -90,8 +91,10 @@
 
 ## 本轮执行记录（2026-10-09）
 
-只整改 MW08，不启动 MW09，不实现虚拟支付 / VIP / 订单 / 退款。MW07 保持 A 已完成、B 等待虚拟支付审核。没有把 A01—A31 或 T01—T30 标为已通过。
+只整改并收口 MW08，不启动 MW09，不实现虚拟支付 / VIP / 订单 / 退款。MW07 保持 A 已完成、B 等待虚拟支付审核。没有把 A01—A31 或 T01—T30 标为已通过。
 
 | 任务 | 结果 |
 | --- | --- |
-| MW08 整改 | [mw08-result.md](first-batch/results/mw08-result.md)（相对 `062aa94`：有界重试与归并、可争用本地测试、验证页防误报、leftover `wroteDocs`；四项本地检查为 0；只部署 `mw-member`；开发者工具 FROM 正路径 NOT_RUN，故仍为部分完成） |
+| MW08 整改 | [mw08-result.md](first-batch/results/mw08-result.md)（相对 `062aa94`：有界重试与归并、可争用本地测试、验证页防误报、leftover `wroteDocs`；四项本地检查为 0；只部署 `mw-member`；代码已落在 `a763d0f`；当时开发者工具 FROM 正路径仍 NOT_RUN，故当时仍为部分完成） |
+| MW08 状态纠正 | [mw08-result.md](first-batch/results/mw08-result.md)（工作区曾把 MW08 误标已完成；上一轮 automator 自动跑页、导入 knownIds、精确删除 9 条，属非用户手点，不能标完成，也不能改写成当时已手点通过；纠正当时开发者工具用户手点 FROM 正路径 = NOT_RUN；`a763d0f` 代码整改仍有效） |
+| MW08 手点收口 | [mw08-result.md](first-batch/results/mw08-result.md)（用户在微信开发者工具手点闭合：`sharedConfig=true`；首次 register `created=true`；同键重放 `replayed=true`；并发两路都 `ok` 且 `raceSameMember=true`；me `hasOpenId=false`；合法资料 OK；伪造 `CLIENT_IDENTITY_IGNORED`；新导入 9 个哈希 knownIds 后精确删除 9 条，`leftoverDocs=0`、`cloudWriteClaimed=true`、`wroteDocs=true`；未标 A01/A26/A31、T01；内容安全与停用云端写保持 NOT_RUN；未启动 MW09） |
