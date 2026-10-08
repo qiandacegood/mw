@@ -9,7 +9,7 @@
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
 - **MW01、MW02、MW03、MW05 已完成**；**MW04 部分完成**；MW06—MW30 未开始。
-- mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；P08/P10/P11 为 PARTIAL。已锁定 Nodejs20.19 与 SDK。正式六入口与 `cloudbase_auth`、`admin_users` 已部署。真实后台登录已闭合（`loggedIn=true`，`roles` 含 `super`）。开发者工具共享调用已取得可信 FROM。**没有生产环境、没有真实支付**。
+- mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；MW04 真实剩余仅为 **P08/P10/P11 PARTIAL**。已锁定 Nodejs20.19 与 SDK。正式六入口与 `cloudbase_auth`、`admin_users` 已部署。真实后台登录已闭合（`loggedIn=true`，`roles` 含 `super`）。开发者工具共享调用已取得可信 FROM。**没有生产环境、没有真实支付**。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
 - 下一项建议为 MW06（业务事务与持久任务基础）。
 

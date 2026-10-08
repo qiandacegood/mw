@@ -1,9 +1,4 @@
-type LocalCloud = {
-  resourceEnv?: string;
-  resourceAppId?: string;
-  resourceEnvPresent?: boolean;
-  resourceAppIdPresent?: boolean;
-};
+import { evaluateSharedCloudConfig, type SharedCloudConfig } from "./shared-cloud-config";
 
 type SharedCallResult = {
   ok: boolean;
@@ -12,39 +7,34 @@ type SharedCallResult = {
   reason: string;
 };
 
-function loadLocal(): LocalCloud {
+function loadLocal(): { loaded: boolean; config?: SharedCloudConfig } {
   try {
-    return require("./cloud.runtime") as LocalCloud;
+    return { loaded: true, config: require("./cloud.runtime") as SharedCloudConfig };
   } catch {
     try {
-      return require("../cloud.local") as LocalCloud;
+      return { loaded: true, config: require("../cloud.local") as SharedCloudConfig };
     } catch {
-      return {};
+      return { loaded: false };
     }
   }
 }
 
-function missingReason(local: LocalCloud): string {
-  if (!local.resourceEnv && !local.resourceAppId) return "LOCAL_SHARED_REQUIRE_FAILED";
-  return "LOCAL_SHARED_CONFIG_MISSING";
-}
-
-export function sharedCloudReady(): { ready: boolean; reason: string } {
+export function sharedCloudReady() {
   const local = loadLocal();
-  if (!local.resourceEnv || !local.resourceAppId) {
-    return { ready: false, reason: missingReason(local) };
-  }
-  return { ready: true, reason: "LOCAL_SHARED_CONFIG_PRESENT" };
+  return evaluateSharedCloudConfig(local.loaded, local.config);
 }
 
 export async function callSharedOfficial(entry: "mw-public" | "mw-member"): Promise<SharedCallResult> {
   const local = loadLocal();
-  if (!local.resourceEnv || !local.resourceAppId) {
-    return { ok: false, entry, trustedFromContext: false, reason: missingReason(local) };
+  const ready = evaluateSharedCloudConfig(local.loaded, local.config);
+  if (!ready.ready) {
+    return { ok: false, entry, trustedFromContext: false, reason: ready.reason };
   }
+  const resourceEnv = String(local.config?.resourceEnv || "").trim();
+  const resourceAppId = String(local.config?.resourceAppId || "").trim();
   const cloud = new wx.cloud.Cloud({
-    resourceAppid: local.resourceAppId,
-    resourceEnv: local.resourceEnv
+    resourceAppid: resourceAppId,
+    resourceEnv
   });
   await cloud.init();
   const action = entry === "mw-public" ? "public.ping" : "member.session";

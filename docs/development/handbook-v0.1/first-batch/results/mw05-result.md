@@ -32,7 +32,7 @@
 
 本地单元测试覆盖：嵌套伪造字段、资源方 APPID/OPENID 误用、错误 FROM_APPID、普通用户、停用管理员、公开管理员注册拒绝。
 
-## 3 用户必须手工完成（未完成不得标 PASS）
+## 3 用户手工验证（P04 / P05 / P06 已闭合）
 
 ### 3.1 后台登录（P04 / P06）— **PASS**
 
@@ -75,7 +75,7 @@ MW_RESOURCE_APPID=wx开头的钱大册小程序AppID
 2. 或登录[微信公众平台](https://mp.weixin.qq.com/) 进入钱大册小程序 → 开发管理 → 开发设置 → 开发者 ID（AppID）。
 3. 或 CloudBase 控制台打开 mw-test → 环境设置里已关联的微信小程序，那个 AppID 就是资源方。
 
-写好后在 `F:/MW/main` 运行：`npm run mw05:write-local`，再执行下面的开发者工具步骤。`cloud.local.js` 缺少资源方 AppID 时，探针会显示 `LOCAL_SHARED_CONFIG_MISSING`。
+写好后在 `F:/MW/main` 运行：`npm run mw05:write-local`，再执行下面的开发者工具步骤。共享配置三态：模块无法加载为 `LOCAL_SHARED_REQUIRE_FAILED`；已加载但 `resourceEnv` / `resourceAppId` 不完整为 `LOCAL_SHARED_CONFIG_MISSING`；两字段完整为 `LOCAL_SHARED_CONFIG_PRESENT`。
 
 ### 3.3 微信开发者工具逐步操作（P05）— **PASS**
 
@@ -99,8 +99,8 @@ MW_RESOURCE_APPID=wx开头的钱大册小程序AppID
 9. 把两行结果里的 `ok`、`trustedFromContext`、`reason` 发回。  
    - 会员调用成功且 `trustedFromContext=true` 才可把 P05 标 PASS。  
    - `APPID_NOT_ALLOWED`：白名单不是思维工坊 AppID，或未重新 deploy。  
-   - `LOCAL_SHARED_CONFIG_MISSING`：`.env` 缺 `MW_RESOURCE_APPID`，或未跑 `mw05:write-local`。  
-   - `LOCAL_SHARED_REQUIRE_FAILED`：开发者工具没读到本地配置；先清缓存再编译。  
+   - `LOCAL_SHARED_REQUIRE_FAILED`：配置模块无法加载；先清缓存再编译。  
+   - `LOCAL_SHARED_CONFIG_MISSING`：配置模块已加载，但 `resourceEnv` / `resourceAppId` 不完整。  
    - `NO_FROM_APPID`：不是用 `Cloud({ resourceAppid, resourceEnv })` 的共享调用。
 
 P05 已按上表实据标为 PASS。
@@ -125,7 +125,7 @@ P05 已按上表实据标为 PASS。
 | --- | --- |
 | `npm run check:prototypes` | 0 |
 | `npm run typecheck` | 0 |
-| `npm test` | 0（含身份伪造、停用管理员、普通用户越权、共享来源错误、密钥扫描） |
+| `npm test` | 0（含身份伪造、停用管理员、普通用户越权、共享来源错误、共享配置三态、密钥扫描） |
 | `npm run build` | 0 |
 
 ## 7 完成条件
