@@ -1,6 +1,6 @@
 # MW06 业务事务与持久任务基础
 
-开发手册 v0.1｜任务状态：已完成（整改后结果见 [results/mw06-result.md](results/mw06-result.md)）  
+开发手册 v0.1｜任务状态：已完成（最终整改后结果见 [results/mw06-result.md](results/mw06-result.md)）  
 [任务总览](../02-roadmap.md)｜[实际进度](../07-progress.md)
 
 ## 目标与可见结果

@@ -17,7 +17,9 @@ import {
 
 const root = projectRoot();
 const tmp = mw06Tmp();
-const evidence = { startedAt: new Date().toISOString(), steps: [] };
+const entriesOnly = process.argv.includes("--entries-only");
+const deployNames = entriesOnly ? ["mw-admin", "mw-jobs"] : MW05_OFFICIAL_FUNCTIONS;
+const evidence = { startedAt: new Date().toISOString(), steps: [], entriesOnly };
 
 function record(name, value) {
   evidence.steps.push({ name, ...(value && typeof value === "object" ? value : { detail: value }) });
@@ -57,12 +59,23 @@ if (written.tokenTargets.join(",") !== "mw-jobs") {
   throw new Error("jobs invoke token must be injected only into mw-jobs");
 }
 
-for (const name of MW05_OFFICIAL_FUNCTIONS) {
+for (const name of deployNames) {
   const deployed = await runTcb(["fn", "deploy", name, "--force"], { timeoutMs: 300000 });
   record(`deploy_${name}`, { code: deployed.code, ok: deployed.code === 0 });
   if (deployed.code !== 0) {
     throw new Error(`deploy ${name} failed`);
   }
+}
+
+if (entriesOnly) {
+  record("skip_collections_indexes_timer", { ok: true });
+  evidence.finishedAt = new Date().toISOString();
+  writeJson(join(tmp, "mw06-deploy-evidence.json"), redactMw06(evidence));
+  const printed = redactMw06({ ok: true, entriesOnly: true, deployed: deployNames });
+  printed.tokenPresent = written.tokenPresent === true;
+  printed.tokenTargets = written.tokenTargets;
+  console.log(JSON.stringify(printed, null, 2));
+  process.exit(0);
 }
 
 const created = {};

@@ -224,60 +224,44 @@ export async function processSignedJobsCommand(input: {
     replayed
   });
 
-  if (input.workStore) {
-    const ran = await input.workStore.transactNonceJob<{
-      applied: JobMutation<JobRecord | undefined>;
-      replayed: boolean;
-    }>(jobId, nonceId, ({ job, nonce }) => {
-      if (nonce && nonce.payloadHash !== incoming.payloadHash) {
-        return {
-          error: "IDEMPOTENCY_CONFLICT",
-          result: { applied: { error: "IDEMPOTENCY_CONFLICT", result: undefined }, replayed: false }
-        };
-      }
-      if (nonce && (nonce.status === "succeeded" || nonce.status === "failed") && nonce.resultRef) {
-        const stored = nonce.resultRef as JobMutation<JobRecord | undefined>;
-        return { nonce, result: { applied: stored, replayed: true } };
-      }
-      const applied = applyDemoCommand(job, invoke, input.now);
+  if (!input.workStore) {
+    return {
+      ok: false,
+      reason: "WORK_STORE_REQUIRED",
+      code: "INTERNAL_ERROR",
+      budget: { reads: 0, writes: 0, total: 0, elapsedMs: 0 }
+    };
+  }
+
+  const ran = await input.workStore.transactNonceJob<{
+    applied: JobMutation<JobRecord | undefined>;
+    replayed: boolean;
+  }>(jobId, nonceId, ({ job, nonce }) => {
+    if (nonce && nonce.payloadHash !== incoming.payloadHash) {
       return {
-        job: applied.job,
-        nonce: {
-          ...incoming,
-          status: applied.error ? "failed" : "succeeded",
-          resultRef: { error: applied.error, result: applied.result, job: applied.job }
-        },
-        result: { applied, replayed: false }
+        error: "IDEMPOTENCY_CONFLICT",
+        result: { applied: { error: "IDEMPOTENCY_CONFLICT", result: undefined }, replayed: false }
       };
-    });
-    if (ran.mutation.error === "IDEMPOTENCY_CONFLICT") {
-      return { ok: false, reason: "IDEMPOTENCY_CONFLICT", code: "IDEMPOTENCY_CONFLICT", budget: ran.budget };
     }
-    return finish(ran.mutation.result.applied, ran.budget, ran.mutation.result.replayed);
-  }
-
-  if (input.idempotencyStore) {
-    const existing = await input.idempotencyStore.get(nonceId);
-    if (existing && existing.payloadHash !== incoming.payloadHash) {
-      return { ok: false, reason: "IDEMPOTENCY_CONFLICT", code: "IDEMPOTENCY_CONFLICT", budget: { reads: 1, writes: 0, total: 1, elapsedMs: 0 } };
+    if (nonce && (nonce.status === "succeeded" || nonce.status === "failed") && nonce.resultRef) {
+      const stored = nonce.resultRef as JobMutation<JobRecord | undefined>;
+      return { nonce, result: { applied: stored, replayed: true } };
     }
-    if (existing && (existing.status === "succeeded" || existing.status === "failed") && existing.resultRef) {
-      const stored = existing.resultRef as JobMutation<JobRecord | undefined>;
-      return finish(stored, { reads: 1, writes: 0, total: 1, elapsedMs: 0 }, true);
-    }
-    const processed = await processDemoCommand(input.jobStore, invoke, input.now);
-    await input.idempotencyStore.transact(nonceId, () => ({
-      record: {
+    const applied = applyDemoCommand(job, invoke, input.now);
+    return {
+      job: applied.job,
+      nonce: {
         ...incoming,
-        status: processed.reason ? "failed" : "succeeded",
-        resultRef: { error: processed.reason, result: processed.job, job: processed.job }
+        status: applied.error ? "failed" : "succeeded",
+        resultRef: { error: applied.error, result: applied.result, job: applied.job }
       },
-      result: processed
-    }));
-    return { ...processed, replayed: false };
+      result: { applied, replayed: false }
+    };
+  });
+  if (ran.mutation.error === "IDEMPOTENCY_CONFLICT") {
+    return { ok: false, reason: "IDEMPOTENCY_CONFLICT", code: "IDEMPOTENCY_CONFLICT", budget: ran.budget };
   }
-
-  return processDemoCommand(input.jobStore, invoke, input.now);
+  return finish(ran.mutation.result.applied, ran.budget, ran.mutation.result.replayed);
 }
 
 export async function continueDemoJob(store: JobStore, jobId: string, token: number, now: Date) {
@@ -345,12 +329,12 @@ export function planResume(
     };
   }
 
-  const alreadyResumed =
+  const pendingRecovery =
+    snap.idem?.status === "pending" &&
     snap.job &&
-    snap.job.lastResumeHash === record.payloadHash &&
-    (snap.job.state === "queued" || snap.job.state === "running" || snap.job.state === "succeeded");
+    snap.job.lastResumeHash === record.payloadHash;
 
-  if (alreadyResumed && snap.job) {
+  if (pendingRecovery && snap.job) {
     const view = publicJobView(snap.job);
     const beforeState = (snap.idem?.resultRef as ResumeOutcome | undefined)?.beforeState || "queued";
     const audit = buildResumeAudit(input, reason, beforeState, snap.job);
@@ -374,6 +358,17 @@ export function planResume(
         resultRef: { ok: false, code: "NOT_FOUND", reason: "NOT_FOUND", pending: false }
       },
       result: { ok: false, code: "NOT_FOUND", reason: "NOT_FOUND", pending: false }
+    };
+  }
+
+  if (snap.job.state === "succeeded" || snap.job.state === "cancelled" || snap.job.state === "running") {
+    return {
+      idem: {
+        ...record,
+        status: "failed",
+        resultRef: { ok: false, code: "VERSION_CONFLICT", reason: "JOB_NOT_RESUMABLE", pending: false }
+      },
+      result: { ok: false, code: "VERSION_CONFLICT", reason: "JOB_NOT_RESUMABLE", pending: false }
     };
   }
 
@@ -461,36 +456,22 @@ export async function resumeDefinedJob(input: {
     requestId: input.requestId
   });
 
-  if (input.workStore) {
-    const ran = await input.workStore.transactResume(input.jobId, record.id, (snap) => planResume(snap, planInput));
+  if (!input.workStore) {
     return {
-      ...ran.mutation.result,
+      ok: false,
+      code: "INTERNAL_ERROR",
+      reason: "WORK_STORE_REQUIRED",
       pending: false,
-      budget: ran.budget,
-      audit: ran.mutation.audit
+      budget: { reads: 0, writes: 0, total: 0, elapsedMs: 0 }
     };
   }
 
-  const job = await input.jobStore.get(input.jobId);
-  const idem = await input.idempotencyStore.get(record.id);
-  const planned = planResume({ job, idem }, planInput);
-  if (planned.error === "IDEMPOTENCY_CONFLICT") {
-    return { ok: false, code: "IDEMPOTENCY_CONFLICT", pending: false, budget: { reads: 2, writes: 0, total: 2, elapsedMs: 0 } };
-  }
-  if (planned.job) {
-    await input.jobStore.put(planned.job);
-  }
-  if (planned.idem) {
-    await input.idempotencyStore.transact(record.id, () => ({ record: planned.idem, result: planned.result }));
-  }
-  if (planned.audit) {
-    await input.auditStore.append(planned.audit);
-  }
+  const ran = await input.workStore.transactResume(input.jobId, record.id, (snap) => planResume(snap, planInput));
   return {
-    ...planned.result,
+    ...ran.mutation.result,
     pending: false,
-    budget: { reads: 2, writes: (planned.job ? 1 : 0) + (planned.idem ? 1 : 0) + (planned.audit ? 1 : 0), total: 2 + (planned.job ? 1 : 0) + (planned.idem ? 1 : 0) + (planned.audit ? 1 : 0), elapsedMs: 0 },
-    audit: planned.audit
+    budget: ran.budget,
+    audit: ran.mutation.audit
   };
 }
 

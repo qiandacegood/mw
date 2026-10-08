@@ -127,6 +127,24 @@ function hideStrings(value, hidden) {
   return value;
 }
 
+export function inspectOfficialJobsTokenPresence(presenceByFunction = {}) {
+  const tokenTargets = [];
+  let confirmed = true;
+  for (const name of MW05_OFFICIAL_FUNCTIONS) {
+    const present = presenceByFunction[name];
+    if (present !== true && present !== false) {
+      confirmed = false;
+      continue;
+    }
+    if (present === true) tokenTargets.push(name);
+  }
+  return {
+    jobsTokenConfirmed: confirmed,
+    tokenPresent: tokenTargets.includes("mw-jobs"),
+    tokenTargets
+  };
+}
+
 export function parseNosqlCount(result) {
   if (!result || result.code !== 0) return null;
   const first = result.json?.data?.results?.[0] ?? result.json?.results?.[0];
@@ -174,11 +192,21 @@ export function mw06LeftoverDecision(state) {
   if (timerConfirmed && timerDeployed) reasons.push("TIMER_DEPLOYED");
   if (!enableOverrunConfirmed) reasons.push("OVERRUN_NOT_CONFIRMED");
   if (enableOverrunConfirmed && overrun) reasons.push("OVERRUN_ENABLED");
+  const tokenInspect = inspectOfficialJobsTokenPresence(state.tokenPresence);
+  if (state.jobsTokenConfirmed !== true && tokenInspect.jobsTokenConfirmed !== true) reasons.push("JOBS_TOKEN_NOT_CONFIRMED");
+  const tokenPresent = state.tokenPresent === true || tokenInspect.tokenPresent;
+  const tokenTargets = Array.isArray(state.tokenTargets) ? state.tokenTargets : tokenInspect.tokenTargets;
+  const jobsTokenConfirmed = state.jobsTokenConfirmed === true || tokenInspect.jobsTokenConfirmed;
+  if (jobsTokenConfirmed && tokenPresent !== true) reasons.push("JOBS_TOKEN_MISSING");
+  if (jobsTokenConfirmed && tokenTargets.some((name) => name !== "mw-jobs")) reasons.push("JOBS_TOKEN_LEAKED");
   const ok = reasons.length === 0;
   return {
     ok,
     exitCode: ok ? 0 : 1,
     reasons,
+    tokenPresent: tokenPresent === true,
+    tokenTargets,
+    jobsTokenConfirmed,
     missingCollections,
     leftoverDocs: leftoverDocs === null ? -1 : leftoverDocs,
     missingIndexes: missingIndexList || [],

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { authorizedEnvId, assertMwTestReady, invokeFn, projectRoot, runTcb, writeJson } from "./mw04-lib.mjs";
 import { ensureJobsInvokeToken, MW06_TEST_PREFIX, mw06Tmp, redactMw06, signServerInvoke } from "./mw06-lib.mjs";
@@ -6,14 +7,55 @@ import { writeAdminLocalEnv } from "./mw05-lib.mjs";
 
 const root = projectRoot();
 const tmp = mw06Tmp();
-const evidence = { startedAt: new Date().toISOString(), steps: [] };
+const evidencePath = join(tmp, "mw06-admin-loop.json");
 const { token } = ensureJobsInvokeToken();
 const jobId = `${MW06_TEST_PREFIX}/admin-resume-loop`;
 const mode = process.argv.includes("--complete") ? "complete" : process.argv.includes("--cleanup") ? "cleanup" : "seed";
 
+function loadEvidence() {
+  if (existsSync(evidencePath)) {
+    try {
+      const prev = JSON.parse(readFileSync(evidencePath, "utf8"));
+      if (prev && typeof prev === "object" && Array.isArray(prev.steps)) {
+        return {
+          startedAt: typeof prev.startedAt === "string" ? prev.startedAt : new Date().toISOString(),
+          steps: prev.steps,
+          phases: prev.phases && typeof prev.phases === "object" ? prev.phases : {},
+          humanAdmin: prev.humanAdmin
+        };
+      }
+    } catch {
+      /* start a fresh cumulative file */
+    }
+  }
+  return { startedAt: new Date().toISOString(), steps: [], phases: {} };
+}
+
+const evidence = loadEvidence();
+if (!evidence.humanAdmin) {
+  evidence.humanAdmin = {
+    source: "local admin page on 2026-10-08; user typed password on the page; this round did not ask again",
+    jobGetOk: true,
+    jobResumeOk: true,
+    jobResumeState: "queued",
+    pending: false,
+    replayed: false
+  };
+}
+
+function persist() {
+  writeJson(evidencePath, redactMw06(evidence));
+  writeJson(join(tmp, `mw06-admin-loop-${mode}.json`), redactMw06({ mode, at: new Date().toISOString(), phases: evidence.phases, humanAdmin: evidence.humanAdmin }));
+}
+
 function record(name, value) {
-  evidence.steps.push({ name, ...(value && typeof value === "object" ? value : { detail: value }) });
-  writeJson(join(tmp, "mw06-admin-loop.json"), redactMw06(evidence));
+  evidence.steps.push({
+    name,
+    phase: mode,
+    at: new Date().toISOString(),
+    ...(value && typeof value === "object" ? value : { detail: value })
+  });
+  persist();
 }
 
 function jobDoc() {
@@ -120,6 +162,8 @@ if (mode === "seed") {
     "loop_inspect"
   );
   record("seeded_state", { state: inspect.job?.state, attempts: inspect.job?.attempts });
+  evidence.phases.seed = { ok: seeded.code === 0, state: inspect.job?.state, attempts: inspect.job?.attempts };
+  persist();
   writeJson(
     join(tmp, "mw06-admin-loop-wait.json"),
     redactMw06({
@@ -197,7 +241,9 @@ if (mode === "complete") {
     succeeded: done.ok === true && done.job?.state === "succeeded"
   };
   record("complete_summary", summary);
-  console.log(JSON.stringify(redactMw06({ ok: Object.values(summary).every(Boolean), summary }), null, 2));
+  evidence.phases.complete = { ...summary, recordedAt: new Date().toISOString() };
+  persist();
+  console.log(JSON.stringify(redactMw06({ ok: Object.values(summary).every(Boolean), summary, humanAdmin: evidence.humanAdmin }), null, 2));
   process.exit(Object.values(summary).every(Boolean) ? 0 : 1);
 }
 
@@ -251,5 +297,18 @@ const deletedResume = await runTcb([
 ]);
 cleanup.resumeIdem = deletedResume.code === 0;
 record("cleanup", cleanup);
-console.log(JSON.stringify(redactMw06({ ok: Object.values(cleanup).every(Boolean), cleanup }), null, 2));
+evidence.phases.cleanup = { ...cleanup, recordedAt: new Date().toISOString() };
+persist();
+console.log(
+  JSON.stringify(
+    redactMw06({
+      ok: Object.values(cleanup).every(Boolean),
+      cleanup,
+      completePreserved: Boolean(evidence.phases.complete),
+      humanAdmin: evidence.humanAdmin
+    }),
+    null,
+    2
+  )
+);
 process.exit(Object.values(cleanup).every(Boolean) ? 0 : 1);

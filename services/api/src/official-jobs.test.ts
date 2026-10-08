@@ -8,7 +8,7 @@ import {
 } from "@mw/shared";
 import { handleOfficial, memoryAdminStore } from "./official.js";
 import { memoryMaintenanceStore, memoryMw06Stores } from "./modules/job-stores.js";
-import { resumeDefinedJob } from "./modules/transaction-jobs.js";
+import { processSignedJobsCommand, resumeDefinedJob } from "./modules/transaction-jobs.js";
 
 const allowedAppIds = ["wxmwallowedappid0001"];
 const secret = "test-jobs-invoke-token-not-real";
@@ -754,5 +754,76 @@ describe("MW06 jobs, idempotency and admin boundaries", () => {
       now
     });
     expect(conflict).toMatchObject({ ok: false, code: "IDEMPOTENCY_CONFLICT" });
+  });
+
+  it("rejects a new resume key on a succeeded job even with the same reason", async () => {
+    const job = createJobRecord({
+      jobId: "mw06/test/job_done_resume",
+      type: "mw06.demo.cursor",
+      businessKey: "mw06/test/job_done_resume",
+      now
+    });
+    job.state = "succeeded";
+    job.lastResumeHash = "same-reason-hash";
+    const ctxStores = stores(job);
+    const adminUsers = memoryAdminStore([{ uid: "uid_super_1", roles: ["super"], enabled: true, authVersion: 1 }]);
+    const denied = await handleOfficial({
+      entry: "mw-admin",
+      event: adminReq("job.resume", { jobId: job.jobId, reason: "human resume after needsReview" }, { idempotencyKey: "mw06/test/resume_new_on_done" }),
+      allowedAppIds,
+      authUid: "uid_super_1",
+      adminStore: adminUsers,
+      now,
+      ...ctxStores
+    });
+    expect(denied).toMatchObject({
+      ok: false,
+      error: { code: "VERSION_CONFLICT", details: { reason: "JOB_NOT_RESUMABLE" } }
+    });
+    expect(ctxStores.auditStore.entries).toHaveLength(0);
+    const stored = await ctxStores.jobStore.get(job.jobId);
+    expect(stored?.state).toBe("succeeded");
+  });
+
+  it("fails closed when resume or signed jobs command has no workStore", async () => {
+    const job = createJobRecord({
+      jobId: "mw06/test/job_no_work",
+      type: "mw06.demo.cursor",
+      businessKey: "mw06/test/job_no_work",
+      now
+    });
+    job.state = "needsReview";
+    const bundle = memoryMw06Stores([job]);
+    const resumed = await resumeDefinedJob({
+      jobStore: bundle.jobStore,
+      idempotencyStore: bundle.idempotencyStore,
+      auditStore: bundle.auditStore,
+      actorId: "uid_super_1",
+      jobId: job.jobId,
+      reason: "human resume",
+      requestId: "req_no_work",
+      idempotencyKey: "mw06/test/no_work",
+      now
+    });
+    expect(resumed).toMatchObject({ ok: false, code: "INTERNAL_ERROR", reason: "WORK_STORE_REQUIRED", pending: false });
+    expect(await bundle.jobStore.get(job.jobId)).toMatchObject({ state: "needsReview" });
+    expect(bundle.auditStore.entries).toHaveLength(0);
+
+    const processed = await processSignedJobsCommand({
+      jobStore: bundle.jobStore,
+      idempotencyStore: bundle.idempotencyStore,
+      invoke: signJobsInvoke(secret, {
+        action: "jobs.process",
+        issuedAt: now.toISOString(),
+        nonce: "mw06/test/no-work-nonce",
+        jobId: job.jobId,
+        command: "acquire",
+        leaseMs: 8000
+      }),
+      requestId: "req_no_work_jobs",
+      now
+    });
+    expect(processed).toMatchObject({ ok: false, reason: "WORK_STORE_REQUIRED" });
+    expect((await bundle.jobStore.get(job.jobId))?.state).toBe("needsReview");
   });
 });

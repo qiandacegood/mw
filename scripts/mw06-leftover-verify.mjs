@@ -1,5 +1,15 @@
 import { authorizedEnvId, assertMwTestReady, redact, runTcb } from "./mw04-lib.mjs";
-import { MW06_COLLECTIONS, MW06_INDEXES, MW06_TEST_PREFIX, listIndexCommand, mw06LeftoverDecision, parseNosqlCount } from "./mw06-lib.mjs";
+import {
+  inspectOfficialJobsTokenPresence,
+  listIndexCommand,
+  MW05_OFFICIAL_FUNCTIONS,
+  MW06_COLLECTIONS,
+  MW06_INDEXES,
+  MW06_TEST_PREFIX,
+  mw06LeftoverDecision,
+  parseFunctionEnv,
+  parseNosqlCount
+} from "./mw06-lib.mjs";
 
 function parseAcl(aclResult) {
   if (!aclResult || aclResult.code !== 0) {
@@ -161,6 +171,19 @@ try {
   clientDenied = false;
 }
 
+const tokenPresence = {};
+let jobsTokenReadOk = true;
+for (const name of MW05_OFFICIAL_FUNCTIONS) {
+  const detail = await runTcb(["fn", "detail", name, "--json"]);
+  if (detail.code !== 0 || !detail.json) {
+    jobsTokenReadOk = false;
+    continue;
+  }
+  const env = parseFunctionEnv(detail.json);
+  tokenPresence[name] = Object.prototype.hasOwnProperty.call(env, "MW_JOBS_INVOKE_TOKEN");
+}
+const tokenInspect = inspectOfficialJobsTokenPresence(tokenPresence);
+
 const enableOverrunConfirmed = typeof ready.enableOverrun === "boolean";
 const decision = mw06LeftoverDecision({
   collectionNames: names,
@@ -175,19 +198,20 @@ const decision = mw06LeftoverDecision({
   aclObtained: aclParsed.obtained,
   clientDenied: clientAttempted && clientDenied,
   jobsTimerDeployed,
-  timerConfirmed
+  timerConfirmed,
+  jobsTokenConfirmed: jobsTokenReadOk && tokenInspect.jobsTokenConfirmed,
+  tokenPresent: tokenInspect.tokenPresent,
+  tokenTargets: tokenInspect.tokenTargets,
+  tokenPresence
 });
 
-console.log(
-  JSON.stringify(
-    redact({
-      ...decision,
-      collectionNames: names.filter((name) => MW06_COLLECTIONS.includes(name) || name === "admin_users"),
-      clientDenied: clientAttempted ? clientDenied : "NOT_CONFIRMED",
-      otherEnvCount: ready.otherEnvCount
-    }),
-    null,
-    2
-  )
-);
+const printed = redact({
+  ...decision,
+  collectionNames: names.filter((name) => MW06_COLLECTIONS.includes(name) || name === "admin_users"),
+  clientDenied: clientAttempted ? clientDenied : "NOT_CONFIRMED",
+  otherEnvCount: ready.otherEnvCount
+});
+printed.tokenPresent = decision.tokenPresent === true;
+printed.tokenTargets = Array.isArray(decision.tokenTargets) ? decision.tokenTargets.slice() : [];
+console.log(JSON.stringify(printed, null, 2));
 process.exit(decision.exitCode);

@@ -427,6 +427,7 @@ const required = [
   "laterTokenHigher",
   "staleRejected",
   "continued",
+  "nonceReplay",
   "idemReplay",
   "idemConflict",
   "needsReview",

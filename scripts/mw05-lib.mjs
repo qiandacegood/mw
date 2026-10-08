@@ -63,7 +63,13 @@ export function requireAdminUid() {
 
 export function parseFunctionEnv(detailJson) {
   const data = detailJson?.data || detailJson || {};
-  const raw = data.EnvironmentVariables || data.EnvVariables || data.envVariables || data.Environment || [];
+  const raw =
+    data.EnvironmentVariables ||
+    data.EnvVariables ||
+    data.envVariables ||
+    data.Environment?.Variables ||
+    data.Environment ||
+    [];
   if (Array.isArray(raw)) {
     const out = {};
     for (const item of raw) {

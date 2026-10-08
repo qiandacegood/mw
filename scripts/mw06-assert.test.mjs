@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { buildMw06FunctionConfigs, mw06LeftoverDecision, parseNosqlCount } from "./mw06-lib.mjs";
+import {
+  buildMw06FunctionConfigs,
+  inspectOfficialJobsTokenPresence,
+  mw06LeftoverDecision,
+  parseFunctionEnv,
+  parseNosqlCount
+} from "./mw06-lib.mjs";
 
 const confirmed = {
   collectionNames: ["jobs", "idempotency", "audit_logs", "app_config", "admin_users"],
@@ -14,7 +20,10 @@ const confirmed = {
   aclObtained: true,
   clientDenied: true,
   jobsTimerDeployed: false,
-  timerConfirmed: true
+  timerConfirmed: true,
+  jobsTokenConfirmed: true,
+  tokenPresent: true,
+  tokenTargets: ["mw-jobs"]
 };
 
 const clean = mw06LeftoverDecision(confirmed);
@@ -73,5 +82,57 @@ assert.equal(parseNosqlCount({ code: 0, json: { data: { results: [[{ n: { $numbe
 assert.equal(parseNosqlCount({ code: 0, json: { data: { results: [{ n: 2 }] } } }), 2);
 assert.equal(parseNosqlCount({ code: 1, json: { data: { results: [{ n: 0 }] } } }), null);
 assert.equal(parseNosqlCount({ code: 0, json: {} }), null);
+
+const tokenClean = inspectOfficialJobsTokenPresence({
+  cloudbase_auth: false,
+  "mw-public": false,
+  "mw-member": false,
+  "mw-admin": false,
+  "mw-upload": false,
+  "mw-pay-hook": false,
+  "mw-jobs": true
+});
+assert.equal(tokenClean.jobsTokenConfirmed, true);
+assert.equal(tokenClean.tokenPresent, true);
+assert.deepEqual(tokenClean.tokenTargets, ["mw-jobs"]);
+assert.equal(
+  mw06LeftoverDecision({
+    ...confirmed,
+    tokenPresence: {
+      cloudbase_auth: false,
+      "mw-public": false,
+      "mw-member": false,
+      "mw-admin": false,
+      "mw-upload": false,
+      "mw-pay-hook": false,
+      "mw-jobs": true
+    }
+  }).ok,
+  true
+);
+assert.equal(mw06LeftoverDecision({ ...confirmed, jobsTokenConfirmed: false, tokenPresent: false, tokenTargets: [] }).ok, false);
+assert.equal(
+  mw06LeftoverDecision({
+    ...confirmed,
+    tokenTargets: ["mw-jobs", "mw-admin"],
+    tokenPresent: true,
+    jobsTokenConfirmed: true
+  }).ok,
+  false
+);
+assert.equal(inspectOfficialJobsTokenPresence({ "mw-jobs": true }).jobsTokenConfirmed, false);
+
+const parsedEnv = parseFunctionEnv({
+  data: {
+    Environment: {
+      Variables: [
+        { Key: "MW_ALLOWED_MINI_APPIDS", Value: "wx-allowed" },
+        { Key: "MW_JOBS_INVOKE_TOKEN", Value: "x" }
+      ]
+    }
+  }
+});
+assert.equal(Object.prototype.hasOwnProperty.call(parsedEnv, "MW_JOBS_INVOKE_TOKEN"), true);
+assert.deepEqual(Object.keys(parsedEnv).sort(), ["MW_ALLOWED_MINI_APPIDS", "MW_JOBS_INVOKE_TOKEN"]);
 
 console.log("mw06 leftover decision fixtures passed");

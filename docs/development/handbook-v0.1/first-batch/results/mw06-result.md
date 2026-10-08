@@ -2,7 +2,7 @@
 
 日期：2026年10月8日  
 任务：[业务事务与持久任务基础](../mw06-transaction-jobs.md)  
-状态：**已完成**（整改基线 `bc1c146` 后：人工 resume 开启新的有限重试周期；job/幂等/审计同一事务或可收敛恢复；nonce 持久化防重放；`MW_JOBS_INVOKE_TOKEN` 只注入 `mw-jobs`；mw-test 已登录 super 闭环。MW04 的 P08 仅补记已落地索引，P10/P11 仍为 PARTIAL）
+状态：**已完成**（最终整改基线 `b2411c2`：alreadyResumed 仅在同键 pending 时收敛；缺 workStore 失败关闭；`nonceReplay` 为 verify 必选门禁；只读核验确认 jobs token 仅在 `mw-jobs`。MW04 的 P08 仅补记已落地索引，P10/P11 仍为 PARTIAL）
 
 工作区：`F:/MW/main`。只操作 mw-test。环境 ID、后台用户 ID、AppID、调用令牌只在被 Git 忽略的本地 `.env`。未输出、未提交。未启动 MW07。
 
@@ -15,15 +15,17 @@
 - 审计 `before` 使用真实原状态（`needsReview` 与 `retryable` 分别验证）；`reason` 限长并去掉密码/Token/密钥形态。
 - 重新部署时合并各函数已有环境变量；`MW_JOBS_INVOKE_TOKEN` 只进入 `mw-jobs`。
 - 同一 `serverInvoke` 签名复用 nonce 幂等结果，不产生第二次副作用。
-- `mw06:verify` 全部必选门禁为 true 才退出 0；真实 timer 仍记 **NOT_RUN**。
-- `mw06:verify-leftovers`：ACL 必须取得且为 `ADMINONLY`；未登录读 `jobs` 必须实际执行并被拒；集合/索引/测试文档/timer/EnableOverrun 任一未确认即非零退出。
+- `mw06:verify` 全部必选门禁为 true 才退出 0，其中 **`nonceReplay` 已列入 required**；真实 timer 仍记 **NOT_RUN**。
+- `mw06:verify-leftovers`：ACL 必须取得且为 `ADMINONLY`；未登录读 `jobs` 必须实际执行并被拒；集合/索引/测试文档/timer/EnableOverrun 任一未确认即非零退出。七个正式函数只读核验 `tokenPresent`/`tokenTargets`，jobs token 只能出现在 `mw-jobs`。
+- 新幂等键不得把 running/succeeded/cancelled 误报为 resume 成功；成功任务 + 新键 + 相同 reason 拒绝且不追加成功审计。
+- `resumeDefinedJob` / `processSignedJobsCommand` 缺 `workStore` 失败关闭，正式入口不得分步降级。
 
 ## 2 云端版本
 
 | 项 | 结果 |
 | --- | --- |
 | 正式入口运行时 | Nodejs20.19（`mw-public` / `mw-member` / `mw-admin` / `mw-upload` / `mw-pay-hook` / `mw-jobs` / `cloudbase_auth`） |
-| 本地官方 runtime 摘要 | `86481e83e764` |
+| 本地官方 runtime 摘要 | `0d031e70775f` |
 | 存储 ACL | 已取得且为 ADMINONLY |
 | 未登录客户端直读 `jobs` | 实际执行并被拒绝 |
 | 高频 timer | 未部署（`fn detail` 已确认无 timer） |
@@ -43,8 +45,8 @@
 | 同幂等键不同输入 | `IDEMPOTENCY_CONFLICT` |
 | 有限重试 | 进入 `needsReview` |
 | 未登录 `job.get` / 伪造 resume | 拒绝 |
-| 已登录 super `job.get` | 成功 |
-| 已登录 super `job.resume` | `ok=true`，`state=queued`，`pending=false`，`replayed=false` |
+| 已登录 super `job.get` | 成功（来源：2026-10-08 本地后台页，用户亲自输入密码；本轮未再要求输入） |
+| 已登录 super `job.resume` | `ok=true`，`state=queued`，`pending=false`，`replayed=false`（同一来源，本轮未再登录） |
 | resume 后受控 acquire | `attempts=0` 的新周期领取成功，不是 `MAX_ATTEMPTS_REACHED` |
 | resume 后旧 token 写入 | 失败（queued 时 `JOB_NOT_RUNNING`；verify 中 running 时 `STALE_FENCING_TOKEN`） |
 | resume 后完成 | 受控 worker `succeed`，状态 `succeeded` |
@@ -66,7 +68,7 @@ pending 故障注入（本地）：幂等写入后失败、job 更新后失败�
 | 新增配置模板 | `infra/cloudbase/mw-jobs-timer.example.json`（未部署） |
 | 测试文档 | 本轮 `jobs` / `idempotency` / `audit_logs` 已按前缀与已知 _id 精确删除；残留核验 `leftoverDocs=0` 且计数已确认 |
 | 正式集合/索引/代码 | 保留 |
-| 其他函数环境变量 | 重新部署时合并已有键；未把 jobs token 写入其他正式入口 |
+| 其他函数环境变量 | 只读核验七个正式函数：`tokenPresent=true`，`tokenTargets=["mw-jobs"]`。本轮只重新部署 `mw-admin` / `mw-jobs`，未建集合/索引/timer |
 
 ## 5 费用
 
@@ -81,7 +83,7 @@ pending 故障注入（本地）：幂等写入后失败、job 更新后失败�
 | `npm test` | 0（含 resume 新周期、e2e、pending 故障恢复、审计两条路径、nonce 重放、残留离线断言、密钥扫描） |
 | `npm run build` | 0 |
 | `npm run mw06:verify` | 0（全部必选门禁 true；`continuedCursor=1->2`；`realTimerVerified=false`） |
-| `npm run mw06:verify-leftovers` | 0（ACL/未登录拒绝/集合/索引/文档/timer/EnableOverrun 均已确认） |
+| `npm run mw06:verify-leftovers` | 0（ACL/未登录拒绝/集合/索引/文档/timer/EnableOverrun/tokenTargets 均已确认） |
 
 测试不读真实 `.env` 秘密；云端验证脚本只在本机读取被忽略的环境文件。
 
