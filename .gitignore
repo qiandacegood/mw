@@ -6,6 +6,9 @@
 *.key
 *.p12
 *.pfx
+cloudbaserc.json
+configs/local.json
+configs/mw04-state.json
 
 # Dependencies and generated output
 node_modules/

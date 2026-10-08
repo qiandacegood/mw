@@ -6,4 +6,5 @@ export * from "./category.js";
 export * from "./vip.js";
 export * from "./idempotency.js";
 export * from "./clock.js";
+export * from "./identity-guard.js";
 export * from "./mock/paper-detail.js";

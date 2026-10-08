@@ -1,0 +1,72 @@
+{
+  "version": "2.0",
+  "envId": "env-placeholder-not-real",
+  "region": "ap-shanghai",
+  "functionRoot": "./cloudfunctions",
+  "functions": [
+    {
+      "name": "mw-validation-runtime22",
+      "timeout": 10,
+      "runtime": "Nodejs22.21",
+      "memorySize": 128,
+      "handler": "index.main",
+      "installDependency": false
+    },
+    {
+      "name": "mw-validation-probe",
+      "timeout": 60,
+      "runtime": "Nodejs20.19",
+      "memorySize": 512,
+      "handler": "index.main",
+      "installDependency": true
+    },
+    {
+      "name": "mw-validation-public",
+      "timeout": 10,
+      "runtime": "Nodejs20.19",
+      "memorySize": 256,
+      "handler": "index.main",
+      "installDependency": false
+    },
+    {
+      "name": "mw-validation-member",
+      "timeout": 10,
+      "runtime": "Nodejs20.19",
+      "memorySize": 256,
+      "handler": "index.main",
+      "installDependency": false
+    },
+    {
+      "name": "mw-validation-admin",
+      "timeout": 10,
+      "runtime": "Nodejs20.19",
+      "memorySize": 256,
+      "handler": "index.main",
+      "installDependency": false
+    },
+    {
+      "name": "mw-validation-upload",
+      "timeout": 30,
+      "runtime": "Nodejs20.19",
+      "memorySize": 512,
+      "handler": "index.main",
+      "installDependency": false
+    },
+    {
+      "name": "mw-validation-pay-hook",
+      "timeout": 10,
+      "runtime": "Nodejs20.19",
+      "memorySize": 256,
+      "handler": "index.main",
+      "installDependency": false
+    },
+    {
+      "name": "mw-validation-jobs",
+      "timeout": 10,
+      "runtime": "Nodejs20.19",
+      "memorySize": 256,
+      "handler": "index.main",
+      "installDependency": false
+    }
+  ]
+}

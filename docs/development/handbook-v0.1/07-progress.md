@@ -8,10 +8,10 @@
 ## 当前状态
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
-- **MW01、MW02、MW03 已完成**；MW04—MW30 未开始。
-- 已有本地工程骨架与单元测试，**没有云端部署、没有创建 CloudBase 资源、没有真实支付**。
+- **MW01、MW02、MW03 已完成**；**MW04 部分完成**；MW05—MW30 未开始。
+- mw-test 已做 P01—P12 有限实测并锁定 Nodejs20.19 与 SDK 版本。**没有生产环境、没有真实支付、没有正式微信身份或测试管理员登录**。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
-- 建议下一项为 MW04 CloudBase 环境与关键能力验证；无可用测试环境时只做准备，不能标整项通过。
+- 建议下一项为 MW05 可信入口与后台权限。缺测试管理员与小程序测试号时，只能做入口骨架和拒绝越权，不能标登录闭合。
 
 ## 任务状态
 
@@ -20,7 +20,7 @@
 | MW01 | 实施基线与接口约定 | [已完成](first-batch/results/mw01-result.md) |
 | MW02 | 页面原型与视觉规范 | [已完成](first-batch/results/mw02-result.md) |
 | MW03 | 工程骨架与本地检查 | [已完成](first-batch/results/mw03-result.md) |
-| MW04 | CloudBase 环境与关键能力验证 | 未开始 |
+| MW04 | CloudBase 环境与关键能力验证 | [部分完成](first-batch/results/mw04-result.md) |
 | MW05 | 可信入口与后台权限 | 未开始 |
 | MW06 | 业务事务与持久任务基础 | 未开始 |
 | MW07 | 虚拟支付资格与接入验证 | 未开始 |
@@ -74,10 +74,11 @@
 
 ## 本轮执行记录（2026-10-08）
 
-连续执行 MW01—MW03 后，同日做三轮审核整改。没有把 A01—A31 或 T01—T30 标为已通过。未启动 MW04。
+连续执行 MW01—MW03 后，同日启动 MW04。没有把 A01—A31 或 T01—T30 标为已通过。
 
 | 任务 | 结果 |
 | --- | --- |
 | MW01 | [mw01-result.md](first-batch/results/mw01-result.md)（整改后仍为已完成） |
 | MW02 | [mw02-result.md](first-batch/results/mw02-result.md)（第三轮后台走查后仍为已完成） |
 | MW03 | [mw03-result.md](first-batch/results/mw03-result.md)（串行 npm test×5 均为 0；DevTools NOT_RUN） |
+| MW04 | [mw04-result.md](first-batch/results/mw04-result.md)（部分完成：缺正式微信身份与测试管理员；HTTP 网关 NOT_RUN） |

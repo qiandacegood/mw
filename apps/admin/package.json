@@ -10,6 +10,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@cloudbase/js-sdk": "3.10.1",
     "@mw/api": "0.0.1",
     "@mw/shared": "0.0.1",
     "vue": "^3.5.22"
