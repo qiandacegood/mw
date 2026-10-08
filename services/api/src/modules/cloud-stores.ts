@@ -18,7 +18,12 @@ import type {
   JobMutation,
   JobStore,
   MaintenanceStore,
-  TxBudget
+  NonceJobMutation,
+  NonceJobSnapshot,
+  ResumeMutation,
+  ResumeSnapshot,
+  TxBudget,
+  WorkStore
 } from "./job-stores.js";
 
 export const MW06_COLLECTIONS = {
@@ -96,6 +101,9 @@ function asJob(id: string, data: Record<string, unknown>): JobRecord {
     fencingToken: typeof data.fencingToken === "number" ? data.fencingToken : 0,
     attempts: typeof data.attempts === "number" ? data.attempts : 0,
     maxAttempts: typeof data.maxAttempts === "number" ? data.maxAttempts : 3,
+    resumeCount: typeof data.resumeCount === "number" ? data.resumeCount : 0,
+    totalAttempts: typeof data.totalAttempts === "number" ? data.totalAttempts : 0,
+    lastResumeHash: typeof data.lastResumeHash === "string" ? data.lastResumeHash : "",
     nextRunAt: asIso(data.nextRunAt, now),
     lastError: asJobError(data.lastError),
     schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
@@ -123,6 +131,9 @@ function jobWrite(job: JobRecord): Record<string, unknown> {
     fencingToken: job.fencingToken,
     attempts: job.attempts,
     maxAttempts: job.maxAttempts,
+    resumeCount: job.resumeCount ?? 0,
+    totalAttempts: job.totalAttempts ?? 0,
+    lastResumeHash: job.lastResumeHash || "",
     nextRunAt: job.nextRunAt,
     ...(job.lastError ? { lastError: job.lastError } : {}),
     schemaVersion: job.schemaVersion,
@@ -139,7 +150,10 @@ function asIdem(id: string, data: Record<string, unknown>): IdempotencyRecord {
     action: typeof data.action === "string" ? data.action : "",
     idempotencyKey: typeof data.idempotencyKey === "string" ? data.idempotencyKey : "",
     payloadHash: typeof data.payloadHash === "string" ? data.payloadHash : "",
-    status: data.status === "succeeded" || data.status === "conflict" || data.status === "pending" ? data.status : "pending",
+    status:
+      data.status === "succeeded" || data.status === "conflict" || data.status === "pending" || data.status === "failed"
+        ? data.status
+        : "pending",
     resultRef: data.resultRef ?? null,
     requestId: typeof data.requestId === "string" ? data.requestId : ""
   };
@@ -278,6 +292,125 @@ export function cloudAuditStore(): AuditStore {
         schemaVersion: entry.schemaVersion
       });
       return String(added.id || added._id || "");
+    }
+  };
+}
+
+function idemWrite(record: IdempotencyRecord, existing: boolean): Record<string, unknown> {
+  const now = new Date().toISOString();
+  return {
+    actorId: record.actorId,
+    action: record.action,
+    idempotencyKey: record.idempotencyKey,
+    payloadHash: record.payloadHash,
+    status: record.status,
+    resultRef: record.resultRef,
+    requestId: record.requestId,
+    schemaVersion: 1,
+    updatedAt: now,
+    ...(existing ? {} : { createdAt: now })
+  };
+}
+
+function auditWrite(entry: AuditEntry): Record<string, unknown> {
+  return {
+    actorType: entry.actorType,
+    actorId: entry.actorId,
+    action: entry.action,
+    target: entry.target,
+    reason: entry.reason,
+    requestId: entry.requestId,
+    beforeHash: entry.beforeHash,
+    afterHash: entry.afterHash,
+    createdAt: entry.createdAt,
+    schemaVersion: entry.schemaVersion
+  };
+}
+
+export function cloudWorkStore(): WorkStore {
+  return {
+    crashAfter: null,
+    async transactResume<T>(jobId: string, idempotencyId: string, mutate: (snap: ResumeSnapshot) => ResumeMutation<T>) {
+      const started = Date.now();
+      let reads = 0;
+      let writes = 0;
+      const db = cloudApp().database();
+      const mutation = await db.runTransaction(async (tx) => {
+        reads += 2;
+        const idemSnap = await tx.collection(MW06_COLLECTIONS.idempotency).doc(idempotencyId).get();
+        const jobSnap = await tx.collection(MW06_COLLECTIONS.jobs).doc(jobId).get();
+        const idemData = unwrapDoc(idemSnap);
+        const jobData = unwrapDoc(jobSnap);
+        const next = mutate({
+          job: jobData ? asJob(jobId, jobData) : undefined,
+          idem: idemData ? asIdem(idempotencyId, idemData) : undefined
+        });
+        if (next.job) {
+          writes += 1;
+          if (jobData) {
+            await tx.collection(MW06_COLLECTIONS.jobs).doc(jobId).update(jobWrite(next.job));
+          } else {
+            await tx.collection(MW06_COLLECTIONS.jobs).doc(jobId).set(jobWrite(next.job));
+          }
+        }
+        if (next.idem) {
+          writes += 1;
+          const body = idemWrite(next.idem, Boolean(idemData));
+          if (idemData) {
+            await tx.collection(MW06_COLLECTIONS.idempotency).doc(idempotencyId).update(body);
+          } else {
+            await tx.collection(MW06_COLLECTIONS.idempotency).doc(idempotencyId).set(body);
+          }
+        }
+        if (next.audit) {
+          writes += 1;
+          await tx.collection(MW06_COLLECTIONS.auditLogs).add(auditWrite(next.audit));
+        }
+        return next;
+      });
+      return {
+        mutation: mutation as ResumeMutation<T>,
+        budget: { reads, writes, total: reads + writes, elapsedMs: Date.now() - started }
+      };
+    },
+    async transactNonceJob<T>(jobId: string, nonceId: string, mutate: (snap: NonceJobSnapshot) => NonceJobMutation<T>) {
+      const started = Date.now();
+      let reads = 0;
+      let writes = 0;
+      const db = cloudApp().database();
+      const mutation = await db.runTransaction(async (tx) => {
+        reads += 2;
+        const nonceSnap = await tx.collection(MW06_COLLECTIONS.idempotency).doc(nonceId).get();
+        const jobSnap = await tx.collection(MW06_COLLECTIONS.jobs).doc(jobId).get();
+        const nonceData = unwrapDoc(nonceSnap);
+        const jobData = unwrapDoc(jobSnap);
+        const next = mutate({
+          job: jobData ? asJob(jobId, jobData) : undefined,
+          nonce: nonceData ? asIdem(nonceId, nonceData) : undefined
+        });
+        if (next.job) {
+          writes += 1;
+          if (jobData) {
+            await tx.collection(MW06_COLLECTIONS.jobs).doc(jobId).update(jobWrite(next.job));
+          } else {
+            await tx.collection(MW06_COLLECTIONS.jobs).doc(jobId).set(jobWrite(next.job));
+          }
+        }
+        if (next.nonce) {
+          writes += 1;
+          const body = idemWrite(next.nonce, Boolean(nonceData));
+          if (nonceData) {
+            await tx.collection(MW06_COLLECTIONS.idempotency).doc(nonceId).update(body);
+          } else {
+            await tx.collection(MW06_COLLECTIONS.idempotency).doc(nonceId).set(body);
+          }
+        }
+        return next;
+      });
+      return {
+        mutation: mutation as NonceJobMutation<T>,
+        budget: { reads, writes, total: reads + writes, elapsedMs: Date.now() - started }
+      };
     }
   };
 }

@@ -72,9 +72,28 @@ export async function signOutAdmin(app: CloudApp): Promise<void> {
   await app.auth().signOut();
 }
 
+export async function callAdminJob(
+  app: CloudApp,
+  action: "job.get" | "job.resume",
+  data: { jobId: string; reason?: string },
+  idempotencyKey?: string
+): Promise<{ ok?: boolean; data?: unknown; error?: { code?: string; message?: string; details?: { reason?: string } } }> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action === "job.resume") {
+    payload.idempotencyKey = idempotencyKey || `mw06/test/admin_resume_${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
 function unwrapCallResult(result: unknown): {
   ok?: boolean;
-  data?: { roles?: string[]; enabled?: boolean };
+  data?: { roles?: string[]; enabled?: boolean } & Record<string, unknown>;
   error?: { code?: string; message?: string; details?: { reason?: string } };
 } {
   if (!result || typeof result !== "object") return {};
@@ -84,7 +103,7 @@ function unwrapCallResult(result: unknown): {
     if (item && typeof item === "object" && ("ok" in item || "error" in item)) {
       return item as {
         ok?: boolean;
-        data?: { roles?: string[]; enabled?: boolean };
+        data?: { roles?: string[]; enabled?: boolean } & Record<string, unknown>;
         error?: { code?: string; message?: string; details?: { reason?: string } };
       };
     }

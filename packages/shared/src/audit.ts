@@ -68,6 +68,23 @@ export function auditSummaryHash(value: unknown): string {
   return payloadHash(sanitizeAuditValue(value));
 }
 
+export const AUDIT_REASON_MAX_LENGTH = 160;
+
+const REASON_SECRET_ASSIGN = /(?:password|passwd|pwd|token|secret|authorization|api[_-]?key|access[_-]?key|session[_-]?key)\s*[:=]\s*\S+/gi;
+const REASON_JWT = /eyJ[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g;
+const REASON_LONG_SECRET = /\b[a-f0-9]{32,}\b/gi;
+
+export function sanitizeAuditReason(reason: string): string {
+  let text = String(reason ?? "");
+  text = text.replace(REASON_SECRET_ASSIGN, "[redacted]");
+  text = text.replace(REASON_JWT, "[redacted]");
+  text = text.replace(REASON_LONG_SECRET, "[redacted]");
+  if (text.length > AUDIT_REASON_MAX_LENGTH) {
+    text = text.slice(0, AUDIT_REASON_MAX_LENGTH);
+  }
+  return text;
+}
+
 export function buildAuditEntry(input: {
   actorType: AuditEntry["actorType"];
   actorId: string;
@@ -84,7 +101,7 @@ export function buildAuditEntry(input: {
     actorId: input.actorId,
     action: input.action,
     target: input.target,
-    reason: input.reason,
+    reason: sanitizeAuditReason(input.reason),
     requestId: input.requestId,
     beforeHash: auditSummaryHash(input.before ?? null),
     afterHash: auditSummaryHash(input.after ?? null),

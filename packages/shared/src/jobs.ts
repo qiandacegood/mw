@@ -31,6 +31,9 @@ export interface JobRecord {
   fencingToken: number;
   attempts: number;
   maxAttempts: number;
+  resumeCount: number;
+  totalAttempts: number;
+  lastResumeHash: string;
   nextRunAt: string;
   lastError: JobError | null;
   schemaVersion: number;
@@ -49,6 +52,8 @@ export interface JobPublicView {
   fencingToken: number;
   attempts: number;
   maxAttempts: number;
+  resumeCount: number;
+  totalAttempts: number;
   nextRunAt: string;
   lastError: JobError | null;
   createdAt: string;
@@ -81,6 +86,8 @@ export function publicJobView(job: JobRecord): JobPublicView {
     fencingToken: job.fencingToken,
     attempts: job.attempts,
     maxAttempts: job.maxAttempts,
+    resumeCount: job.resumeCount ?? 0,
+    totalAttempts: job.totalAttempts ?? 0,
     nextRunAt: job.nextRunAt,
     lastError: job.lastError ? { ...job.lastError } : null,
     createdAt: job.createdAt,
@@ -108,6 +115,9 @@ export function createJobRecord(input: {
     fencingToken: 0,
     attempts: 0,
     maxAttempts: input.maxAttempts ?? 3,
+    resumeCount: 0,
+    totalAttempts: 0,
+    lastResumeHash: "",
     nextRunAt: stamp,
     lastError: null,
     schemaVersion: 1,
@@ -149,6 +159,7 @@ export function acquireLease(job: JobRecord, now: Date, leaseMs: number): JobDec
     state: "running",
     fencingToken: job.fencingToken + 1,
     attempts: job.attempts + 1,
+    totalAttempts: (job.totalAttempts ?? 0) + 1,
     leaseUntil: new Date(now.getTime() + leaseMs).toISOString(),
     nextRunAt: iso(now),
     lastError: null,
@@ -239,7 +250,7 @@ export function markFailed(
   };
 }
 
-export function resumeJob(job: JobRecord, now: Date): JobDecision {
+export function resumeJob(job: JobRecord, now: Date, resumeHash = ""): JobDecision {
   if (job.state !== "needsReview" && job.state !== "retryable") {
     return { ok: false, reason: "JOB_NOT_RESUMABLE" };
   }
@@ -248,6 +259,9 @@ export function resumeJob(job: JobRecord, now: Date): JobDecision {
     job: {
       ...job,
       state: "queued",
+      attempts: 0,
+      resumeCount: (job.resumeCount ?? 0) + 1,
+      lastResumeHash: resumeHash,
       leaseUntil: null,
       nextRunAt: iso(now),
       lastError: job.lastError,

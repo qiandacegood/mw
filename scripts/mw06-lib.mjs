@@ -2,7 +2,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { authorizedEnvId, projectRoot, readEnvFile, redact, writeJson } from "./mw04-lib.mjs";
-import { functionConfigs, readMw05LocalConfig, redactMw05 } from "./mw05-lib.mjs";
+import { functionConfigs, parseFunctionEnv, readMw05LocalConfig, redactMw05, MW05_OFFICIAL_FUNCTIONS } from "./mw05-lib.mjs";
 
 export const MW06_COLLECTIONS = ["jobs", "idempotency", "audit_logs", "app_config"];
 export const MW06_TEST_PREFIX = "mw06/test";
@@ -63,20 +63,43 @@ export function ensureJobsInvokeToken(root = projectRoot()) {
   return { token, generated: true };
 }
 
-export function writeMw06Cloudbaserc() {
+export function buildMw06FunctionConfigs(allowedMiniAppIds, token, existingEnvs = {}) {
+  return functionConfigs(allowedMiniAppIds).map((fn) => {
+    const existing = { ...(existingEnvs[fn.name] || {}) };
+    delete existing.MW_JOBS_INVOKE_TOKEN;
+    const envVariables = {
+      ...existing,
+      MW_ALLOWED_MINI_APPIDS: allowedMiniAppIds || existing.MW_ALLOWED_MINI_APPIDS || ""
+    };
+    if (fn.name === "mw-jobs") {
+      envVariables.MW_JOBS_INVOKE_TOKEN = token;
+    }
+    return { ...fn, envVariables };
+  });
+}
+
+export function writeMw06Cloudbaserc(existingEnvs = {}) {
   const envId = authorizedEnvId();
   const { allowedMiniAppIds } = readMw05LocalConfig();
   const { token } = ensureJobsInvokeToken();
+  const functions = buildMw06FunctionConfigs(allowedMiniAppIds, token, existingEnvs);
   const config = {
     version: "2.0",
     envId,
     region: "ap-shanghai",
     functionRoot: "./cloudfunctions",
-    functions: functionConfigs(allowedMiniAppIds, { MW_JOBS_INVOKE_TOKEN: token })
+    functions
   };
   writeJson(join(projectRoot(), "cloudbaserc.json"), config);
-  return { written: true, tokenPresent: true };
+  return {
+    written: true,
+    tokenPresent: true,
+    tokenTargets: functions.filter((fn) => Object.prototype.hasOwnProperty.call(fn.envVariables, "MW_JOBS_INVOKE_TOKEN")).map((fn) => fn.name),
+    functions
+  };
 }
+
+export { parseFunctionEnv, MW05_OFFICIAL_FUNCTIONS };
 
 export function redactMw06(value) {
   const hidden = [];
@@ -104,28 +127,70 @@ function hideStrings(value, hidden) {
   return value;
 }
 
+export function parseNosqlCount(result) {
+  if (!result || result.code !== 0) return null;
+  const first = result.json?.data?.results?.[0] ?? result.json?.results?.[0];
+  const raw = first?.n ?? first?.[0]?.n ?? result.json?.data?.n ?? result.json?.n;
+  return bsonNumber(raw);
+}
+
+export function bsonNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  if (value && typeof value === "object") {
+    if (typeof value.$numberInt === "string" || typeof value.$numberInt === "number") return Number(value.$numberInt);
+    if (typeof value.$numberLong === "string" || typeof value.$numberLong === "number") return Number(value.$numberLong);
+    if (typeof value.$numberDouble === "string" || typeof value.$numberDouble === "number") return Number(value.$numberDouble);
+  }
+  return null;
+}
+
 export function mw06LeftoverDecision(state) {
-  const missingCollections = MW06_COLLECTIONS.filter((name) => !(state.collectionNames || []).includes(name));
-  const leftoverDocs = Number(state.testDocCount || 0);
-  const missingIndexes = (state.missingIndexes || []).length;
+  const collectionNames = Array.isArray(state.collectionNames) ? state.collectionNames : null;
+  const missingCollections = collectionNames ? MW06_COLLECTIONS.filter((name) => !collectionNames.includes(name)) : MW06_COLLECTIONS.slice();
+  const leftoverDocs = typeof state.testDocCount === "number" && Number.isFinite(state.testDocCount) ? state.testDocCount : null;
+  const missingIndexList = Array.isArray(state.missingIndexes) ? state.missingIndexes : null;
+  const aclObtained = state.aclObtained === true && typeof state.acl === "string" && state.acl.length > 0;
+  const acl = aclObtained ? state.acl : "";
+  const clientDenied = state.clientDenied === true;
+  const collectionsConfirmed = state.collectionsConfirmed === true && collectionNames !== null;
+  const indexesConfirmed = state.indexesConfirmed === true && missingIndexList !== null;
+  const testDocsConfirmed = state.testDocsConfirmed === true && leftoverDocs !== null;
+  const timerConfirmed = state.timerConfirmed === true && typeof state.jobsTimerDeployed === "boolean";
+  const enableOverrunConfirmed = state.enableOverrunConfirmed === true && typeof state.enableOverrun === "boolean";
   const overrun = state.enableOverrun === true;
-  const storageOpen = state.acl && state.acl !== "ADMINONLY";
   const timerDeployed = state.jobsTimerDeployed === true;
-  const ok =
-    missingCollections.length === 0 &&
-    leftoverDocs === 0 &&
-    missingIndexes === 0 &&
-    !overrun &&
-    !storageOpen &&
-    !timerDeployed;
+  const reasons = [];
+  if (!aclObtained) reasons.push("ACL_NOT_OBTAINED");
+  if (aclObtained && acl !== "ADMINONLY") reasons.push("ACL_NOT_ADMINONLY");
+  if (state.clientDenied !== true) reasons.push("CLIENT_READ_NOT_DENIED");
+  if (!collectionsConfirmed) reasons.push("COLLECTIONS_NOT_CONFIRMED");
+  if (collectionsConfirmed && missingCollections.length) reasons.push("COLLECTIONS_MISSING");
+  if (!indexesConfirmed) reasons.push("INDEXES_NOT_CONFIRMED");
+  if (indexesConfirmed && missingIndexList.length) reasons.push("INDEXES_MISSING");
+  if (!testDocsConfirmed) reasons.push("TEST_DOCS_NOT_CONFIRMED");
+  if (testDocsConfirmed && leftoverDocs !== 0) reasons.push("TEST_DOCS_LEFT");
+  if (!timerConfirmed) reasons.push("TIMER_NOT_CONFIRMED");
+  if (timerConfirmed && timerDeployed) reasons.push("TIMER_DEPLOYED");
+  if (!enableOverrunConfirmed) reasons.push("OVERRUN_NOT_CONFIRMED");
+  if (enableOverrunConfirmed && overrun) reasons.push("OVERRUN_ENABLED");
+  const ok = reasons.length === 0;
   return {
     ok,
     exitCode: ok ? 0 : 1,
+    reasons,
     missingCollections,
-    leftoverDocs,
-    missingIndexes: state.missingIndexes || [],
+    leftoverDocs: leftoverDocs === null ? -1 : leftoverDocs,
+    missingIndexes: missingIndexList || [],
     enableOverrun: Boolean(state.enableOverrun),
-    acl: state.acl || "",
+    acl,
+    aclObtained,
+    clientDenied,
+    collectionsConfirmed,
+    indexesConfirmed,
+    testDocsConfirmed,
+    timerConfirmed,
+    enableOverrunConfirmed,
     jobsTimerDeployed: Boolean(state.jobsTimerDeployed)
   };
 }

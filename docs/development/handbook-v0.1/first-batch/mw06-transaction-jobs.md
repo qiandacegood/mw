@@ -1,6 +1,6 @@
 # MW06 业务事务与持久任务基础
 
-开发手册 v0.1｜任务状态：已完成（结果见 [results/mw06-result.md](results/mw06-result.md)）  
+开发手册 v0.1｜任务状态：已完成（整改后结果见 [results/mw06-result.md](results/mw06-result.md)）  
 [任务总览](../02-roadmap.md)｜[实际进度](../07-progress.md)
 
 ## 目标与可见结果
@@ -37,9 +37,10 @@ MW05 已完成的正式六入口、`admin_users` 双层后台权限、共享环�
 
 ## 有限检查与完成条件
 
-- 两实例争抢同一任务恰好一个获得租约；中断后按游标接续；旧 token 写入失败。
-- 幂等重放与摘要冲突、有限重试进入 `needsReview`、maintenance 分项互不误阻断。
-- 管理员权限与伪造来源拒绝。
+- 两实例争抢同一任务恰好一个获得租约；中断后按游标接续（1→2）；旧 token 写入失败。
+- 人工 resume 开启新的有限重试周期；恢复后可再次 acquire，不得再因旧周期次数返回 `MAX_ATTEMPTS_REACHED`。
+- 幂等重放与摘要冲突、pending 必须可收敛、有限重试进入 `needsReview`、maintenance 分项互不误阻断。
+- 管理员权限与伪造来源拒绝；已登录 super 的 `job.get` / `job.resume` 以真实闭环为准。
 - 本地 `check:prototypes` / `typecheck` / `test` / `build` 与本任务只读残留核验可复现。
 - 全部必要条件满足才标已完成；否则标部分完成或待验收，并写明缺口。
 

@@ -6,13 +6,14 @@ import {
   createIndexCommand,
   defaultMaintenanceDoc,
   listIndexCommand,
+  MW05_OFFICIAL_FUNCTIONS,
   MW06_COLLECTIONS,
   MW06_INDEXES,
   mw06Tmp,
+  parseFunctionEnv,
   redactMw06,
   writeMw06Cloudbaserc
 } from "./mw06-lib.mjs";
-import { MW05_OFFICIAL_FUNCTIONS } from "./mw05-lib.mjs";
 
 const root = projectRoot();
 const tmp = mw06Tmp();
@@ -36,8 +37,25 @@ if (emit.status !== 0) {
 }
 record("emit_runtime", { ok: true });
 
-writeMw06Cloudbaserc();
-record("cloudbaserc", { written: true, jobsTokenInGit: false });
+const existingEnvs = {};
+for (const name of MW05_OFFICIAL_FUNCTIONS) {
+  const detail = await runTcb(["fn", "detail", name, "--json"]);
+  existingEnvs[name] = parseFunctionEnv(detail.json);
+  record(`env_snapshot_${name}`, {
+    ok: detail.code === 0,
+    keys: Object.keys(existingEnvs[name]).filter((key) => key !== "MW_JOBS_INVOKE_TOKEN")
+  });
+}
+const written = writeMw06Cloudbaserc(existingEnvs);
+record("cloudbaserc", {
+  written: true,
+  jobsTokenInGit: false,
+  tokenTargets: written.tokenTargets,
+  preservedFunctions: MW05_OFFICIAL_FUNCTIONS.filter((name) => name !== "mw-jobs")
+});
+if (written.tokenTargets.join(",") !== "mw-jobs") {
+  throw new Error("jobs invoke token must be injected only into mw-jobs");
+}
 
 for (const name of MW05_OFFICIAL_FUNCTIONS) {
   const deployed = await runTcb(["fn", "deploy", name, "--force"], { timeoutMs: 300000 });

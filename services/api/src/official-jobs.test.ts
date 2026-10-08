@@ -1,17 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  auditSummaryHash,
   createJobRecord,
   setMaintenanceGate,
   signJobsInvoke,
   type JobRecord
 } from "@mw/shared";
 import { handleOfficial, memoryAdminStore } from "./official.js";
-import {
-  memoryAuditStore,
-  memoryIdempotencyStore,
-  memoryJobStore,
-  memoryMaintenanceStore
-} from "./modules/job-stores.js";
+import { memoryMaintenanceStore, memoryMw06Stores } from "./modules/job-stores.js";
+import { resumeDefinedJob } from "./modules/transaction-jobs.js";
 
 const allowedAppIds = ["wxmwallowedappid0001"];
 const secret = "test-jobs-invoke-token-not-real";
@@ -32,10 +29,12 @@ function signedEvent(input: Parameters<typeof signJobsInvoke>[1]) {
 }
 
 function stores(job?: JobRecord) {
+  const bundle = memoryMw06Stores(job ? [job] : []);
   return {
-    jobStore: memoryJobStore(job ? [job] : []),
-    idempotencyStore: memoryIdempotencyStore(),
-    auditStore: memoryAuditStore(),
+    jobStore: bundle.jobStore,
+    idempotencyStore: bundle.idempotencyStore,
+    auditStore: bundle.auditStore,
+    workStore: bundle.workStore,
     maintenanceStore: memoryMaintenanceStore()
   };
 }
@@ -372,7 +371,40 @@ describe("MW06 jobs, idempotency and admin boundaries", () => {
       now,
       ...ctxStores
     });
-    expect(resumed).toMatchObject({ ok: true, data: { job: { state: "queued" }, replayed: false } });
+    expect(resumed).toMatchObject({ ok: true, data: { job: { state: "queued", attempts: 0, resumeCount: 1 }, replayed: false, pending: false } });
+    const afterResume = (await handleOfficial({
+      entry: "mw-jobs",
+      event: signedEvent({
+        action: "jobs.process",
+        issuedAt: now.toISOString(),
+        nonce: "resume-acq",
+        jobId: job.jobId,
+        command: "acquire",
+        leaseMs: 8000
+      }),
+      allowedAppIds,
+      jobsSecret: secret,
+      now,
+      ...ctxStores
+    })) as { ok: boolean; reason?: string; fencingToken?: number };
+    expect(afterResume.ok).toBe(true);
+    expect(afterResume.reason).not.toBe("MAX_ATTEMPTS_REACHED");
+    const succeeded = await handleOfficial({
+      entry: "mw-jobs",
+      event: signedEvent({
+        action: "jobs.process",
+        issuedAt: now.toISOString(),
+        nonce: "resume-ok",
+        jobId: job.jobId,
+        command: "succeed",
+        fencingToken: afterResume.fencingToken
+      }),
+      allowedAppIds,
+      jobsSecret: secret,
+      now,
+      ...ctxStores
+    });
+    expect(succeeded).toMatchObject({ ok: true, job: { state: "succeeded" } });
     const replayed = await handleOfficial({
       entry: "mw-admin",
       event: adminReq("job.resume", { jobId: job.jobId, reason: "continue" }, { idempotencyKey: "mw06/test/resume_1" }),
@@ -450,5 +482,277 @@ describe("MW06 jobs, idempotency and admin boundaries", () => {
       ...stores()
     });
     expect(forgedTimer).toMatchObject({ ok: false, reason: "FORGED_TIMER_DENIED" });
+  });
+
+  it("resumes needsReview into a new attempt cycle and finishes", async () => {
+    const job = createJobRecord({
+      jobId: "mw06/test/job_resume_e2e",
+      type: "mw06.demo.cursor",
+      businessKey: "mw06/test/job_resume_e2e",
+      now,
+      maxAttempts: 1
+    });
+    const ctxStores = stores(job);
+    const claimed = (await handleOfficial({
+      entry: "mw-jobs",
+      event: signedEvent({
+        action: "jobs.process",
+        issuedAt: now.toISOString(),
+        nonce: "e2e-a",
+        jobId: job.jobId,
+        command: "acquire",
+        leaseMs: 8000
+      }),
+      allowedAppIds,
+      jobsSecret: secret,
+      now,
+      ...ctxStores
+    })) as { fencingToken: number };
+    await handleOfficial({
+      entry: "mw-jobs",
+      event: signedEvent({
+        action: "jobs.process",
+        issuedAt: now.toISOString(),
+        nonce: "e2e-f",
+        jobId: job.jobId,
+        command: "fail",
+        fencingToken: claimed.fencingToken
+      }),
+      allowedAppIds,
+      jobsSecret: secret,
+      now,
+      ...ctxStores
+    });
+    const blocked = await handleOfficial({
+      entry: "mw-jobs",
+      event: signedEvent({
+        action: "jobs.process",
+        issuedAt: now.toISOString(),
+        nonce: "e2e-blocked",
+        jobId: job.jobId,
+        command: "acquire",
+        leaseMs: 8000
+      }),
+      allowedAppIds,
+      jobsSecret: secret,
+      now,
+      ...ctxStores
+    });
+    expect(blocked).toMatchObject({ ok: false, reason: "JOB_NEEDS_REVIEW" });
+    const adminUsers = memoryAdminStore([{ uid: "uid_super_1", roles: ["super"], enabled: true, authVersion: 1 }]);
+    const resumed = await handleOfficial({
+      entry: "mw-admin",
+      event: adminReq("job.resume", { jobId: job.jobId, reason: "human resume" }, { idempotencyKey: "mw06/test/e2e_resume" }),
+      allowedAppIds,
+      authUid: "uid_super_1",
+      adminStore: adminUsers,
+      now,
+      ...ctxStores
+    });
+    expect(resumed).toMatchObject({ ok: true, data: { job: { state: "queued", attempts: 0 }, pending: false } });
+    const acquired = (await handleOfficial({
+      entry: "mw-jobs",
+      event: signedEvent({
+        action: "jobs.process",
+        issuedAt: now.toISOString(),
+        nonce: "e2e-acq2",
+        jobId: job.jobId,
+        command: "acquire",
+        leaseMs: 8000
+      }),
+      allowedAppIds,
+      jobsSecret: secret,
+      now,
+      ...ctxStores
+    })) as { ok: boolean; reason?: string; fencingToken?: number };
+    expect(acquired.ok).toBe(true);
+    expect(acquired.reason).not.toBe("MAX_ATTEMPTS_REACHED");
+    const done = await handleOfficial({
+      entry: "mw-jobs",
+      event: signedEvent({
+        action: "jobs.process",
+        issuedAt: now.toISOString(),
+        nonce: "e2e-ok",
+        jobId: job.jobId,
+        command: "succeed",
+        fencingToken: acquired.fencingToken
+      }),
+      allowedAppIds,
+      jobsSecret: secret,
+      now,
+      ...ctxStores
+    });
+    expect(done).toMatchObject({ ok: true, job: { state: "succeeded" } });
+  });
+
+  it("replays the same signed invoke without a second acquire", async () => {
+    const job = createJobRecord({
+      jobId: "mw06/test/job_nonce",
+      type: "mw06.demo.cursor",
+      businessKey: "mw06/test/job_nonce",
+      now
+    });
+    const ctxStores = stores(job);
+    const event = signedEvent({
+      action: "jobs.process",
+      issuedAt: now.toISOString(),
+      nonce: "same-nonce",
+      jobId: job.jobId,
+      command: "acquire",
+      leaseMs: 8000
+    });
+    const first = (await handleOfficial({
+      entry: "mw-jobs",
+      event,
+      allowedAppIds,
+      jobsSecret: secret,
+      now,
+      ...ctxStores
+    })) as { ok: boolean; fencingToken?: number; replayed?: boolean };
+    const second = (await handleOfficial({
+      entry: "mw-jobs",
+      event,
+      allowedAppIds,
+      jobsSecret: secret,
+      now,
+      ...ctxStores
+    })) as { ok: boolean; fencingToken?: number; replayed?: boolean };
+    expect(first).toMatchObject({ ok: true, fencingToken: 1, replayed: false });
+    expect(second).toMatchObject({ ok: true, fencingToken: 1, replayed: true });
+    const stored = await ctxStores.jobStore.get(job.jobId);
+    expect(stored?.fencingToken).toBe(1);
+    expect(stored?.attempts).toBe(1);
+  });
+
+  it("records the real before state on retryable and needsReview resume", async () => {
+    const adminUsers = memoryAdminStore([{ uid: "uid_super_1", roles: ["super"], enabled: true, authVersion: 1 }]);
+    for (const state of ["retryable", "needsReview"] as const) {
+      const job = createJobRecord({
+        jobId: `mw06/test/job_audit_${state}`,
+        type: "mw06.demo.cursor",
+        businessKey: `mw06/test/job_audit_${state}`,
+        now
+      });
+      job.state = state;
+      job.attempts = state === "needsReview" ? 3 : 1;
+      const ctxStores = stores(job);
+      const resumed = await handleOfficial({
+        entry: "mw-admin",
+        event: adminReq(
+          "job.resume",
+          { jobId: job.jobId, reason: `resume ${state} token=abcd password=not-kept` },
+          { idempotencyKey: `mw06/test/audit_${state}` }
+        ),
+        allowedAppIds,
+        authUid: "uid_super_1",
+        adminStore: adminUsers,
+        now,
+        ...ctxStores
+      });
+      expect(resumed).toMatchObject({ ok: true, data: { job: { state: "queued" } } });
+      const entry = ctxStores.auditStore.entries[0];
+      if (!entry) throw new Error("expected audit");
+      expect(entry.beforeHash).toBe(auditSummaryHash({ state }));
+      expect(entry.beforeHash).not.toBe(auditSummaryHash({ state: state === "needsReview" ? "retryable" : "needsReview" }));
+      expect(entry.reason).not.toMatch(/password=not-kept/);
+      expect(entry.reason).not.toMatch(/token=abcd/);
+    }
+  });
+
+  it("recovers resume after injected idempotency, job, and audit failures", async () => {
+    for (const [index, point] of (["idempotency", "job", "audit"] as const).entries()) {
+      const job = createJobRecord({
+        jobId: `mw06/test/job_resume_fault_${point}`,
+        type: "mw06.demo.cursor",
+        businessKey: `mw06/test/job_resume_fault_${point}`,
+        now
+      });
+      job.state = "needsReview";
+      job.attempts = 3;
+      const ctxStores = stores(job);
+      const args = {
+        jobStore: ctxStores.jobStore,
+        idempotencyStore: ctxStores.idempotencyStore,
+        auditStore: ctxStores.auditStore,
+        workStore: ctxStores.workStore,
+        actorId: "uid_super_1",
+        jobId: job.jobId,
+        reason: "recover",
+        requestId: "req_fault",
+        idempotencyKey: `mw06/test/fault_${index}`,
+        now
+      };
+      ctxStores.workStore.crashAfter = point;
+      await expect(resumeDefinedJob(args)).rejects.toThrow(/INJECTED_FAIL_AFTER_/);
+      ctxStores.workStore.crashAfter = null;
+      const recovered = await resumeDefinedJob(args);
+      expect(recovered.ok).toBe(true);
+      expect(recovered.pending).not.toBe(true);
+      expect(recovered.job?.state).toBe("queued");
+      const again = await resumeDefinedJob(args);
+      expect(again).toMatchObject({ ok: true, replayed: true, pending: false });
+    }
+    const missingStores = stores();
+    const missing = await resumeDefinedJob({
+      jobStore: missingStores.jobStore,
+      idempotencyStore: missingStores.idempotencyStore,
+      auditStore: missingStores.auditStore,
+      workStore: missingStores.workStore,
+      actorId: "uid_super_1",
+      jobId: "mw06/test/missing",
+      reason: "recover",
+      requestId: "req_fault",
+      idempotencyKey: "mw06/test/fault_missing",
+      now
+    });
+    expect(missing.ok).toBe(false);
+    expect(missing.pending).not.toBe(true);
+    const missingAgain = await resumeDefinedJob({
+      jobStore: missingStores.jobStore,
+      idempotencyStore: missingStores.idempotencyStore,
+      auditStore: missingStores.auditStore,
+      workStore: missingStores.workStore,
+      actorId: "uid_super_1",
+      jobId: "mw06/test/missing",
+      reason: "recover",
+      requestId: "req_fault",
+      idempotencyKey: "mw06/test/fault_missing",
+      now
+    });
+    expect(missingAgain).toMatchObject({ ok: false, replayed: true, pending: false });
+    const conflictJob = createJobRecord({
+      jobId: "mw06/test/job_resume_conflict",
+      type: "mw06.demo.cursor",
+      businessKey: "mw06/test/job_resume_conflict",
+      now
+    });
+    conflictJob.state = "needsReview";
+    const conflictStores = stores(conflictJob);
+    const first = await resumeDefinedJob({
+      jobStore: conflictStores.jobStore,
+      idempotencyStore: conflictStores.idempotencyStore,
+      auditStore: conflictStores.auditStore,
+      workStore: conflictStores.workStore,
+      actorId: "uid_super_1",
+      jobId: conflictJob.jobId,
+      reason: "recover",
+      requestId: "req_fault",
+      idempotencyKey: "mw06/test/fault_conflict",
+      now
+    });
+    expect(first.ok).toBe(true);
+    const conflict = await resumeDefinedJob({
+      jobStore: conflictStores.jobStore,
+      idempotencyStore: conflictStores.idempotencyStore,
+      auditStore: conflictStores.auditStore,
+      workStore: conflictStores.workStore,
+      actorId: "uid_super_1",
+      jobId: conflictJob.jobId,
+      reason: "other",
+      requestId: "req_fault",
+      idempotencyKey: "mw06/test/fault_conflict",
+      now
+    });
+    expect(conflict).toMatchObject({ ok: false, code: "IDEMPOTENCY_CONFLICT" });
   });
 });

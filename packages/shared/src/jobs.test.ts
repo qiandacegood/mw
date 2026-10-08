@@ -70,12 +70,22 @@ describe("job lease and fencing", () => {
     }
     expect(job.state).toBe("needsReview");
     expect(job.attempts).toBe(2);
+    expect(job.totalAttempts).toBe(2);
     const successDenied = markSucceeded(job, job.fencingToken, now);
     expect(successDenied.ok).toBe(false);
-    const resumed = resumeJob(job, now);
+    const resumed = resumeJob(job, now, "resume-hash-1");
     expect(resumed.ok).toBe(true);
     if (!resumed.ok) throw new Error("expected resume");
     expect(resumed.job.state).toBe("queued");
+    expect(resumed.job.attempts).toBe(0);
+    expect(resumed.job.resumeCount).toBe(1);
+    expect(resumed.job.totalAttempts).toBe(2);
+    expect(resumed.job.lastResumeHash).toBe("resume-hash-1");
     expect(resumed.job.cursor).toEqual(job.cursor);
+    const afterResume = acquireLease(resumed.job, now, 8000);
+    expect(afterResume.ok).toBe(true);
+    if (!afterResume.ok) throw new Error("expected acquire after resume");
+    expect(afterResume.job.attempts).toBe(1);
+    expect(afterResume.job.totalAttempts).toBe(3);
   });
 });

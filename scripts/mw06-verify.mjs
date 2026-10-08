@@ -32,6 +32,9 @@ function jobDoc(id, extra = {}) {
     fencingToken: 0,
     attempts: 0,
     maxAttempts: extra.maxAttempts ?? 3,
+    resumeCount: extra.resumeCount ?? 0,
+    totalAttempts: extra.totalAttempts ?? 0,
+    lastResumeHash: "",
     nextRunAt: now,
     lastError: { code: "", message: "" },
     schemaVersion: 1,
@@ -129,7 +132,7 @@ const [left, right] = await Promise.all([
     {
       action: "jobs.process",
       issuedAt: nowIso,
-      nonce: "race-a",
+      nonce: `${MW06_TEST_PREFIX}/race-a`,
       jobId: raceId,
       command: "acquire",
       leaseMs: 20000
@@ -140,7 +143,7 @@ const [left, right] = await Promise.all([
     {
       action: "jobs.process",
       issuedAt: nowIso,
-      nonce: "race-b",
+      nonce: `${MW06_TEST_PREFIX}/race-b`,
       jobId: raceId,
       command: "acquire",
       leaseMs: 20000
@@ -157,22 +160,40 @@ record("race_summary", {
   winnerToken: raceWins[0]?.fencingToken
 });
 
+const acquireAIssuedAt = new Date().toISOString();
 const acquireA = await jobsInvoke(
   {
     action: "jobs.process",
-    issuedAt: new Date().toISOString(),
-    nonce: "fence-a",
+    issuedAt: acquireAIssuedAt,
+    nonce: `${MW06_TEST_PREFIX}/fence-a`,
     jobId: fenceId,
     command: "acquire",
     leaseMs: 8000
   },
   "fence_acquire_a"
 );
+const acquireAReplay = await jobsInvoke(
+  {
+    action: "jobs.process",
+    issuedAt: acquireAIssuedAt,
+    nonce: `${MW06_TEST_PREFIX}/fence-a`,
+    jobId: fenceId,
+    command: "acquire",
+    leaseMs: 8000
+  },
+  "fence_acquire_a_replay"
+);
+record("nonce_replay", {
+  firstToken: acquireA.fencingToken,
+  replayToken: acquireAReplay.fencingToken,
+  replayed: acquireAReplay.replayed === true,
+  sameToken: acquireAReplay.fencingToken === acquireA.fencingToken
+});
 const interruptA = await jobsInvoke(
   {
     action: "jobs.process",
     issuedAt: new Date().toISOString(),
-    nonce: "fence-int",
+    nonce: `${MW06_TEST_PREFIX}/fence-int`,
     jobId: fenceId,
     command: "interruptAfterCursor",
     fencingToken: acquireA.fencingToken,
@@ -186,7 +207,7 @@ const acquireB = await jobsInvoke(
   {
     action: "jobs.process",
     issuedAt: new Date().toISOString(),
-    nonce: "fence-b",
+    nonce: `${MW06_TEST_PREFIX}/fence-b`,
     jobId: fenceId,
     command: "acquire",
     leaseMs: 20000
@@ -197,7 +218,7 @@ const staleA = await jobsInvoke(
   {
     action: "jobs.process",
     issuedAt: new Date().toISOString(),
-    nonce: "fence-stale",
+    nonce: `${MW06_TEST_PREFIX}/fence-stale`,
     jobId: fenceId,
     command: "succeed",
     fencingToken: acquireA.fencingToken
@@ -208,7 +229,7 @@ const continueB = await jobsInvoke(
   {
     action: "jobs.process",
     issuedAt: new Date().toISOString(),
-    nonce: "fence-cont",
+    nonce: `${MW06_TEST_PREFIX}/fence-cont`,
     jobId: fenceId,
     command: "continue",
     fencingToken: acquireB.fencingToken
@@ -220,7 +241,7 @@ const firstIdem = await jobsInvoke(
   {
     action: "idempotency.probe",
     issuedAt: new Date().toISOString(),
-    nonce: "idem-1",
+    nonce: `${MW06_TEST_PREFIX}/idem-1`,
     actorId: `${MW06_TEST_PREFIX}/actor_a`,
     idempotencyKey: `${MW06_TEST_PREFIX}/key_1`,
     payload: { step: 1 }
@@ -231,7 +252,7 @@ const replayIdem = await jobsInvoke(
   {
     action: "idempotency.probe",
     issuedAt: new Date().toISOString(),
-    nonce: "idem-2",
+    nonce: `${MW06_TEST_PREFIX}/idem-2`,
     actorId: `${MW06_TEST_PREFIX}/actor_a`,
     idempotencyKey: `${MW06_TEST_PREFIX}/key_1`,
     payload: { step: 1 }
@@ -242,7 +263,7 @@ const conflictIdem = await jobsInvoke(
   {
     action: "idempotency.probe",
     issuedAt: new Date().toISOString(),
-    nonce: "idem-3",
+    nonce: `${MW06_TEST_PREFIX}/idem-3`,
     actorId: `${MW06_TEST_PREFIX}/actor_a`,
     idempotencyKey: `${MW06_TEST_PREFIX}/key_1`,
     payload: { step: 2 }
@@ -256,7 +277,7 @@ for (let index = 0; index < 2; index += 1) {
     {
       action: "jobs.process",
       issuedAt: new Date().toISOString(),
-      nonce: `retry-a-${index}`,
+      nonce: `${MW06_TEST_PREFIX}/retry-a-${index}`,
       jobId: retryId,
       command: "acquire",
       leaseMs: 20000
@@ -267,7 +288,7 @@ for (let index = 0; index < 2; index += 1) {
     {
       action: "jobs.process",
       issuedAt: new Date().toISOString(),
-      nonce: `retry-f-${index}`,
+      nonce: `${MW06_TEST_PREFIX}/retry-f-${index}`,
       jobId: retryId,
       command: "fail",
       fencingToken: claimed.fencingToken
@@ -280,7 +301,7 @@ const inspectRetry = await jobsInvoke(
   {
     action: "jobs.inspect",
     issuedAt: new Date().toISOString(),
-    nonce: "retry-inspect",
+    nonce: `${MW06_TEST_PREFIX}/retry-inspect`,
     jobId: retryId,
     command: "inspect"
   },
@@ -315,7 +336,7 @@ const inspectFence = await jobsInvoke(
   {
     action: "jobs.inspect",
     issuedAt: new Date().toISOString(),
-    nonce: "fence-inspect",
+    nonce: `${MW06_TEST_PREFIX}/fence-inspect`,
     jobId: fenceId,
     command: "inspect"
   },
@@ -323,6 +344,24 @@ const inspectFence = await jobsInvoke(
 );
 
 const idemDocId = idemId(`${MW06_TEST_PREFIX}/actor_a`, "mw06.test.write", `${MW06_TEST_PREFIX}/key_1`);
+const nonceKeys = [
+  `${MW06_TEST_PREFIX}/race-a`,
+  `${MW06_TEST_PREFIX}/race-b`,
+  `${MW06_TEST_PREFIX}/fence-a`,
+  `${MW06_TEST_PREFIX}/fence-int`,
+  `${MW06_TEST_PREFIX}/fence-b`,
+  `${MW06_TEST_PREFIX}/fence-stale`,
+  `${MW06_TEST_PREFIX}/fence-cont`,
+  `${MW06_TEST_PREFIX}/idem-1`,
+  `${MW06_TEST_PREFIX}/idem-2`,
+  `${MW06_TEST_PREFIX}/idem-3`,
+  `${MW06_TEST_PREFIX}/retry-a-0`,
+  `${MW06_TEST_PREFIX}/retry-f-0`,
+  `${MW06_TEST_PREFIX}/retry-a-1`,
+  `${MW06_TEST_PREFIX}/retry-f-1`,
+  `${MW06_TEST_PREFIX}/retry-inspect`,
+  `${MW06_TEST_PREFIX}/fence-inspect`
+];
 const cleanup = {};
 for (const id of [raceId, fenceId, retryId]) {
   const deleted = await deleteDoc("jobs", id);
@@ -330,6 +369,28 @@ for (const id of [raceId, fenceId, retryId]) {
 }
 const deletedIdem = await deleteDoc("idempotency", idemDocId);
 cleanup["idempotency:probe"] = deletedIdem.code === 0;
+for (const nonce of nonceKeys) {
+  const deleted = await deleteDoc("idempotency", idemId("mw-jobs", "serverInvoke", nonce));
+  cleanup[`idempotency:nonce:${nonce}`] = deleted.code === 0;
+}
+const deletedAudit = await runTcb([
+  "db",
+  "nosql",
+  "execute",
+  "--command",
+  JSON.stringify([
+    {
+      TableName: "audit_logs",
+      CommandType: "DELETE",
+      Command: JSON.stringify({
+        delete: "audit_logs",
+        deletes: [{ q: { target: { $regex: `^jobs/${MW06_TEST_PREFIX}` } }, limit: 0 }]
+      })
+    }
+  ]),
+  "--json"
+]);
+cleanup["audit_logs:test"] = deletedAudit.code === 0;
 record("cleanup", cleanup);
 
 const usage = await runTcb(["env", "list", "--json"]);
@@ -338,12 +399,15 @@ const self = rows.find((item) => item.EnvId === authorizedEnvId());
 const maxBudget = evidence.budgets.reduce((max, item) => Math.max(max, item.total || 0), 0);
 const maxMs = evidence.budgets.reduce((max, item) => Math.max(max, item.elapsedMs || 0), 0);
 
+const continuedCursor = interruptA.job?.cursor?.done === 1 && continueB.job?.cursor?.done === 2;
 const summary = {
   raceExactlyOne: raceWins.length === 1 && raceLosses.length === 1,
   interruptSavedCursor: interruptA.ok === true && interruptA.job?.cursor?.done === 1,
   laterTokenHigher: acquireB.ok === true && acquireB.fencingToken > (acquireA.fencingToken || 0),
   staleRejected: staleA.ok === false && staleA.reason === "STALE_FENCING_TOKEN",
-  continued: continueB.ok === true,
+  continued: continueB.ok === true && continuedCursor,
+  continuedCursor: continuedCursor ? "1->2" : `${interruptA.job?.cursor?.done}->${continueB.job?.cursor?.done}`,
+  nonceReplay: acquireAReplay.ok === true && acquireAReplay.replayed === true && acquireAReplay.fencingToken === acquireA.fencingToken,
   idemReplay: firstIdem.ok === true && replayIdem.ok === true && replayIdem.data?.replayed === true,
   idemConflict: conflictIdem.ok === false && conflictIdem.code === "IDEMPOTENCY_CONFLICT",
   needsReview: inspectRetry.job?.state === "needsReview" || retryState === "needsReview",
@@ -357,12 +421,29 @@ const summary = {
   cleaned: Object.values(cleanup).every(Boolean),
   realTimerVerified: false
 };
+const required = [
+  "raceExactlyOne",
+  "interruptSavedCursor",
+  "laterTokenHigher",
+  "staleRejected",
+  "continued",
+  "idemReplay",
+  "idemConflict",
+  "needsReview",
+  "jobInspected",
+  "adminGetDenied",
+  "adminResumeDenied",
+  "budgetOk",
+  "enableOverrun",
+  "cleaned"
+];
+const failed = required.filter((key) => summary[key] !== true);
 record("summary", summary);
 evidence.finishedAt = new Date().toISOString();
 writeJson(join(tmp, "mw06-verify-evidence.json"), redactMw06(evidence));
 writeJson(join(root, "configs", "mw06-verify-state.json"), redactMw06(summary));
-if (!summary.raceExactlyOne || !summary.staleRejected || !summary.idemConflict || !summary.needsReview || !summary.budgetOk) {
-  console.log(JSON.stringify(redactMw06({ ok: false, summary }), null, 2));
+if (failed.length) {
+  console.log(JSON.stringify(redactMw06({ ok: false, failed, summary }), null, 2));
   process.exit(1);
 }
 console.log(JSON.stringify(redactMw06({ ok: true, summary }), null, 2));

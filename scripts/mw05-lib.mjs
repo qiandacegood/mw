@@ -61,22 +61,50 @@ export function requireAdminUid() {
   return adminUid;
 }
 
+export function parseFunctionEnv(detailJson) {
+  const data = detailJson?.data || detailJson || {};
+  const raw = data.EnvironmentVariables || data.EnvVariables || data.envVariables || data.Environment || [];
+  if (Array.isArray(raw)) {
+    const out = {};
+    for (const item of raw) {
+      const key = item?.Key || item?.key || item?.Name || item?.name;
+      if (!key) continue;
+      out[key] = String(item.Value ?? item.value ?? "");
+    }
+    return out;
+  }
+  if (raw && typeof raw === "object") {
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) out[key] = String(value ?? "");
+    return out;
+  }
+  return {};
+}
+
 export function functionConfigs(allowedMiniAppIds, extraEnv = {}) {
-  const envVariables = { MW_ALLOWED_MINI_APPIDS: allowedMiniAppIds || "", ...extraEnv };
+  const shared = extraEnv && typeof extraEnv === "object" ? extraEnv : {};
   return [
-    { name: "cloudbase_auth", timeout: 10, memorySize: 256, envVariables },
-    { name: "mw-public", timeout: 10, memorySize: 256, envVariables },
-    { name: "mw-member", timeout: 15, memorySize: 256, envVariables },
-    { name: "mw-admin", timeout: 15, memorySize: 256, envVariables },
-    { name: "mw-upload", timeout: 30, memorySize: 512, envVariables },
-    { name: "mw-pay-hook", timeout: 10, memorySize: 256, envVariables },
-    { name: "mw-jobs", timeout: 60, memorySize: 512, envVariables }
-  ].map((fn) => ({
-    ...fn,
-    runtime: "Nodejs20.19",
-    handler: "index.main",
-    installDependency: fn.name === "mw-http-size-probe" ? false : true
-  }));
+    { name: "cloudbase_auth", timeout: 10, memorySize: 256 },
+    { name: "mw-public", timeout: 10, memorySize: 256 },
+    { name: "mw-member", timeout: 15, memorySize: 256 },
+    { name: "mw-admin", timeout: 15, memorySize: 256 },
+    { name: "mw-upload", timeout: 30, memorySize: 512 },
+    { name: "mw-pay-hook", timeout: 10, memorySize: 256 },
+    { name: "mw-jobs", timeout: 60, memorySize: 512 }
+  ].map((fn) => {
+    const extra = shared[fn.name] && typeof shared[fn.name] === "object" && !Array.isArray(shared[fn.name])
+      ? shared[fn.name]
+      : Object.keys(shared).some((key) => MW05_OFFICIAL_FUNCTIONS.includes(key))
+        ? {}
+        : shared;
+    return {
+      ...fn,
+      envVariables: { MW_ALLOWED_MINI_APPIDS: allowedMiniAppIds || "", ...extra },
+      runtime: "Nodejs20.19",
+      handler: "index.main",
+      installDependency: fn.name === "mw-http-size-probe" ? false : true
+    };
+  });
 }
 
 export function writeMw05Cloudbaserc(extraFunctions = []) {

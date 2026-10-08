@@ -8,7 +8,7 @@
 ## 当前状态
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
-- **MW01、MW02、MW03、MW05、MW06 已完成**；**MW04 部分完成**；MW07—MW30 未开始。
+- **MW01、MW02、MW03、MW05、MW06 已完成**；**MW04 部分完成**；MW07—MW30 未开始。MW06 在基线 `bc1c146` 上完成 resume/幂等/token/门禁整改与已登录 super 闭环后恢复“已完成”。
 - mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；MW04 真实剩余仅为 **P08/P10/P11 PARTIAL**。P08 已补记本次落地的 `jobs` / `audit_logs` 索引，其余未来索引仍 PARTIAL。已锁定 Nodejs20.19 与 SDK。正式六入口、`cloudbase_auth`、`admin_users` 与 MW06 四集合已部署。**没有生产环境、没有真实支付**。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
 - 下一项建议为 MW07-A（虚拟支付资格核对）。
@@ -22,7 +22,7 @@
 | MW03 | 工程骨架与本地检查 | [已完成](first-batch/results/mw03-result.md) |
 | MW04 | CloudBase 环境与关键能力验证 | [部分完成](first-batch/results/mw04-result.md) |
 | MW05 | 可信入口与后台权限 | [已完成](first-batch/results/mw05-result.md) |
-| MW06 | 业务事务与持久任务基础 | [已完成](first-batch/results/mw06-result.md) |
+| MW06 | 业务事务与持久任务基础 | [已完成](first-batch/results/mw06-result.md)（整改闭环后恢复） |
 | MW07 | 虚拟支付资格与接入验证 | 未开始 |
 | MW08 | 会员注册与个人资料 | 未开始 |
 | MW09 | 三级类目基础管理 | 未开始 |
@@ -83,4 +83,4 @@
 | MW03 | [mw03-result.md](first-batch/results/mw03-result.md)（串行 npm test×5 均为 0；DevTools NOT_RUN） |
 | MW04 | [mw04-result.md](first-batch/results/mw04-result.md)（部分完成：P01—P07/P09/P12 PASS；P08/P10/P11 PARTIAL；HTTP 4.9/5.1 均为 413） |
 | MW05 | [mw05-result.md](first-batch/results/mw05-result.md)（已完成：P04/P05/P06 手工验证已闭合） |
-| MW06 | [mw06-result.md](first-batch/results/mw06-result.md)（已完成：两实例租约、旧 token 拒绝、幂等与 needsReview；真实 timer NOT_RUN） |
+| MW06 | [mw06-result.md](first-batch/results/mw06-result.md)（整改后已完成：resume 新周期、pending 收敛、nonce 防重放、已登录 super 闭环；真实 timer NOT_RUN；未启动 MW07） |

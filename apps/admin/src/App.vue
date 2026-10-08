@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { createAdminApp, loginAndReadAdmin, signOutAdmin, type AdminSession } from "./cloudbase-web";
+import { callAdminJob, createAdminApp, loginAndReadAdmin, signOutAdmin, type AdminSession } from "./cloudbase-web";
 
 const username = ref("");
 const password = ref("");
 const status = ref("尚未登录。请在本页输入用户名和密码，不要把密码发给对话。");
 const session = ref<AdminSession | null>(null);
 const busy = ref(false);
+const jobId = ref(new URLSearchParams(window.location.search).get("jobId") || "");
+const resumeReason = ref("human resume after needsReview");
+const jobResult = ref("");
 
 async function login(): Promise<void> {
   busy.value = true;
@@ -23,6 +26,42 @@ async function login(): Promise<void> {
     password.value = "";
     session.value = { loggedIn: false, uidPresent: false, roles: [], error: "登录失败" };
     status.value = error instanceof Error ? error.message : "登录失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function runJob(action: "job.get" | "job.resume"): Promise<void> {
+  if (!session.value?.loggedIn) {
+    status.value = "请先登录";
+    return;
+  }
+  busy.value = true;
+  status.value = `正在调用 ${action}…`;
+  try {
+    const app = await createAdminApp();
+    const result = await callAdminJob(
+      app,
+      action,
+      { jobId: jobId.value, reason: resumeReason.value },
+      `mw06/test/admin_${action}_${Date.now()}`
+    );
+    jobResult.value = JSON.stringify(
+      {
+        ok: result.ok === true,
+        errorCode: result.error?.code,
+        errorReason: result.error?.details?.reason,
+        jobState: (result.data as { job?: { state?: string } } | undefined)?.job?.state,
+        replayed: (result.data as { replayed?: boolean } | undefined)?.replayed === true,
+        pending: (result.data as { pending?: boolean } | undefined)?.pending === true
+      },
+      null,
+      2
+    );
+    status.value = result.ok ? `${action} 成功` : `${action} 失败`;
+  } catch {
+    jobResult.value = JSON.stringify({ ok: false, errorCode: "CALL_FAILED" }, null, 2);
+    status.value = `${action} 失败`;
   } finally {
     busy.value = false;
   }
@@ -56,6 +95,20 @@ async function logout(): Promise<void> {
     <button type="button" class="ghost" :disabled="busy" @click="logout">退出</button>
     <p class="status">{{ status }}</p>
     <pre v-if="session">{{ JSON.stringify(session, null, 2) }}</pre>
+    <section v-if="session?.loggedIn">
+      <h2>任务查询与恢复</h2>
+      <label>
+        任务 ID
+        <input v-model="jobId" autocomplete="off" />
+      </label>
+      <label>
+        恢复原因
+        <input v-model="resumeReason" autocomplete="off" />
+      </label>
+      <button type="button" :disabled="busy || !jobId" @click="runJob('job.get')">已登录 job.get</button>
+      <button type="button" :disabled="busy || !jobId" @click="runJob('job.resume')">已登录 job.resume</button>
+      <pre v-if="jobResult" data-testid="job-result">{{ jobResult }}</pre>
+    </section>
   </main>
 </template>
 

@@ -6,13 +6,14 @@ import {
   buildIdempotencyRecord,
   demoCursorComplete,
   evaluateJobsTrust,
+  jobsInvokePayload,
   markFailed,
   markSucceeded,
   payloadHash,
   publicJobView,
   renewLease,
-  replayOrConflict,
   resumeJob,
+  sanitizeAuditReason,
   saveCursor,
   type AuditEntry,
   type IdempotencyRecord,
@@ -20,10 +21,34 @@ import {
   type JobRecord,
   type JobsServerInvoke
 } from "@mw/shared";
-import type { AuditStore, IdempotencyStore, JobStore, TxBudget } from "./job-stores.js";
+import type {
+  AuditStore,
+  IdempotencyStore,
+  JobMutation,
+  JobStore,
+  ResumeMutation,
+  ResumeSnapshot,
+  TxBudget,
+  WorkStore
+} from "./job-stores.js";
 
 export const DEFAULT_LEASE_MS = 40_000;
 export const TX_BUDGET_LIMIT = 60;
+export const JOBS_INVOKE_ACTOR = "mw-jobs";
+export const JOBS_INVOKE_ACTION = "serverInvoke";
+
+export type ResumeView = ReturnType<typeof publicJobView>;
+
+export type ResumeOutcome = {
+  ok: boolean;
+  code?: string;
+  reason?: string;
+  replayed?: boolean;
+  pending?: boolean;
+  job?: ResumeView;
+  beforeState?: string;
+  auditWritten?: boolean;
+};
 
 export function budgetsWithinLimit(...budgets: TxBudget[]): { ok: boolean; total: number; elapsedMs: number } {
   const total = budgets.reduce((sum, item) => sum + item.total, 0);
@@ -34,6 +59,67 @@ export function budgetsWithinLimit(...budgets: TxBudget[]): { ok: boolean; total
 export async function readJob(store: JobStore, jobId: string) {
   const job = await store.get(jobId);
   return job ? publicJobView(job) : undefined;
+}
+
+export function applyDemoCommand(
+  job: JobRecord | undefined,
+  invoke: JobsServerInvoke,
+  now: Date
+): JobMutation<JobRecord | undefined> {
+  const leaseMs = invoke.leaseMs ?? DEFAULT_LEASE_MS;
+  const command = invoke.command || "acquire";
+
+  if (command === "inspect") {
+    return { result: job, error: job ? undefined : "NOT_FOUND" };
+  }
+
+  if (command === "acquire") {
+    if (!job) return { error: "NOT_FOUND", result: undefined };
+    const next = acquireLease(job, now, leaseMs);
+    if (!next.ok) return { error: next.reason, result: undefined, job };
+    return { job: next.job, result: next.job };
+  }
+
+  const token = invoke.fencingToken;
+  if (typeof token !== "number") {
+    return { error: "FENCING_TOKEN_REQUIRED", result: undefined, job };
+  }
+  if (!job) return { error: "NOT_FOUND", result: undefined };
+
+  if (command === "saveCursor" || command === "interruptAfterCursor") {
+    const next = saveCursor(job, token, invoke.cursor ?? advanceDemoCursor(job), now);
+    if (!next.ok) return { error: next.reason, result: undefined, job };
+    return { job: next.job, result: next.job };
+  }
+  if (command === "renew") {
+    const next = renewLease(job, token, now, leaseMs);
+    if (!next.ok) return { error: next.reason, result: undefined, job };
+    return { job: next.job, result: next.job };
+  }
+  if (command === "succeed") {
+    const next = markSucceeded(job, token, now);
+    if (!next.ok) return { error: next.reason, result: undefined, job };
+    return { job: next.job, result: next.job };
+  }
+  if (command === "fail") {
+    const next = markFailed(job, token, now, { code: invoke.failCode || "DEMO_FAIL", message: "synthetic retry" });
+    if (!next.ok) return { error: next.reason, result: undefined, job };
+    return { job: next.job, result: next.job };
+  }
+  if (command === "continue") {
+    const writable = assertWritableLease(job, token, now);
+    if (!writable.ok) return { error: writable.reason, result: undefined, job };
+    const cursor = advanceDemoCursor(job);
+    const saved = saveCursor(job, token, cursor, now);
+    if (!saved.ok) return { error: saved.reason, result: undefined, job };
+    if (demoCursorComplete(cursor)) {
+      const done = markSucceeded(saved.job, token, now);
+      if (!done.ok) return { error: done.reason, result: undefined, job: saved.job };
+      return { job: done.job, result: done.job };
+    }
+    return { job: saved.job, result: saved.job };
+  }
+  return { error: "UNKNOWN_COMMAND", result: undefined, job };
 }
 
 export async function claimJob(store: JobStore, jobId: string, now: Date, leaseMs = DEFAULT_LEASE_MS) {
@@ -68,10 +154,7 @@ export async function processDemoCommand(
   now: Date
 ): Promise<{ ok: boolean; reason?: string; job?: JobRecord; budget: TxBudget; token?: number }> {
   const jobId = invoke.jobId || "";
-  const leaseMs = invoke.leaseMs ?? DEFAULT_LEASE_MS;
-  const command = invoke.command || "acquire";
-
-  if (command === "inspect") {
+  if ((invoke.command || "acquire") === "inspect") {
     const started = Date.now();
     const job = await store.get(jobId);
     return {
@@ -81,84 +164,262 @@ export async function processDemoCommand(
       budget: { reads: 1, writes: 0, total: 1, elapsedMs: Date.now() - started }
     };
   }
+  const written = await store.transact(jobId, (job) => applyDemoCommand(job, invoke, now));
+  return {
+    ok: !written.mutation.error,
+    reason: written.mutation.error,
+    job: written.mutation.result,
+    token: written.mutation.result?.fencingToken,
+    budget: written.budget
+  };
+}
 
-  if (command === "acquire") {
-    const claimed = await claimJob(store, jobId, now, leaseMs);
-    return {
-      ok: !claimed.mutation.error,
-      reason: claimed.mutation.error,
-      job: claimed.mutation.result,
-      token: claimed.mutation.result?.fencingToken,
-      budget: claimed.budget
-    };
+export function jobsNonceId(nonce: string): string {
+  return buildIdempotencyRecord({
+    actorId: JOBS_INVOKE_ACTOR,
+    action: JOBS_INVOKE_ACTION,
+    idempotencyKey: nonce,
+    payload: { nonce },
+    requestId: "nonce"
+  }).id;
+}
+
+export async function processSignedJobsCommand(input: {
+  jobStore: JobStore;
+  idempotencyStore?: IdempotencyStore;
+  workStore?: WorkStore;
+  invoke: JobsServerInvoke;
+  requestId: string;
+  now: Date;
+}): Promise<{
+  ok: boolean;
+  reason?: string;
+  job?: JobRecord;
+  budget: TxBudget;
+  token?: number;
+  replayed?: boolean;
+  code?: string;
+}> {
+  const invoke = input.invoke;
+  const nonceId = jobsNonceId(invoke.nonce);
+  const jobId = invoke.jobId || nonceId;
+  const incoming = buildIdempotencyRecord({
+    actorId: JOBS_INVOKE_ACTOR,
+    action: JOBS_INVOKE_ACTION,
+    idempotencyKey: invoke.nonce,
+    payload: jobsInvokePayload(invoke),
+    requestId: input.requestId
+  });
+
+  const finish = (
+    applied: JobMutation<JobRecord | undefined>,
+    budget: TxBudget,
+    replayed = false
+  ) => ({
+    ok: !applied.error,
+    reason: applied.error,
+    job: applied.result,
+    token: applied.result?.fencingToken,
+    budget,
+    replayed
+  });
+
+  if (input.workStore) {
+    const ran = await input.workStore.transactNonceJob<{
+      applied: JobMutation<JobRecord | undefined>;
+      replayed: boolean;
+    }>(jobId, nonceId, ({ job, nonce }) => {
+      if (nonce && nonce.payloadHash !== incoming.payloadHash) {
+        return {
+          error: "IDEMPOTENCY_CONFLICT",
+          result: { applied: { error: "IDEMPOTENCY_CONFLICT", result: undefined }, replayed: false }
+        };
+      }
+      if (nonce && (nonce.status === "succeeded" || nonce.status === "failed") && nonce.resultRef) {
+        const stored = nonce.resultRef as JobMutation<JobRecord | undefined>;
+        return { nonce, result: { applied: stored, replayed: true } };
+      }
+      const applied = applyDemoCommand(job, invoke, input.now);
+      return {
+        job: applied.job,
+        nonce: {
+          ...incoming,
+          status: applied.error ? "failed" : "succeeded",
+          resultRef: { error: applied.error, result: applied.result, job: applied.job }
+        },
+        result: { applied, replayed: false }
+      };
+    });
+    if (ran.mutation.error === "IDEMPOTENCY_CONFLICT") {
+      return { ok: false, reason: "IDEMPOTENCY_CONFLICT", code: "IDEMPOTENCY_CONFLICT", budget: ran.budget };
+    }
+    return finish(ran.mutation.result.applied, ran.budget, ran.mutation.result.replayed);
   }
 
-  const token = invoke.fencingToken;
-  if (typeof token !== "number") {
-    return { ok: false, reason: "FENCING_TOKEN_REQUIRED", budget: { reads: 0, writes: 0, total: 0, elapsedMs: 0 } };
+  if (input.idempotencyStore) {
+    const existing = await input.idempotencyStore.get(nonceId);
+    if (existing && existing.payloadHash !== incoming.payloadHash) {
+      return { ok: false, reason: "IDEMPOTENCY_CONFLICT", code: "IDEMPOTENCY_CONFLICT", budget: { reads: 1, writes: 0, total: 1, elapsedMs: 0 } };
+    }
+    if (existing && (existing.status === "succeeded" || existing.status === "failed") && existing.resultRef) {
+      const stored = existing.resultRef as JobMutation<JobRecord | undefined>;
+      return finish(stored, { reads: 1, writes: 0, total: 1, elapsedMs: 0 }, true);
+    }
+    const processed = await processDemoCommand(input.jobStore, invoke, input.now);
+    await input.idempotencyStore.transact(nonceId, () => ({
+      record: {
+        ...incoming,
+        status: processed.reason ? "failed" : "succeeded",
+        resultRef: { error: processed.reason, result: processed.job, job: processed.job }
+      },
+      result: processed
+    }));
+    return { ...processed, replayed: false };
   }
 
-  if (command === "saveCursor" || command === "interruptAfterCursor") {
-    const cursor = invoke.cursor;
-    const written = await writeWithToken(store, jobId, token, now, (job) =>
-      saveCursor(job, token, cursor ?? advanceDemoCursor(job), now)
-    );
-    return {
-      ok: !written.mutation.error,
-      reason: written.mutation.error,
-      job: written.mutation.result,
-      token,
-      budget: written.budget
-    };
-  }
-
-  if (command === "renew") {
-    const written = await writeWithToken(store, jobId, token, now, (job) => renewLease(job, token, now, leaseMs));
-    return {
-      ok: !written.mutation.error,
-      reason: written.mutation.error,
-      job: written.mutation.result,
-      token,
-      budget: written.budget
-    };
-  }
-
-  if (command === "succeed") {
-    const written = await writeWithToken(store, jobId, token, now, (job) => markSucceeded(job, token, now));
-    return {
-      ok: !written.mutation.error,
-      reason: written.mutation.error,
-      job: written.mutation.result,
-      token,
-      budget: written.budget
-    };
-  }
-
-  if (command === "fail") {
-    const written = await writeWithToken(store, jobId, token, now, (job) =>
-      markFailed(job, token, now, { code: invoke.failCode || "DEMO_FAIL", message: "synthetic retry" })
-    );
-    return {
-      ok: !written.mutation.error,
-      reason: written.mutation.error,
-      job: written.mutation.result,
-      token,
-      budget: written.budget
-    };
-  }
-
-  return { ok: false, reason: "UNKNOWN_COMMAND", budget: { reads: 0, writes: 0, total: 0, elapsedMs: 0 } };
+  return processDemoCommand(input.jobStore, invoke, input.now);
 }
 
 export async function continueDemoJob(store: JobStore, jobId: string, token: number, now: Date) {
-  return writeWithToken(store, jobId, token, now, (job) => {
-    const cursor = advanceDemoCursor(job);
-    const saved = saveCursor(job, token, cursor, now);
-    if (!saved.ok) return saved;
-    if (demoCursorComplete(cursor)) {
-      return markSucceeded(saved.job, token, now);
+  return store.transact(jobId, (job) => applyDemoCommand(job, {
+    action: "jobs.process",
+    issuedAt: now.toISOString(),
+    nonce: "continue",
+    jobId,
+    command: "continue",
+    fencingToken: token,
+    mac: ""
+  }, now));
+}
+
+export function planResume(
+  snap: ResumeSnapshot,
+  input: {
+    actorId: string;
+    jobId: string;
+    reason: string;
+    requestId: string;
+    idempotencyKey: string;
+    now: Date;
+  }
+): ResumeMutation<ResumeOutcome> {
+  const reason = sanitizeAuditReason(input.reason);
+  const payload = { jobId: input.jobId, reason };
+  const record = buildIdempotencyRecord({
+    actorId: input.actorId,
+    action: "job.resume",
+    idempotencyKey: input.idempotencyKey,
+    payload,
+    requestId: input.requestId
+  });
+
+  if (snap.idem && snap.idem.payloadHash !== record.payloadHash) {
+    return { error: "IDEMPOTENCY_CONFLICT", result: { ok: false, code: "IDEMPOTENCY_CONFLICT" } };
+  }
+
+  const terminal = snap.idem && (snap.idem.status === "succeeded" || snap.idem.status === "failed");
+  if (terminal && snap.idem) {
+    const stored = (snap.idem.resultRef || {}) as ResumeOutcome;
+    const needsAudit = snap.idem.status === "succeeded" && stored.ok === true && stored.auditWritten !== true && snap.job;
+    if (needsAudit && snap.job) {
+      const audit = buildResumeAudit(input, reason, stored.beforeState || snap.job.state, snap.job);
+      return {
+        idem: {
+          ...snap.idem,
+          resultRef: { ...stored, replayed: true, auditWritten: true }
+        },
+        audit,
+        result: { ...stored, ok: stored.ok !== false, replayed: true, auditWritten: true, pending: false }
+      };
     }
-    return saved;
+    return {
+      result: {
+        ok: stored.ok !== false && snap.idem.status !== "failed",
+        code: stored.code,
+        reason: stored.reason,
+        replayed: true,
+        pending: false,
+        job: stored.job,
+        beforeState: stored.beforeState
+      }
+    };
+  }
+
+  const alreadyResumed =
+    snap.job &&
+    snap.job.lastResumeHash === record.payloadHash &&
+    (snap.job.state === "queued" || snap.job.state === "running" || snap.job.state === "succeeded");
+
+  if (alreadyResumed && snap.job) {
+    const view = publicJobView(snap.job);
+    const beforeState = (snap.idem?.resultRef as ResumeOutcome | undefined)?.beforeState || "queued";
+    const audit = buildResumeAudit(input, reason, beforeState, snap.job);
+    return {
+      job: snap.job,
+      idem: {
+        ...record,
+        status: "succeeded",
+        resultRef: { ok: true, job: view, beforeState, auditWritten: true, pending: false }
+      },
+      audit,
+      result: { ok: true, job: view, replayed: true, pending: false, beforeState, auditWritten: true }
+    };
+  }
+
+  if (!snap.job) {
+    return {
+      idem: {
+        ...record,
+        status: "failed",
+        resultRef: { ok: false, code: "NOT_FOUND", reason: "NOT_FOUND", pending: false }
+      },
+      result: { ok: false, code: "NOT_FOUND", reason: "NOT_FOUND", pending: false }
+    };
+  }
+
+  const beforeState = snap.job.state;
+  const next = resumeJob(snap.job, input.now, record.payloadHash);
+  if (!next.ok) {
+    return {
+      idem: {
+        ...record,
+        status: "failed",
+        resultRef: { ok: false, code: "VERSION_CONFLICT", reason: next.reason, pending: false }
+      },
+      result: { ok: false, code: "VERSION_CONFLICT", reason: next.reason, pending: false }
+    };
+  }
+
+  const view = publicJobView(next.job);
+  const audit = buildResumeAudit(input, reason, beforeState, next.job);
+  return {
+    job: next.job,
+    idem: {
+      ...record,
+      status: "succeeded",
+      resultRef: { ok: true, job: view, beforeState, auditWritten: true, pending: false }
+    },
+    audit,
+    result: { ok: true, job: view, replayed: false, pending: false, beforeState, auditWritten: true }
+  };
+}
+
+function buildResumeAudit(
+  input: { actorId: string; jobId: string; requestId: string; now: Date },
+  reason: string,
+  beforeState: string,
+  job: JobRecord
+): AuditEntry {
+  return buildAuditEntry({
+    actorType: "admin",
+    actorId: input.actorId,
+    action: "job.resume",
+    target: `jobs/${input.jobId}`,
+    reason,
+    requestId: input.requestId,
+    before: { state: beforeState },
+    after: { state: job.state, cursor: job.cursor },
+    now: input.now
   });
 }
 
@@ -166,6 +427,7 @@ export async function resumeDefinedJob(input: {
   jobStore: JobStore;
   idempotencyStore: IdempotencyStore;
   auditStore: AuditStore;
+  workStore?: WorkStore;
   actorId: string;
   jobId: string;
   reason: string;
@@ -178,110 +440,57 @@ export async function resumeDefinedJob(input: {
   reason?: string;
   replayed?: boolean;
   pending?: boolean;
-  job?: ReturnType<typeof publicJobView>;
+  job?: ResumeView;
   budget: TxBudget;
   audit?: AuditEntry;
+  beforeState?: string;
 }> {
-  const payload = { jobId: input.jobId, reason: input.reason };
+  const planInput = {
+    actorId: input.actorId,
+    jobId: input.jobId,
+    reason: input.reason,
+    requestId: input.requestId,
+    idempotencyKey: input.idempotencyKey,
+    now: input.now
+  };
   const record = buildIdempotencyRecord({
     actorId: input.actorId,
     action: "job.resume",
     idempotencyKey: input.idempotencyKey,
-    payload,
+    payload: { jobId: input.jobId, reason: sanitizeAuditReason(input.reason) },
     requestId: input.requestId
   });
 
-  const existing = await input.idempotencyStore.transact(record.id, (row) => {
-    const decision = replayOrConflict(row, record.payloadHash, () => null);
-    if (!decision.ok) {
-      return { error: "IDEMPOTENCY_CONFLICT", result: row, record: row };
-    }
-    if (row && decision.replayed) {
-      return { result: row, record: row };
-    }
-    return { record: { ...record, status: "pending" }, result: undefined };
-  });
-
-  if (existing.mutation.error === "IDEMPOTENCY_CONFLICT") {
-    return { ok: false, code: "IDEMPOTENCY_CONFLICT", budget: existing.budget };
-  }
-
-  const stored = existing.mutation.record;
-  if (stored?.status === "succeeded") {
-    const job = await input.jobStore.get(input.jobId);
+  if (input.workStore) {
+    const ran = await input.workStore.transactResume(input.jobId, record.id, (snap) => planResume(snap, planInput));
     return {
-      ok: true,
-      replayed: true,
-      job: job ? publicJobView(job) : (stored.resultRef as ReturnType<typeof publicJobView> | undefined),
-      budget: existing.budget
+      ...ran.mutation.result,
+      pending: false,
+      budget: ran.budget,
+      audit: ran.mutation.audit
     };
   }
 
-  if (stored?.status === "pending" && existing.mutation.result) {
-    const job = await input.jobStore.get(input.jobId);
-    return {
-      ok: true,
-      replayed: true,
-      pending: true,
-      reason: "UNKNOWN_RESULT_QUERIED",
-      job: job ? publicJobView(job) : undefined,
-      budget: existing.budget
-    };
+  const job = await input.jobStore.get(input.jobId);
+  const idem = await input.idempotencyStore.get(record.id);
+  const planned = planResume({ job, idem }, planInput);
+  if (planned.error === "IDEMPOTENCY_CONFLICT") {
+    return { ok: false, code: "IDEMPOTENCY_CONFLICT", pending: false, budget: { reads: 2, writes: 0, total: 2, elapsedMs: 0 } };
   }
-
-  const resumed = await input.jobStore.transact(input.jobId, (job) => {
-    if (!job) return { error: "NOT_FOUND", result: undefined };
-    const next = resumeJob(job, input.now);
-    if (!next.ok) return { error: next.reason, result: undefined, job };
-    return { job: next.job, result: next.job };
-  });
-  if (resumed.mutation.error) {
-    return {
-      ok: false,
-      code: resumed.mutation.error === "NOT_FOUND" ? "NOT_FOUND" : "VERSION_CONFLICT",
-      reason: resumed.mutation.error,
-      budget: {
-        reads: existing.budget.reads + resumed.budget.reads,
-        writes: existing.budget.writes + resumed.budget.writes,
-        total: existing.budget.total + resumed.budget.total,
-        elapsedMs: existing.budget.elapsedMs + resumed.budget.elapsedMs
-      }
-    };
+  if (planned.job) {
+    await input.jobStore.put(planned.job);
   }
-
-  const view = publicJobView(resumed.mutation.result as JobRecord);
-  await input.idempotencyStore.transact(record.id, (row) => ({
-    record: {
-      ...(row ?? record),
-      status: "succeeded",
-      resultRef: { jobId: view.jobId, state: view.state },
-      requestId: input.requestId
-    },
-    result: view
-  }));
-  const audit = buildAuditEntry({
-    actorType: "admin",
-    actorId: input.actorId,
-    action: "job.resume",
-    target: `jobs/${input.jobId}`,
-    reason: input.reason,
-    requestId: input.requestId,
-    before: { state: "needsReview" },
-    after: { state: view.state, cursor: view.cursor },
-    now: input.now
-  });
-  await input.auditStore.append(audit);
+  if (planned.idem) {
+    await input.idempotencyStore.transact(record.id, () => ({ record: planned.idem, result: planned.result }));
+  }
+  if (planned.audit) {
+    await input.auditStore.append(planned.audit);
+  }
   return {
-    ok: true,
-    replayed: false,
-    job: view,
-    audit,
-    budget: {
-      reads: existing.budget.reads + resumed.budget.reads,
-      writes: existing.budget.writes + resumed.budget.writes + 2,
-      total: existing.budget.total + resumed.budget.total + 2,
-      elapsedMs: existing.budget.elapsedMs + resumed.budget.elapsedMs
-    }
+    ...planned.result,
+    pending: false,
+    budget: { reads: 2, writes: (planned.job ? 1 : 0) + (planned.idem ? 1 : 0) + (planned.audit ? 1 : 0), total: 2 + (planned.job ? 1 : 0) + (planned.idem ? 1 : 0) + (planned.audit ? 1 : 0), elapsedMs: 0 },
+    audit: planned.audit
   };
 }
 
@@ -304,8 +513,7 @@ export async function probeIdempotency(
   const result = await store.transact<{ replayed: boolean; resultRef: unknown } | IdempotencyRecord | undefined>(
     record.id,
     (row) => {
-      const decision = replayOrConflict(row, record.payloadHash, () => record.resultRef);
-      if (!decision.ok) {
+      if (row && row.payloadHash !== record.payloadHash) {
         return { error: "IDEMPOTENCY_CONFLICT", result: row, record: row };
       }
       if (row) {

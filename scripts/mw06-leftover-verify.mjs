@@ -1,5 +1,36 @@
 import { authorizedEnvId, assertMwTestReady, redact, runTcb } from "./mw04-lib.mjs";
-import { MW06_COLLECTIONS, MW06_INDEXES, MW06_TEST_PREFIX, listIndexCommand, mw06LeftoverDecision } from "./mw06-lib.mjs";
+import { MW06_COLLECTIONS, MW06_INDEXES, MW06_TEST_PREFIX, listIndexCommand, mw06LeftoverDecision, parseNosqlCount } from "./mw06-lib.mjs";
+
+function parseAcl(aclResult) {
+  if (!aclResult || aclResult.code !== 0) {
+    return { obtained: false, acl: "" };
+  }
+  const raw = aclResult.json?.data?.acl ?? aclResult.json?.acl ?? aclResult.json?.data?.ACL ?? aclResult.json?.data;
+  if (typeof raw === "string" && raw.trim()) {
+    return { obtained: true, acl: raw.trim() };
+  }
+  if (raw && typeof raw === "object" && typeof raw.acl === "string" && raw.acl.trim()) {
+    return { obtained: true, acl: raw.acl.trim() };
+  }
+  return { obtained: false, acl: "" };
+}
+
+function parseCount(result) {
+  return parseNosqlCount(result);
+}
+
+function collectionNames(json) {
+  const raw = json?.data?.results?.[0] || json?.data || json;
+  const cursor = raw?.cursor || raw;
+  const first = Array.isArray(cursor) ? cursor[0] : cursor;
+  const cols = first?.cursor?.firstBatch || first?.firstBatch || first?.collections || [];
+  if (Array.isArray(cols)) {
+    return cols
+      .map((item) => (typeof item === "string" ? item : item.name || item.Name || item._id))
+      .filter(Boolean);
+  }
+  return [];
+}
 
 const ready = await assertMwTestReady();
 const listed = await runTcb([
@@ -17,22 +48,11 @@ const listed = await runTcb([
   "--json"
 ]);
 
-function collectionNames(json) {
-  const raw = json?.data?.results?.[0] || json?.data || json;
-  const cursor = raw?.cursor || raw;
-  const first = Array.isArray(cursor) ? cursor[0] : cursor;
-  const cols = first?.cursor?.firstBatch || first?.firstBatch || first?.collections || [];
-  if (Array.isArray(cols)) {
-    return cols
-      .map((item) => (typeof item === "string" ? item : item.name || item.Name || item._id))
-      .filter(Boolean);
-  }
-  return [];
-}
-
 let names = collectionNames(listed.json);
-if (!MW06_COLLECTIONS.every((name) => names.includes(name))) {
+let collectionsConfirmed = listed.code === 0 && MW06_COLLECTIONS.every((name) => names.includes(name));
+if (!collectionsConfirmed) {
   const present = [];
+  let probesOk = true;
   for (const name of MW06_COLLECTIONS) {
     const probe = await runTcb([
       "db",
@@ -49,14 +69,26 @@ if (!MW06_COLLECTIONS.every((name) => names.includes(name))) {
       "--json"
     ]);
     const text = `${probe.stdout || ""}${probe.stderr || ""}${JSON.stringify(probe.json || {})}`;
-    if (!/NamespaceNotFound|ns not found/i.test(text)) present.push(name);
+    if (/NamespaceNotFound|ns not found/i.test(text)) {
+      probesOk = false;
+      continue;
+    }
+    if (probe.code !== 0 && !/already exists|ok/i.test(text)) {
+      probesOk = false;
+      continue;
+    }
+    present.push(name);
   }
   names = [...new Set([...names, ...present])];
+  collectionsConfirmed = probesOk && MW06_COLLECTIONS.every((name) => names.includes(name));
 }
+
 let testDocCount = 0;
+let testDocsConfirmed = true;
 const leftoverQueries = [
   { collection: "jobs", query: { jobId: { $regex: `^${MW06_TEST_PREFIX}` } } },
   { collection: "idempotency", query: { actorId: { $regex: `^${MW06_TEST_PREFIX}` } } },
+  { collection: "idempotency", query: { idempotencyKey: { $regex: `^${MW06_TEST_PREFIX}` } } },
   { collection: "audit_logs", query: { target: { $regex: `^jobs/${MW06_TEST_PREFIX}` } } }
 ];
 for (const item of leftoverQueries) {
@@ -74,11 +106,16 @@ for (const item of leftoverQueries) {
     ]),
     "--json"
   ]);
-  const n = counted.json?.data?.results?.[0]?.n ?? counted.json?.data?.n ?? 0;
-  if (typeof n === "number") testDocCount += n;
+  const n = parseCount(counted);
+  if (n === null) {
+    testDocsConfirmed = false;
+  } else {
+    testDocCount += n;
+  }
 }
 
 const missingIndexes = [];
+let indexesConfirmed = true;
 for (const index of MW06_INDEXES) {
   const listedIndex = await runTcb([
     "db",
@@ -88,6 +125,11 @@ for (const index of MW06_INDEXES) {
     JSON.stringify([listIndexCommand(index.collection)]),
     "--json"
   ]);
+  if (listedIndex.code !== 0 || !listedIndex.json) {
+    indexesConfirmed = false;
+    missingIndexes.push(index.name);
+    continue;
+  }
   const text = JSON.stringify(listedIndex.json || listedIndex.stdout || "");
   if (!text.includes(index.name) && !text.includes(index.keys[0].name)) {
     missingIndexes.push(index.name);
@@ -95,31 +137,45 @@ for (const index of MW06_INDEXES) {
 }
 
 const fnDetail = await runTcb(["fn", "detail", "mw-jobs", "--json"]);
+const timerConfirmed = fnDetail.code === 0 && Boolean(fnDetail.json);
 const triggers = fnDetail.json?.data?.Triggers || fnDetail.json?.Triggers || [];
 const jobsTimerDeployed = Array.isArray(triggers) && triggers.some((item) => /timer/i.test(JSON.stringify(item)));
 
-const acl = await runTcb(["storage", "rules", "get", "--json"]);
-let client = { attempted: false };
+const aclResult = await runTcb(["storage", "rules", "get", "--json"]);
+const aclParsed = parseAcl(aclResult);
+
+let clientDenied = false;
+let clientAttempted = false;
 try {
   const { default: cloudbase } = await import("@cloudbase/js-sdk");
   const app = cloudbase.init({ env: authorizedEnvId(), region: "ap-shanghai" });
   try {
+    clientAttempted = true;
     await app.database().collection("jobs").limit(1).get();
-    client = { attempted: true, ok: true };
-  } catch (error) {
-    client = { attempted: true, ok: false, code: error && error.code };
+    clientDenied = false;
+  } catch {
+    clientDenied = true;
   }
-} catch (error) {
-  client = { attempted: false, error: { message: error && error.message } };
+} catch {
+  clientAttempted = false;
+  clientDenied = false;
 }
 
+const enableOverrunConfirmed = typeof ready.enableOverrun === "boolean";
 const decision = mw06LeftoverDecision({
   collectionNames: names,
+  collectionsConfirmed,
   testDocCount,
+  testDocsConfirmed,
   missingIndexes,
-  enableOverrun: ready.enableOverrun,
-  acl: acl.json?.data?.acl,
-  jobsTimerDeployed
+  indexesConfirmed,
+  enableOverrun: ready.enableOverrun === true,
+  enableOverrunConfirmed,
+  acl: aclParsed.acl,
+  aclObtained: aclParsed.obtained,
+  clientDenied: clientAttempted && clientDenied,
+  jobsTimerDeployed,
+  timerConfirmed
 });
 
 console.log(
@@ -127,7 +183,7 @@ console.log(
     redact({
       ...decision,
       collectionNames: names.filter((name) => MW06_COLLECTIONS.includes(name) || name === "admin_users"),
-      clientDenied: client.attempted ? client.ok === false : "NOT_CONFIRMED",
+      clientDenied: clientAttempted ? clientDenied : "NOT_CONFIRMED",
       otherEnvCount: ready.otherEnvCount
     }),
     null,

@@ -1,6 +1,6 @@
 import { idempotencyId, payloadHash } from "./canonical.js";
 
-export type IdempotencyStatus = "pending" | "succeeded" | "conflict";
+export type IdempotencyStatus = "pending" | "succeeded" | "failed" | "conflict";
 
 export type IdempotencyRecord = {
   id: string;

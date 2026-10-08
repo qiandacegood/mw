@@ -16,13 +16,12 @@ import {
   type ApiResponse,
   type ErrorCode
 } from "@mw/shared";
-import type { AuditStore, IdempotencyStore, JobStore, MaintenanceStore } from "./modules/job-stores.js";
+import type { AuditStore, IdempotencyStore, JobStore, MaintenanceStore, WorkStore } from "./modules/job-stores.js";
 import {
   budgetsWithinLimit,
-  continueDemoJob,
   jobsTrustFromEvent,
   probeIdempotency,
-  processDemoCommand,
+  processSignedJobsCommand,
   readJob,
   resumeDefinedJob
 } from "./modules/transaction-jobs.js";
@@ -70,6 +69,7 @@ export interface OfficialContext {
   jobStore?: JobStore;
   idempotencyStore?: IdempotencyStore;
   auditStore?: AuditStore;
+  workStore?: WorkStore;
   maintenanceStore?: MaintenanceStore;
 }
 
@@ -373,6 +373,7 @@ async function handleAdmin(
     jobStore: ctx.jobStore,
     idempotencyStore: ctx.idempotencyStore,
     auditStore: ctx.auditStore,
+    workStore: ctx.workStore,
     actorId: admin.record.uid,
     jobId,
     reason,
@@ -388,7 +389,7 @@ async function handleAdmin(
   return ok(requestId, now, {
     job: resumed.job,
     replayed: resumed.replayed === true,
-    pending: resumed.pending === true,
+    pending: false,
     tx: budget
   });
 }
@@ -475,27 +476,22 @@ async function handleJobs(ctx: OfficialContext): Promise<Record<string, unknown>
     });
     return { entry: "mw-jobs", ...probed };
   }
-  if (trust.invoke.command === "continue") {
-    const token = trust.invoke.fencingToken;
-    if (typeof token !== "number" || !trust.invoke.jobId) {
-      return { ok: false, entry: "mw-jobs", reason: "FENCING_TOKEN_REQUIRED" };
-    }
-    const continued = await continueDemoJob(ctx.jobStore, trust.invoke.jobId, token, now);
-    return {
-      ok: !continued.mutation.error,
-      entry: "mw-jobs",
-      reason: continued.mutation.error,
-      job: continued.mutation.result ? publicJobView(continued.mutation.result) : undefined,
-      tx: budgetsWithinLimit(continued.budget)
-    };
-  }
-  const processed = await processDemoCommand(ctx.jobStore, trust.invoke, now);
+  const processed = await processSignedJobsCommand({
+    jobStore: ctx.jobStore,
+    idempotencyStore: ctx.idempotencyStore,
+    workStore: ctx.workStore,
+    invoke: trust.invoke,
+    requestId: requestIdOf(event),
+    now
+  });
   return {
     ok: processed.ok,
     entry: "mw-jobs",
     reason: processed.reason,
+    code: processed.code,
     job: processed.job ? publicJobView(processed.job) : undefined,
     fencingToken: processed.token,
+    replayed: processed.replayed === true,
     tx: budgetsWithinLimit(processed.budget)
   };
 }
