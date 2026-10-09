@@ -1,0 +1,19 @@
+<view class="page">
+  <view class="crumb">
+    <text wx:for="{{crumbs}}" wx:key="id" class="crumb-item" data-id="{{item.id}}" bindtap="selectCrumb">{{item.name}}</text>
+  </view>
+  <text class="h1">{{title}}</text>
+  <view wx:if="{{state === 'loading'}}" class="card">加载中…</view>
+  <view wx:elif="{{state === 'error'}}" class="card err">
+    <text>{{message}}</text>
+    <button bindtap="reload">重试</button>
+  </view>
+  <view wx:elif="{{state === 'empty'}}" class="card">{{message}}</view>
+  <block wx:else>
+    <view wx:for="{{children}}" wx:key="id" class="card" data-id="{{item.id}}" bindtap="enterChild">
+      <text class="title">进入下级：{{item.name}}</text>
+    </view>
+    <view wx:if="{{!children.length && currentId}}" class="muted">已到本级末级或暂无下级。</view>
+    <button bindtap="openList">查看本级及后代试卷</button>
+  </block>
+</view>

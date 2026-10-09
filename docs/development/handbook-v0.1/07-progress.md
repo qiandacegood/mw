@@ -1,6 +1,6 @@
 # 07 思维工坊实际进度
 
-开发手册 v0.1｜更新日期：2026年10月9日  
+开发手册 v0.1｜更新日期：2026年10月10日
 [任务总览](02-roadmap.md)｜[手册入口](README.md)
 
 本文件是开发执行状态入口。任务总览规定应做什么，本文件只记录实际做到哪里；证据和限制写入各任务结果，再由此处链接。
@@ -8,12 +8,12 @@
 ## 当前状态
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
-- **MW01、MW02、MW03、MW05、MW06、MW07、MW08、MW09、MW10、MW11 已完成**；**MW04 部分完成**；**MW12 部分完成**；MW13—MW30 未开始。MW07 仅为技术样例：未真实扣款、未 iOS 现网、未购买闭环，未标 A14/A20/T20/T26 通过。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
+- **MW01、MW02、MW03、MW05、MW06、MW07、MW08、MW09、MW10、MW11、MW13 已完成**；**MW04 部分完成**；**MW12 部分完成**；MW14—MW30 未开始。MW07 仅为技术样例：未真实扣款、未 iOS 现网、未购买闭环，未标 A14/A20/T20/T26 通过。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
 - mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；MW04 真实剩余仅为 **P08/P10/P11 PARTIAL**。P08 已补记 `jobs` / `audit_logs` 索引、MW09 的 `categories` 指定索引（`parentId/deletedAt/sort/_id`）、MW10 的 `questions` 指定索引（`categoryId/status/updatedAt/_id`），以及 MW11 的 `papers` 两条指定索引（`status/categoryId/publishedAt/_id` 与 `status/sort/_id`）；其余未来索引仍 PARTIAL。P10 仍 PARTIAL（网关 413）。已锁定 Nodejs20.19 与 SDK。正式六入口、`cloudbase_auth`、`admin_users` 与 MW06 四集合已部署；MW09 已部署 `categories` / `category_names` 与种子十类；MW10 已部署 `questions` / `question_versions` / `media_assets` / `upload_tickets`；MW11 已部署 `papers` / `paper_versions` / `paper_chunks` / `paper_answers`。**没有生产环境、没有真实支付**。
 - MW07-A 已于 2026-10-08 按官方现行页与思维工坊项目小程序后台完成资格核对。用户其后完成后台开通，并写入本地沙箱配置名。MW07-B 已落地签名/通知/发货隔离样例；`mw-pay-hook` 已覆盖带 `openid` 的 GET 握手、XML/JSON POST 与伪造/APIv3 拒绝。沙箱 `/xpay/query_order` 已对未知单号调用一次 `env=1`：`errcode=268490001`，`authPathReached=true`，`signatureAccepted=true`，`wroteDocs=false`。未把 A14/A20 或 T20/T26 标为通过。未真实扣款、未做 iOS 现网、未做购买闭环。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
 - MW08 代码整改 `a763d0f` 仍有效。其后曾有一轮 automator 自动跑页、导入 knownIds、精确删除 9 条，属非用户手点，不能标完成，也不改写成当时已手点通过。本轮由用户在微信开发者工具手点「运行 MW08 套件」与「复制 knownIds」闭合可信 FROM 正路径：并发唯一性来自这次手点摘要（`raceSameMember=true`）；写入新哈希 knownIds 后精确清理，`leftoverDocs=0`、`cloudWriteClaimed=true`、`wroteDocs=true`。
-- MW12 保持部分完成（题库批 leftover 已清，无试卷 hashed id），不标 A21/T16/T17 通过。下一建议 MW13 由另对话执行。MW07 已完成（仅技术样例），不把 A14/A20/T20/T26 标通过。
+- 本轮收口 MW13，不启动 MW14。MW12 保持部分完成，不改写成已完成，不标 A21/T16/T17 通过。MW13 用户手点 1–6 与 leftover=0 已闭合。未标 A01/A02/A03/T03/T15。MW07 已完成（仅技术样例），不把 A14/A20/T20/T26 标通过。
 
 ## 任务状态
 
@@ -31,7 +31,7 @@
 | MW10 | 图片素材与题库管理 | [已完成](first-batch/results/mw10-result.md) |
 | MW11 | 试卷编排与发布快照 | [已完成](first-batch/results/mw11-result.md) |
 | MW12 | 题库与试卷批量导入 | [部分完成](first-batch/results/mw12-result.md) |
-| MW13 | 首页与三级分类选卷 | 未开始 |
+| MW13 | 首页与三级分类选卷 | [已完成](first-batch/results/mw13-result.md) |
 | MW14 | 答题草稿与继续练习 | 未开始 |
 | MW15 | 交卷评分与成绩解析 | 未开始 |
 | MW16 | 成长等级与勋章 | 未开始 |
@@ -111,4 +111,6 @@
 | MW11 | [mw11-result.md](first-batch/results/mw11-result.md)（进行中：本地四项检查 0；已部署 `mw-admin` / `mw-public`；mw-test 已建 papers 四集合与两条指定索引；CLI 负向 AUTH_REQUIRED / FORBIDDEN；未登录直写拒绝；超额关闭；种子十类仍在；当时已登录后台正路径 NOT_RUN；未标 A02/A22/T18；未启动 MW12） |
 | MW11 手点收口 | [mw11-result.md](first-batch/results/mw11-result.md)（用户已登录后台手点：组卷 draft revision 1、预览成功、发布 published revision 2；缺块 `CHUNK_MISSING`、坏摘要 `MANIFEST_HASH_MISMATCH`；发布后改题再 get/preview；下架 unpublished revision 3；撤回 withdrawn revision 4。用户哈希与云端解析对上 1 卷 / 1 version / 1 chunk / 1 answer / 1 题 / 2 个 question_versions；精确清理 19 个 knownIds 后 leftoverDocs=0、leftoverObjects=0、wroteDocs=true、种子十类仍在；未标 A02/A22/T18；未启动 MW12） |
 | MW07-B | [mw07b-result.md](first-batch/results/mw07b-result.md)（官方页按 2026-10-09 重读；签名官方向量、发货适配器已落地；hook 已覆盖带 openid 的真实形态；沙箱查单 env=1 未知单 `errcode=268490001`、`authPathReached=true`、`signatureAccepted=true`、`wroteDocs=false`；未真实扣款、未标 A14/A20/T20/T26；未启动 MW12） |
-| MW12 | [mw12-result.md](first-batch/results/mw12-result.md)（部分完成：用户自报手点 4–8 通过；本份 knownIds 解析题库批 16 条后精确删除，`leftoverDocs=0`、`wroteDocs=true`；无试卷 hashed id；未标 A21/T16/T17；未启动 MW13） |
+| MW12 | [mw12-result.md](first-batch/results/mw12-result.md)（部分完成：用户自报手点 4–8 通过；本份 knownIds 解析题库批 16 条后精确删除，`leftoverDocs=0`、`wroteDocs=true`；无试卷 hashed id；未标 A21/T16/T17；不改写成已完成） |
+| MW13 leftover 门禁 | [mw13-result.md](first-batch/results/mw13-result.md)（部分完成：leftover 不再自动收货架/列表；导入只接受 SHA-256；解析失败不得当 leftover=0；leftoverObjects 不再写死 0。公开读未重写。当时手点与 leftover 未做） |
+| MW13 手点收口 | [mw13-result.md](first-batch/results/mw13-result.md)（已完成：用户手点 1–6 自报符合预期；两份测试卷哈希导入解析 2=2，精确删除 8 条后 leftoverDocs=0、wroteDocs=true、cloudWriteClaimed=true、exactIdSweepOnly=true、种子十类仍在、未出现 attempts/orders/vip_*；未标 A01/A02/A03/T03/T15；未启动 MW14；MW12 仍部分完成） |

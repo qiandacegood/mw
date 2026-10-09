@@ -5,7 +5,10 @@
     "jobs": { "read": false, "write": false },
     "idempotency": { "read": false, "write": false },
     "audit_logs": { "read": false, "write": false },
-    "app_config": { "read": false, "write": false }
+    "app_config": { "read": false, "write": false },
+    "import_batches": { "read": false, "write": false },
+    "import_rows": { "read": false, "write": false },
+    "source_keys": { "read": false, "write": false }
   },
   "storage": {
     "acl": "ADMINONLY",

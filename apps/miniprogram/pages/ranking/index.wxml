@@ -1,0 +1,4 @@
+<view class="page">
+  <text class="h1">{{title}}</text>
+  <view class="card">{{message}}</view>
+</view>

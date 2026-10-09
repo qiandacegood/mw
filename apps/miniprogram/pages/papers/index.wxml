@@ -1,0 +1,44 @@
+<view class="page">
+  <text class="h1">试卷列表</text>
+  <text class="muted">筛选：难度 · 免费/VIP · 未做/已做。此筛选不到排行榜。</text>
+  <view class="row">
+    <button size="mini" data-value="" bindtap="setDifficulty">全部难度</button>
+    <button size="mini" data-value="beginner" bindtap="setDifficulty">入门</button>
+    <button size="mini" data-value="intermediate" bindtap="setDifficulty">进阶</button>
+    <button size="mini" data-value="challenge" bindtap="setDifficulty">挑战</button>
+  </view>
+  <view class="row">
+    <button size="mini" data-value="" bindtap="setAccess">费用不限</button>
+    <button size="mini" data-value="free" bindtap="setAccess">免费</button>
+    <button size="mini" data-value="vip" bindtap="setAccess">VIP</button>
+  </view>
+  <view class="row">
+    <button size="mini" data-value="" bindtap="setProgress">做过不限</button>
+    <button size="mini" data-value="undone" bindtap="setProgress">未做</button>
+    <button size="mini" data-value="done" bindtap="setProgress">已做</button>
+  </view>
+  <view class="row">
+    <button size="mini" data-value="recommended" bindtap="setSort">推荐</button>
+    <button size="mini" data-value="latest" bindtap="setSort">最新</button>
+    <button size="mini" bindtap="clearFilters">清空筛选</button>
+  </view>
+
+  <view wx:if="{{state === 'loading'}}" class="card">加载中…</view>
+  <view wx:elif="{{state === 'error'}}" class="card err">
+    <text>{{message}}</text>
+    <button bindtap="clearFilters">重试</button>
+  </view>
+  <view wx:elif="{{state === 'unavailable'}}" class="card err">{{message}}</view>
+  <view wx:elif="{{state === 'empty'}}" class="card">
+    <text>{{message}}</text>
+    <button bindtap="clearFilters">清空筛选</button>
+  </view>
+  <block wx:else>
+    <view wx:for="{{items}}" wx:key="paperId" class="card" data-id="{{item.paperId}}" bindtap="openPaper">
+      <text class="tag {{item.access}}">{{item.accessLabel}}</text>
+      <text class="title">{{item.title}}</text>
+      <text class="muted">{{item.difficultyLabel}} · {{item.maxScore}} 分</text>
+    </view>
+    <button wx:if="{{!complete}}" bindtap="more">加载更多</button>
+  </block>
+</view>

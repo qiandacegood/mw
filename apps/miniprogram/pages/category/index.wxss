@@ -1,0 +1,8 @@
+.page { padding: 20px; }
+.h1 { font-size: 20px; font-weight: 600; display: block; margin-top: 8px; }
+.crumb { display: flex; flex-wrap: wrap; color: #2b6cb0; }
+.crumb-item { margin-right: 8px; }
+.muted, .title { display: block; margin-top: 6px; color: #4a5568; }
+.card { margin-top: 12px; padding: 14px; background: #fff; border-radius: 10px; }
+.err { color: #c53030; }
+button { margin-top: 16px; background: #2b6cb0; color: #fff; }

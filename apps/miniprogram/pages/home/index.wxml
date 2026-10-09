@@ -1,10 +1,49 @@
 <view class="page">
   <text class="h1">思维工坊</text>
-  <text class="muted">隔离模拟 paper.detail，未连接 CloudBase</text>
-  <text class="title">{{title}}</text>
-  <text class="tag">{{access}}</text>
-  <button bindtap="loadPaper">重新读取</button>
-  <button bindtap="goMe">我的</button>
-  <button bindtap="goRegister">注册</button>
-  <button bindtap="goMw08">MW08 验证</button>
+  <text class="muted">{{intro}}</text>
+
+  <view wx:if="{{state === 'loading'}}" class="card">加载中…</view>
+  <view wx:elif="{{state === 'error'}}" class="card err">
+    <text>{{message}}</text>
+    <button bindtap="reload">重试</button>
+  </view>
+  <block wx:else>
+    <view wx:if="{{guest}}" class="card">
+      <text>游客可浏览类目和试卷。答题需先注册。</text>
+      <button bindtap="goRegister">注册后练习</button>
+    </view>
+    <view wx:else class="card">总分 {{totalScore}} · {{levelId}}（等级占位，MW16 未做）</view>
+    <view class="card muted">继续练习将在 MW14 接通。本页不开始答题。</view>
+
+    <text class="h2">类目</text>
+    <view wx:if="{{!roots.length}}" class="card">暂无可用类目。</view>
+    <view wx:for="{{roots}}" wx:key="id" class="card" data-id="{{item.id}}" bindtap="goCategory">
+      <text class="title">{{item.name}}</text>
+      <text class="muted">含本级及后代试卷</text>
+    </view>
+
+    <text class="h2">推荐卷</text>
+    <view wx:if="{{!recommended.length}}" class="card">暂无推荐卷。可从分类浏览。</view>
+    <view wx:for="{{recommended}}" wx:key="paperId" class="card" data-id="{{item.paperId}}" bindtap="goPaper">
+      <text class="tag {{item.access}}">{{item.accessLabel}}</text>
+      <text class="title">{{item.title}}</text>
+      <text class="muted">{{item.difficultyLabel}}</text>
+    </view>
+
+    <text class="h2">新上架</text>
+    <view wx:if="{{!latest.length}}" class="card">暂无新上架卷。</view>
+    <view wx:for="{{latest}}" wx:key="paperId" class="card" data-id="{{item.paperId}}" bindtap="goPaper">
+      <text class="tag {{item.access}}">{{item.accessLabel}}</text>
+      <text class="title">{{item.title}}</text>
+      <text class="muted">{{item.difficultyLabel}}</text>
+    </view>
+  </block>
+
+  <view class="card">
+    <text class="title">打开指定试卷（用于已下架/撤回核验）</text>
+    <input class="input" placeholder="输入试卷标识" value="{{lookupId}}" bindinput="onLookupInput" />
+    <button bindtap="openLookup">打开详情</button>
+  </view>
+  <button bindtap="copyKnownIds">复制本轮 leftover knownIds</button>
+  <text class="muted">默认空 papers。只含主动记入的本轮测试卷 SHA-256，不含明文 _id，也不含货架/列表浏览结果。</text>
 </view>

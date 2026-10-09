@@ -1,0 +1,32 @@
+<view class="page">
+  <view wx:if="{{state === 'loading'}}" class="card">加载中…</view>
+  <view wx:elif="{{state === 'error'}}" class="card err">
+    <text>{{message}}</text>
+    <button bindtap="reload">重试</button>
+  </view>
+  <view wx:elif="{{state === 'unavailable'}}" class="card err">{{message}}</view>
+  <block wx:else>
+    <text class="h1">{{title}}</text>
+    <text class="muted">{{path}}</text>
+    <text class="muted">{{meta}}</text>
+    <view class="card">
+      <text class="title">简介</text>
+      <text>{{summary}}</text>
+      <text class="title">目标</text>
+      <text>{{goal}}</text>
+      <text class="title">权限：{{accessLabel}}</text>
+      <text class="muted">本页不含答案、解析或选项对错。</text>
+    </view>
+    <button wx:if="{{guest}}" bindtap="goRegister">注册后开始</button>
+    <view wx:if="{{vipRequired}}" class="card warn">本试卷需要有效 VIP（VIP_REQUIRED）。正式判权是 MW20，本轮不发明账本，不提供开始。</view>
+    <block wx:if="{{canShowStart}}">
+      <button bindtap="startFree">开始</button>
+      <text class="muted">{{startHint}}</text>
+    </block>
+    <view class="card">
+      <text class="muted">浏览不会自动记入 leftover。只有本轮新建测试卷才应点下面按钮。</text>
+      <button bindtap="markLeftover">记入本轮 leftover</button>
+      <text wx:if="{{leftoverMarked}}" class="muted">已记入。回到首页再复制本轮 leftover knownIds。</text>
+    </view>
+  </block>
+</view>

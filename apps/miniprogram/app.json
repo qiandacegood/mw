@@ -1,7 +1,11 @@
 {
   "pages": [
     "pages/home/index",
+    "pages/category/index",
+    "pages/ranking/index",
     "pages/me/index",
+    "pages/papers/index",
+    "pages/paper/index",
     "pages/register/index",
     "pages/profile/index",
     "pages/mw08/index",
@@ -12,6 +16,38 @@
     "navigationBarBackgroundColor": "#2B6CB0",
     "navigationBarTextStyle": "white",
     "backgroundColor": "#F7FAFC"
+  },
+  "tabBar": {
+    "color": "#4A5568",
+    "selectedColor": "#2B6CB0",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/home/index",
+        "text": "首页",
+        "iconPath": "assets/tab-off.png",
+        "selectedIconPath": "assets/tab-on.png"
+      },
+      {
+        "pagePath": "pages/category/index",
+        "text": "分类",
+        "iconPath": "assets/tab-off.png",
+        "selectedIconPath": "assets/tab-on.png"
+      },
+      {
+        "pagePath": "pages/ranking/index",
+        "text": "排行榜",
+        "iconPath": "assets/tab-off.png",
+        "selectedIconPath": "assets/tab-on.png"
+      },
+      {
+        "pagePath": "pages/me/index",
+        "text": "我的",
+        "iconPath": "assets/tab-off.png",
+        "selectedIconPath": "assets/tab-on.png"
+      }
+    ]
   },
   "style": "v2"
 }

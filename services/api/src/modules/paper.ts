@@ -1,5 +1,7 @@
 import {
   PAPER_SCHEMA_VERSION,
+  PUBLIC_PAPER_SCAN_LIMIT,
+  HOME_SHELF_LIMIT,
   applyPublishFault,
   assemblePaperSnapshot,
   assertSnapshotClosed,
@@ -8,10 +10,16 @@ import {
   buildIdempotencyRecord,
   categoryUsableForQuestion,
   collectAssetIds,
+  decodePaperListCursor,
   draftMaxScoreOf,
+  effectiveEnabled,
+  encodePaperListCursor,
   overlappingPaperIds,
   paperIdFor,
+  paperListCursorFilterOf,
+  paperListCursorMatches,
   paperNewStartGate,
+  parseHomeGetInput,
   parsePaperGetInput,
   parsePaperListInput,
   parsePaperPreviewInput,
@@ -29,10 +37,14 @@ import {
   type PaperDraftItem,
   type PaperRecord,
   type PaperVersionRecord,
+  type PublicCategoryNode,
   type QuestionRecord,
   type QuestionVersionRecord
 } from "@mw/shared";
-import type { CategoryReadStore, CategoryUsageStore } from "./category-stores.js";
+import { readCategoryTree } from "./category.js";
+import type { CategoryReadStore, CategoryUsageStore, CategoryWorkStore } from "./category-stores.js";
+import type { PolicyStore } from "./member-stores.js";
+import { readCurrentPolicies } from "./member.js";
 import type { TxBudget } from "./job-stores.js";
 import { isCommittedImport, type ImportVisibilityStore } from "./import-stores.js";
 import type { QuestionUsageStore, QuestionWorkStore } from "./question-stores.js";
@@ -134,51 +146,248 @@ async function resolveDraftItems(
   return { ok: true, items: resolved };
 }
 
+function availableCategoryMap(nodes: CategoryRecord[]): {
+  byId: Map<string, CategoryRecord>;
+  available: Set<string>;
+} {
+  const byId = new Map(nodes.map((row) => [row.categoryId, row]));
+  const available = new Set(
+    nodes.filter((row) => !row.deletedAt && effectiveEnabled(row, byId)).map((row) => row.categoryId)
+  );
+  return { byId, available };
+}
+
+function descendantIdsOf(rootId: string, nodes: CategoryRecord[], available: Set<string>): string[] {
+  const ids = new Set<string>();
+  if (available.has(rootId)) ids.add(rootId);
+  for (const node of nodes) {
+    if (!available.has(node.categoryId)) continue;
+    if (node.categoryId === rootId || node.ancestorIds.includes(rootId) || node.parentId === rootId) {
+      ids.add(node.categoryId);
+    }
+  }
+  return [...ids];
+}
+
+function sortPaperRows(rows: PaperRecord[], sort: "latest" | "recommended"): PaperRecord[] {
+  return [...rows].sort((left, right) => {
+    if (sort === "recommended") {
+      if (left.sort !== right.sort) return left.sort - right.sort;
+      return left.paperId.localeCompare(right.paperId);
+    }
+    const leftAt = left.publishedAt || "";
+    const rightAt = right.publishedAt || "";
+    if (leftAt !== rightAt) return rightAt.localeCompare(leftAt);
+    return left.paperId.localeCompare(right.paperId);
+  });
+}
+
+function cursorAfterKey(row: PaperRecord, sort: "latest" | "recommended"): string {
+  return sort === "recommended" ? String(row.sort).padStart(8, "0") : row.publishedAt || "";
+}
+
+function afterCursor(rows: PaperRecord[], sort: "latest" | "recommended", afterKey: string, afterId: string): PaperRecord[] {
+  return rows.filter((row) => {
+    const key = cursorAfterKey(row, sort);
+    if (sort === "recommended") {
+      if (key !== afterKey) return key > afterKey;
+      return row.paperId > afterId;
+    }
+    if (key !== afterKey) return key < afterKey;
+    return row.paperId > afterId;
+  });
+}
+
 export async function listPapers(input: {
   store?: PaperWorkStore;
   imports?: ImportVisibilityStore;
+  categoryStore?: CategoryReadStore;
   data: Record<string, unknown>;
   publicView: boolean;
-}): Promise<PaperActionSuccess<{ items: ReturnType<typeof toPublicPaperSummary>[]; complete: boolean }> | PaperActionFailure> {
+}): Promise<
+  PaperActionSuccess<{ items: ReturnType<typeof toPublicPaperSummary>[]; nextCursor: string | null; complete: boolean }> | PaperActionFailure
+> {
   const parsed = parsePaperListInput(input.data, input.publicView);
   if (!parsed.ok) return fail("INVALID_ARGUMENT", parsed.issues[0] || "INVALID_LIST", { issues: parsed.issues });
   if (!input.store) return fail("INTERNAL_ERROR", "PAPER_STORE_UNAVAILABLE");
-  const papers = await input.store.listPapers({
+
+  let gen = 0;
+  let allowedIds: string[] | undefined;
+  if (input.publicView) {
+    if (!input.categoryStore) return fail("INTERNAL_ERROR", "CATEGORY_STORE_UNAVAILABLE");
+    const [catalog, nodes] = await Promise.all([input.categoryStore.getCatalog(), input.categoryStore.listActive()]);
+    gen = catalog.treeVersion;
+    const { byId, available } = availableCategoryMap(nodes);
+    if (parsed.categoryId) {
+      const category = (await input.categoryStore.getCategory(parsed.categoryId)) || byId.get(parsed.categoryId);
+      if (!category || category.deletedAt || !effectiveEnabled(category, byId)) {
+        return fail("CATEGORY_UNAVAILABLE", "CATEGORY_UNAVAILABLE");
+      }
+      allowedIds = parsed.includeDescendants ? descendantIdsOf(parsed.categoryId, nodes, available) : [parsed.categoryId];
+    } else {
+      allowedIds = [...available];
+    }
+  }
+
+  const filter = paperListCursorFilterOf({
+    sort: parsed.sort,
     categoryId: parsed.categoryId,
+    includeDescendants: parsed.includeDescendants,
+    difficulty: parsed.difficulty,
+    access: parsed.access,
+    progress: parsed.progress,
+    gen
+  });
+  let startAfter: { afterKey: string; afterId: string } | undefined;
+  if (parsed.cursor) {
+    const decoded = decodePaperListCursor(parsed.cursor);
+    if (!decoded.ok || !paperListCursorMatches(decoded.payload, filter)) {
+      return fail("INVALID_ARGUMENT", "CURSOR_FILTER_MISMATCH", { issues: ["change filters must restart paging"] });
+    }
+    startAfter = { afterKey: decoded.payload.afterKey, afterId: decoded.payload.afterId };
+  }
+
+  if (input.publicView && parsed.progress === "done") {
+    return { ok: true, data: { items: [], nextCursor: null, complete: true }, budget: emptyBudget() };
+  }
+
+  const scanLimit = input.publicView ? Math.max(parsed.limit + 1, PUBLIC_PAPER_SCAN_LIMIT) : parsed.limit;
+  const papers = await input.store.listPapers({
+    categoryId: input.publicView ? undefined : parsed.categoryId,
+    categoryIds: input.publicView ? allowedIds : undefined,
     status: input.publicView ? "published" : parsed.status,
     difficulty: parsed.difficulty,
     access: parsed.access,
     sort: parsed.sort,
-    limit: parsed.limit
+    limit: scanLimit
   });
-  const items = [];
+
+  const unique = new Map<string, PaperRecord>();
   for (const paper of papers) {
+    if (unique.has(paper.paperId)) continue;
     if (!(await isCommittedImport(input.imports, paper.importBatchId))) continue;
-    if (input.publicView && paper.status !== "published") continue;
+    if (input.publicView && (paper.status !== "published" || !paper.activeVersionId)) continue;
+    if (input.publicView && allowedIds && !allowedIds.includes(paper.categoryId)) continue;
+    unique.set(paper.paperId, paper);
+  }
+  let rows = sortPaperRows([...unique.values()], parsed.sort);
+  if (startAfter) {
+    rows = afterCursor(rows, parsed.sort, startAfter.afterKey, startAfter.afterId);
+  }
+  const page = rows.slice(0, parsed.limit);
+  const complete = page.length >= rows.length;
+  const last = page[page.length - 1];
+  const nextCursor =
+    !complete && last
+      ? encodePaperListCursor({
+          ...filter,
+          afterKey: cursorAfterKey(last, parsed.sort),
+          afterId: last.paperId
+        })
+      : null;
+  const items = [];
+  for (const paper of page) {
     const version = paper.activeVersionId ? await input.store.getVersion(paper.activeVersionId) : undefined;
     items.push(toPublicPaperSummary(paper, version));
   }
-  return { ok: true, data: { items, complete: true }, budget: emptyBudget() };
+  return { ok: true, data: { items, nextCursor, complete }, budget: emptyBudget() };
 }
 
 export async function getPublicPaper(input: {
   store?: PaperWorkStore;
   imports?: ImportVisibilityStore;
+  categoryStore?: CategoryReadStore;
   data: Record<string, unknown>;
 }): Promise<PaperActionSuccess<{ paper: ReturnType<typeof toPublicPaperDetail> }> | PaperActionFailure> {
   const parsed = parsePublicPaperDetailInput(input.data);
   if (!parsed.ok) return fail("INVALID_ARGUMENT", parsed.issues[0] || "INVALID_GET", { issues: parsed.issues });
   if (!input.store) return fail("INTERNAL_ERROR", "PAPER_STORE_UNAVAILABLE");
   const paper = await input.store.getPaper(parsed.paperId);
-  if (!paper || paper.status !== "published" || !paper.activeVersionId) {
-    return fail("NOT_FOUND", "PAPER_NOT_FOUND");
-  }
+  if (!paper) return fail("NOT_FOUND", "PAPER_NOT_FOUND");
   if (!(await isCommittedImport(input.imports, paper.importBatchId))) {
     return fail("NOT_FOUND", "PAPER_NOT_FOUND");
+  }
+  if (paper.status === "withdrawn") return fail("PAPER_WITHDRAWN", "PAPER_WITHDRAWN");
+  if (paper.status === "unpublished") return fail("NOT_FOUND", "PAPER_UNPUBLISHED");
+  if (paper.status !== "published" || !paper.activeVersionId) {
+    return fail("NOT_FOUND", "PAPER_NOT_FOUND");
+  }
+  if (input.categoryStore) {
+    const [category, nodes] = await Promise.all([
+      input.categoryStore.getCategory(paper.categoryId),
+      input.categoryStore.listActive()
+    ]);
+    const { byId } = availableCategoryMap(nodes);
+    if (!category || category.deletedAt || !effectiveEnabled(category, byId)) {
+      return fail("CATEGORY_UNAVAILABLE", "CATEGORY_UNAVAILABLE");
+    }
   }
   const version = await input.store.getVersion(paper.activeVersionId);
   if (!version) return fail("NOT_FOUND", "PAPER_VERSION_NOT_FOUND");
   return { ok: true, data: { paper: toPublicPaperDetail(paper, version) }, budget: emptyBudget() };
+}
+
+export async function getHome(input: {
+  paperStore?: PaperWorkStore;
+  categoryStore?: CategoryWorkStore;
+  importStore?: ImportVisibilityStore;
+  policyStore?: PolicyStore;
+  now: Date;
+  data: Record<string, unknown>;
+}): Promise<
+  | PaperActionSuccess<{
+      roots: PublicCategoryNode[];
+      recommended: ReturnType<typeof toPublicPaperSummary>[];
+      latest: ReturnType<typeof toPublicPaperSummary>[];
+      catalogVersion: number;
+      configVersion: { catalogVersion: number; agreementVersion: string; privacyVersion: string };
+    }>
+  | PaperActionFailure
+> {
+  const parsed = parseHomeGetInput(input.data);
+  if (!parsed.ok) return fail("INVALID_ARGUMENT", parsed.issues[0] || "INVALID_HOME", { issues: parsed.issues });
+  const tree = await readCategoryTree(input.categoryStore, { publicView: true });
+  const nodes = (tree.data.nodes || []) as PublicCategoryNode[];
+  const roots = nodes.filter((node) => node.depth === 1);
+  const emptyShelf = { ok: true as const, data: { items: [], nextCursor: null, complete: true }, budget: emptyBudget() };
+  const recommended =
+    input.paperStore && input.categoryStore
+      ? await listPapers({
+          store: input.paperStore,
+          imports: input.importStore,
+          categoryStore: input.categoryStore,
+          data: { sort: "recommended", limit: HOME_SHELF_LIMIT },
+          publicView: true
+        })
+      : emptyShelf;
+  if (!recommended.ok) return recommended;
+  const latest =
+    input.paperStore && input.categoryStore
+      ? await listPapers({
+          store: input.paperStore,
+          imports: input.importStore,
+          categoryStore: input.categoryStore,
+          data: { sort: "latest", limit: HOME_SHELF_LIMIT },
+          publicView: true
+        })
+      : emptyShelf;
+  if (!latest.ok) return latest;
+  const policies = await readCurrentPolicies(input.policyStore, input.now);
+  return {
+    ok: true,
+    data: {
+      roots,
+      recommended: recommended.data.items,
+      latest: latest.data.items,
+      catalogVersion: tree.data.treeVersion,
+      configVersion: {
+        catalogVersion: tree.data.treeVersion,
+        agreementVersion: policies.agreementVersion,
+        privacyVersion: policies.privacyVersion
+      }
+    },
+    budget: emptyBudget()
+  };
 }
 
 export async function getAdminPaper(input: {

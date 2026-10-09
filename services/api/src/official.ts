@@ -58,6 +58,7 @@ import { authorizeUpload, completeUpload, readUploadStatus } from "./modules/upl
 import type { UploadWorkStore } from "./modules/upload-stores.js";
 import {
   getAdminPaper,
+  getHome,
   getPublicPaper,
   listPapers,
   previewPaper,
@@ -409,29 +410,52 @@ async function handlePublic(
     const tree = await readCategoryTree(ctx.categoryStore, { knownVersion: data.knownVersion, publicView: true });
     return publicSafe(requestId, now, tree.data);
   }
-  if (action === "paper.list" || action === "paper.detail") {
+  if (action === "home.get") {
     const event = unwrapFunctionEvent(ctx.event);
     const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
     const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
-    if (action === "paper.list") {
-      const result = await listPapers({ store: ctx.paperStore, imports: ctx.importStore, data, publicView: true });
-      if (!result.ok) {
-        return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
-      }
-      return publicSafe(requestId, now, result.data);
-    }
-    const result = await getPublicPaper({ store: ctx.paperStore, imports: ctx.importStore, data });
+    const result = await getHome({
+      paperStore: ctx.paperStore,
+      categoryStore: ctx.categoryStore,
+      importStore: ctx.importStore,
+      policyStore: ctx.policyStore,
+      now,
+      data
+    });
     if (!result.ok) {
       return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
     }
     return publicSafe(requestId, now, result.data);
   }
-  return publicSafe(requestId, now, {
-    roots: [],
-    recommended: [],
-    catalogVersion: 0,
-    note: "MW05 public skeleton; category.tree is available, paper browse is MW13"
-  });
+  if (action === "paper.list" || action === "paper.detail") {
+    const event = unwrapFunctionEvent(ctx.event);
+    const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+    const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+    if (action === "paper.list") {
+      const result = await listPapers({
+        store: ctx.paperStore,
+        imports: ctx.importStore,
+        categoryStore: ctx.categoryStore,
+        data,
+        publicView: true
+      });
+      if (!result.ok) {
+        return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+      }
+      return publicSafe(requestId, now, result.data);
+    }
+    const result = await getPublicPaper({
+      store: ctx.paperStore,
+      imports: ctx.importStore,
+      categoryStore: ctx.categoryStore,
+      data
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    return publicSafe(requestId, now, result.data);
+  }
+  return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-public" });
 }
 
 async function handleMember(

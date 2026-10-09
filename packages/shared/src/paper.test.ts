@@ -3,9 +3,14 @@ import {
   applyPublishFault,
   assemblePaperSnapshot,
   assertSnapshotClosed,
+  decodePaperListCursor,
+  encodePaperListCursor,
   overlappingPaperIds,
   paperChunkId,
+  paperListCursorMatches,
   paperNewStartGate,
+  parseHomeGetInput,
+  parsePaperListInput,
   parsePaperSaveInput
 } from "./paper.js";
 import type { QuestionVersionRecord } from "./question.js";
@@ -140,6 +145,53 @@ describe("MW11 paper snapshot rules", () => {
     expect(paperNewStartGate("unpublished")).toMatchObject({ blocked: true, reason: "PAPER_UNPUBLISHED" });
     expect(paperNewStartGate("withdrawn")).toMatchObject({ blocked: true, code: "PAPER_WITHDRAWN" });
     expect(paperNewStartGate("published")).toEqual({ blocked: false });
+  });
+
+  it("parses public list filters, opaque cursors and empty home.get", () => {
+    const parsed = parsePaperListInput(
+      {
+        categoryId: "c1",
+        includeDescendants: true,
+        difficulty: "beginner",
+        access: "free",
+        progress: "undone",
+        sort: "recommended",
+        limit: 10
+      },
+      true
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const cursor = encodePaperListCursor({
+      sort: parsed.sort,
+      categoryId: parsed.categoryId || "",
+      includeDescendants: parsed.includeDescendants,
+      difficulty: parsed.difficulty || "",
+      access: parsed.access || "",
+      progress: parsed.progress || "",
+      afterKey: "00000010",
+      afterId: "p1",
+      gen: 3
+    });
+    expect(cursor.includes(".")).toBe(true);
+    const decoded = decodePaperListCursor(cursor);
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok) {
+      expect(
+        paperListCursorMatches(decoded.payload, {
+          sort: parsed.sort,
+          categoryId: parsed.categoryId || "",
+          includeDescendants: parsed.includeDescendants,
+          difficulty: parsed.difficulty || "",
+          access: parsed.access || "",
+          progress: parsed.progress || "",
+          gen: 3
+        })
+      ).toBe(true);
+    }
+    expect(parsePaperListInput({ freeOnly: true }, true).ok).toBe(false);
+    expect(parseHomeGetInput({}).ok).toBe(true);
+    expect(parseHomeGetInput({ access: "free" }).ok).toBe(false);
   });
 
   it("flags highly overlapping question sets", () => {

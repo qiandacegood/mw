@@ -289,14 +289,18 @@ export function cloudPaperWorkStore(): PaperWorkStore {
     async listPapers(input) {
       const query: Record<string, unknown> = {};
       if (input.status) query.status = input.status;
-      if (input.categoryId) query.categoryId = input.categoryId;
+      if (!input.categoryIds?.length && input.categoryId) query.categoryId = input.categoryId;
       if (input.difficulty) query.difficulty = input.difficulty;
       if (input.access) query.access = input.access;
       const rows = await listWhere(MW11_COLLECTIONS.papers, query, input.limit);
       return rows
         .map((row) => asPaper(typeof row._id === "string" ? row._id : String(row.paperId || ""), row))
         .filter((row) => !input.status || row.status === input.status)
-        .filter((row) => !input.categoryId || row.categoryId === input.categoryId)
+        .filter((row) => {
+          if (input.categoryIds && input.categoryIds.length) return input.categoryIds.includes(row.categoryId);
+          if (input.categoryId) return row.categoryId === input.categoryId;
+          return true;
+        })
         .sort((left, right) => {
           if (input.sort === "recommended") {
             if (left.sort !== right.sort) return left.sort - right.sort;

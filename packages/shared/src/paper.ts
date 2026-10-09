@@ -51,11 +51,39 @@ export const PAPER_PUBLIC_LIST_FIELDS = [
   "includeDescendants",
   "difficulty",
   "access",
+  "progress",
   "sort",
   "cursor",
   "limit"
 ] as const;
 export const PAPER_PUBLIC_DETAIL_FIELDS = ["paperId"] as const;
+export const HOME_GET_FIELDS = [] as const;
+export const PAPER_PROGRESS_VALUES = ["done", "undone"] as const;
+export type PaperProgressFilter = (typeof PAPER_PROGRESS_VALUES)[number];
+export const PAPER_LIST_CURSOR_KEYS = [
+  "sort",
+  "categoryId",
+  "includeDescendants",
+  "difficulty",
+  "access",
+  "progress",
+  "afterKey",
+  "afterId",
+  "gen"
+] as const;
+export type PaperListCursorPayload = {
+  sort: "latest" | "recommended";
+  categoryId: string;
+  includeDescendants: boolean;
+  difficulty: string;
+  access: string;
+  progress: string;
+  afterKey: string;
+  afterId: string;
+  gen: number;
+};
+export const HOME_SHELF_LIMIT = 8;
+export const PUBLIC_PAPER_SCAN_LIMIT = 200;
 export const PAPER_FAULTS = ["missingChunk", "badManifest"] as const;
 export type PaperPublishFault = (typeof PAPER_FAULTS)[number];
 
@@ -617,8 +645,11 @@ export function parsePaperListInput(data: Record<string, unknown>, publicView = 
       status?: PaperStatus;
       difficulty?: Difficulty;
       access?: PaperAccess;
+      progress?: PaperProgressFilter;
+      includeDescendants: boolean;
       sort: "latest" | "recommended";
       limit: number;
+      cursor?: string;
     }
   | { ok: false; issues: string[] } {
   const allowed = publicView ? PAPER_PUBLIC_LIST_FIELDS : PAPER_LIST_FIELDS;
@@ -643,6 +674,16 @@ export function parsePaperListInput(data: Record<string, unknown>, publicView = 
   if (data.includeDescendants !== undefined && data.includeDescendants !== true && data.includeDescendants !== false) {
     issues.push("includeDescendants must be boolean");
   }
+  const progress = data.progress;
+  if (progress !== undefined && progress !== "done" && progress !== "undone") {
+    issues.push("progress must be done or undone");
+  }
+  if (!publicView && progress !== undefined) {
+    issues.push("admin list cannot filter progress");
+  }
+  if (data.cursor !== undefined && (typeof data.cursor !== "string" || !data.cursor.trim())) {
+    issues.push("cursor invalid");
+  }
   if (issues.length) return { ok: false, issues };
   return {
     ok: true,
@@ -650,9 +691,103 @@ export function parsePaperListInput(data: Record<string, unknown>, publicView = 
     status: publicView ? "published" : (status as PaperStatus | undefined),
     difficulty: difficulty as Difficulty | undefined,
     access: access as PaperAccess | undefined,
+    progress: publicView ? (progress as PaperProgressFilter | undefined) : undefined,
+    includeDescendants: publicView ? data.includeDescendants !== false : false,
     sort: sort as "latest" | "recommended",
-    limit: limit as number
+    limit: limit as number,
+    cursor: typeof data.cursor === "string" && data.cursor.trim() ? data.cursor.trim() : undefined
   };
+}
+
+export function paperListCursorFilterOf(input: {
+  sort: "latest" | "recommended";
+  categoryId?: string;
+  includeDescendants: boolean;
+  difficulty?: string;
+  access?: string;
+  progress?: string;
+  gen: number;
+}): Omit<PaperListCursorPayload, "afterKey" | "afterId"> {
+  return {
+    sort: input.sort,
+    categoryId: input.categoryId || "",
+    includeDescendants: input.includeDescendants,
+    difficulty: input.difficulty || "",
+    access: input.access || "",
+    progress: input.progress || "",
+    gen: input.gen
+  };
+}
+
+function hexOfBytes(bytes: Uint8Array): string {
+  return [...bytes].map((item) => item.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesOfHex(hex: string): Uint8Array | null {
+  if (!/^[0-9a-f]+$/i.test(hex) || hex.length % 2 !== 0) return null;
+  const out = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < out.length; index += 1) {
+    out[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return out;
+}
+
+export function encodePaperListCursor(payload: PaperListCursorPayload): string {
+  const body = namedCanonicalJson(payload, [...PAPER_LIST_CURSOR_KEYS]);
+  return `${sha256Hex(body)}.${hexOfBytes(utf8Bytes(body))}`;
+}
+
+export function decodePaperListCursor(
+  raw: unknown
+): { ok: true; payload: PaperListCursorPayload } | { ok: false; reason: string } {
+  if (typeof raw !== "string" || !raw.includes(".")) return { ok: false, reason: "CURSOR_INVALID" };
+  const dot = raw.indexOf(".");
+  const sig = raw.slice(0, dot);
+  const hex = raw.slice(dot + 1);
+  const bytes = bytesOfHex(hex);
+  if (!bytes) return { ok: false, reason: "CURSOR_INVALID" };
+  let body = "";
+  for (const item of bytes) body += String.fromCharCode(item);
+  if (sha256Hex(body) !== sig) return { ok: false, reason: "CURSOR_INVALID" };
+  try {
+    const parsed = JSON.parse(body) as PaperListCursorPayload;
+    if (
+      (parsed.sort !== "latest" && parsed.sort !== "recommended") ||
+      typeof parsed.categoryId !== "string" ||
+      typeof parsed.includeDescendants !== "boolean" ||
+      typeof parsed.difficulty !== "string" ||
+      typeof parsed.access !== "string" ||
+      typeof parsed.progress !== "string" ||
+      typeof parsed.afterKey !== "string" ||
+      typeof parsed.afterId !== "string" ||
+      typeof parsed.gen !== "number"
+    ) {
+      return { ok: false, reason: "CURSOR_INVALID" };
+    }
+    return { ok: true, payload: parsed };
+  } catch {
+    return { ok: false, reason: "CURSOR_INVALID" };
+  }
+}
+
+export function paperListCursorMatches(
+  payload: PaperListCursorPayload,
+  filter: Omit<PaperListCursorPayload, "afterKey" | "afterId">
+): boolean {
+  return (
+    payload.sort === filter.sort &&
+    payload.categoryId === filter.categoryId &&
+    payload.includeDescendants === filter.includeDescendants &&
+    payload.difficulty === filter.difficulty &&
+    payload.access === filter.access &&
+    payload.progress === filter.progress &&
+    payload.gen === filter.gen
+  );
+}
+
+export function parseHomeGetInput(data: Record<string, unknown>): { ok: true } | { ok: false; issues: string[] } {
+  const extra = rejectUnknownKeys(data, [...HOME_GET_FIELDS]);
+  return extra.length ? { ok: false, issues: [`unknown fields: ${extra.join(",")}`] } : { ok: true };
 }
 
 export function parsePaperGetInput(data: Record<string, unknown>):

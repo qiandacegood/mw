@@ -39,6 +39,7 @@ export interface PaperReadStore {
   getAnswer(chunkId: string): Promise<PaperAnswerRecord | undefined>;
   listPapers(input: {
     categoryId?: string;
+    categoryIds?: string[];
     status?: PaperStatus;
     difficulty?: string;
     access?: string;
@@ -159,7 +160,11 @@ export function memoryPaperStore(seed: {
     },
     async listPapers(input) {
       return [...papers.values()]
-        .filter((row) => !input.categoryId || row.categoryId === input.categoryId)
+        .filter((row) => {
+          if (input.categoryIds && input.categoryIds.length) return input.categoryIds.includes(row.categoryId);
+          if (input.categoryId) return row.categoryId === input.categoryId;
+          return true;
+        })
         .filter((row) => !input.status || row.status === input.status)
         .filter((row) => !input.difficulty || row.difficulty === input.difficulty)
         .filter((row) => !input.access || row.access === input.access)
