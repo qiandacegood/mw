@@ -88,6 +88,8 @@ export type PaperRecord = {
   schemaVersion: number;
   createdAt: string;
   updatedAt: string;
+  importBatchId?: string;
+  sourceKey?: string;
 };
 
 export type PaperChunkItem = {

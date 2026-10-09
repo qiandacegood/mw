@@ -124,7 +124,9 @@ function asPaper(id: string, data: Record<string, unknown>): PaperRecord {
     withdrawReason: typeof data.withdrawReason === "string" ? data.withdrawReason : null,
     schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
     createdAt: asIso(data.createdAt, now),
-    updatedAt: asIso(data.updatedAt, now)
+    updatedAt: asIso(data.updatedAt, now),
+    ...(typeof data.importBatchId === "string" ? { importBatchId: data.importBatchId } : {}),
+    ...(typeof data.sourceKey === "string" ? { sourceKey: data.sourceKey } : {})
   };
 }
 

@@ -24,6 +24,7 @@ import {
 } from "@mw/shared";
 import type { CategoryReadStore } from "./category-stores.js";
 import type { TxBudget } from "./job-stores.js";
+import { isCommittedImport, type ImportVisibilityStore } from "./import-stores.js";
 import type { QuestionUsageStore, QuestionWorkStore } from "./question-stores.js";
 import type { ObjectStorage } from "./upload-stores.js";
 
@@ -104,6 +105,7 @@ async function resolveAssets(
 
 export async function listQuestions(input: {
   store?: QuestionWorkStore;
+  imports?: ImportVisibilityStore;
   data: Record<string, unknown>;
 }): Promise<QuestionActionSuccess<{ items: ReturnType<typeof toPublicQuestionView>[]; complete: boolean }> | QuestionActionFailure> {
   const parsed = parseQuestionListInput(input.data);
@@ -116,6 +118,7 @@ export async function listQuestions(input: {
   });
   const items = [];
   for (const question of questions) {
+    if (!(await isCommittedImport(input.imports, question.importBatchId))) continue;
     const version = await input.store.getVersion(question.currentVersionId);
     if (!version) continue;
     items.push(toPublicQuestionView(question, version));
@@ -125,6 +128,7 @@ export async function listQuestions(input: {
 
 export async function getQuestion(input: {
   store?: QuestionWorkStore;
+  imports?: ImportVisibilityStore;
   storage?: ObjectStorage;
   data: Record<string, unknown>;
   includeSecrets: boolean;
@@ -141,6 +145,9 @@ export async function getQuestion(input: {
   if (!input.store) return fail("INTERNAL_ERROR", "QUESTION_STORE_UNAVAILABLE");
   const question = await input.store.getQuestion(parsed.questionId);
   if (!question) return fail("NOT_FOUND", "QUESTION_NOT_FOUND");
+  if (!(await isCommittedImport(input.imports, question.importBatchId))) {
+    return fail("NOT_FOUND", "QUESTION_NOT_FOUND");
+  }
   const version = await input.store.getVersion(parsed.versionId || question.currentVersionId);
   if (!version) return fail("NOT_FOUND", "QUESTION_VERSION_NOT_FOUND");
   const assets = await resolveAssets(input.store, version);

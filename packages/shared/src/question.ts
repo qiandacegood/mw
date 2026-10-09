@@ -87,6 +87,8 @@ export type QuestionRecord = {
   schemaVersion: number;
   createdAt: string;
   updatedAt: string;
+  importBatchId?: string;
+  sourceKey?: string;
 };
 
 export type QuestionVersionRecord = {

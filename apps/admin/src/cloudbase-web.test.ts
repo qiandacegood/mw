@@ -4,6 +4,7 @@ import {
   callAdminJob,
   callAdminQuestion,
   callAdminPaper,
+  callAdminImport,
   completeAdminUpload,
   loginAndReadAdmin,
   type AdminSession
@@ -118,6 +119,35 @@ describe("admin paper helpers", () => {
     await callAdminPaper(app, "paper.preview", { paperId: "p1" });
     expect(calls[0]).toMatchObject({ name: "mw-admin", data: { action: "paper.save", idempotencyKey: "mw11/admin/save" } });
     expect(calls[1]).toMatchObject({ name: "mw-admin", data: { action: "paper.preview" } });
+  });
+});
+
+describe("admin import helpers", () => {
+  it("calls import writes through mw-admin with idempotency keys", async () => {
+    const calls: unknown[] = [];
+    const app = {
+      auth: () => ({
+        signInWithPassword: async () => ({}),
+        getLoginState: async () => ({ user: { uid: "uid_content" } }),
+        signOut: async () => ({})
+      }),
+      callFunction: async (input: { name: string; data: unknown }) => {
+        calls.push(input);
+        return { result: { ok: true, data: { batchId: "b1", state: "validated" } } };
+      }
+    };
+    await callAdminImport(app, "import.validate", { kind: "question", ticketId: "t1" }, "mw12/admin/validate");
+    await callAdminImport(app, "import.preview", { batchId: "b1" });
+    await callAdminImport(app, "import.commit", { batchId: "b1" }, "mw12/admin/commit");
+    expect(calls[0]).toMatchObject({
+      name: "mw-admin",
+      data: { action: "import.validate", idempotencyKey: "mw12/admin/validate" }
+    });
+    expect(calls[1]).toMatchObject({ name: "mw-admin", data: { action: "import.preview" } });
+    expect(calls[2]).toMatchObject({
+      name: "mw-admin",
+      data: { action: "import.commit", idempotencyKey: "mw12/admin/commit" }
+    });
   });
 });
 

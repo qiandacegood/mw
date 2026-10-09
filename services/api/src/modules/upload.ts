@@ -1,11 +1,14 @@
 import {
   IMAGE_MAX_BYTES,
+  IMPORT_INLINE_MAX_BYTES,
+  IMPORT_MAX_BYTES,
   MEDIA_SCHEMA_VERSION,
   UPLOAD_TICKET_TTL_MS,
   assetIdFor,
   auditDocId,
   buildAuditEntry,
   buildIdempotencyRecord,
+  decodeUtf8Strict,
   detectImageMagic,
   fileIdForObject,
   hashUploadToken,
@@ -276,7 +279,10 @@ export async function completeUpload(input: {
     if (!stored) return fail("INVALID_ARGUMENT", "OBJECT_NOT_FOUND");
     bytes = stored.bytes;
   }
-  if (bytes.length > IMAGE_MAX_BYTES) return fail("INVALID_ARGUMENT", "IMAGE_TOO_LARGE");
+  const isImport = current.purpose === "import";
+  if (bytes.length > (isImport ? IMPORT_MAX_BYTES : IMAGE_MAX_BYTES)) {
+    return fail("INVALID_ARGUMENT", isImport ? "CSV_TOO_LARGE" : "IMAGE_TOO_LARGE");
+  }
   if (typeof input.size === "number" && input.size !== bytes.length) {
     return fail("INVALID_ARGUMENT", "TICKET_SIZE_MISMATCH");
   }
@@ -286,13 +292,27 @@ export async function completeUpload(input: {
   if (bytes.length > current.maxBytes) return fail("INVALID_ARGUMENT", "TICKET_SIZE_MISMATCH");
   const digest = sha256OfBytes(bytes);
   if (digest !== current.sha256) return fail("INVALID_ARGUMENT", "TICKET_SHA256_MISMATCH");
-  const magic = detectImageMagic(bytes);
-  if (!magic.ok) return fail("INVALID_ARGUMENT", magic.reason);
-  const expectedKind = mimeToKind(current.contentType);
-  if (!expectedKind || expectedKind !== magic.kind) {
-    return fail("INVALID_ARGUMENT", "CONTENT_TYPE_MISMATCH");
+  let storedMime = current.contentType;
+  let storedKind = "csv";
+  let inlineUtf8: string | undefined;
+  if (isImport) {
+    const decoded = decodeUtf8Strict(bytes);
+    if (!decoded.ok) return fail("INVALID_ARGUMENT", decoded.reason);
+    storedMime = "text/csv";
+    storedKind = "csv";
+    if (bytes.length <= IMPORT_INLINE_MAX_BYTES) inlineUtf8 = decoded.text;
+  } else {
+    if (bytes.length > IMAGE_MAX_BYTES) return fail("INVALID_ARGUMENT", "IMAGE_TOO_LARGE");
+    const magic = detectImageMagic(bytes);
+    if (!magic.ok) return fail("INVALID_ARGUMENT", magic.reason);
+    const expectedKind = mimeToKind(current.contentType);
+    if (!expectedKind || expectedKind !== magic.kind) {
+      return fail("INVALID_ARGUMENT", "CONTENT_TYPE_MISMATCH");
+    }
+    storedMime = magic.mime;
+    storedKind = magic.kind;
   }
-  await input.store.storage.putObject(current.objectKey, bytes, magic.mime);
+  const uploaded = await input.store.storage.putObject(current.objectKey, bytes, storedMime);
   const retried = await input.store.transactWrite({
     ticketId: current.ticketId,
     tokenHash,
@@ -314,10 +334,10 @@ export async function completeUpload(input: {
       const nextAsset: MediaAssetRecord = {
         ...(snap.asset || {
           assetId: current.assetId,
-          fileId: fileIdForObject(current.objectKey),
+          fileId: uploaded.fileId || fileIdForObject(current.objectKey),
           objectKey: current.objectKey,
           kind: current.purpose,
-          mime: magic.mime,
+          mime: storedMime,
           size: bytes.length,
           sha256: digest,
           caption: current.caption,
@@ -328,11 +348,13 @@ export async function completeUpload(input: {
           createdAt: current.createdAt,
           updatedAt: input.now.toISOString()
         }),
+        fileId: uploaded.fileId || snap.asset?.fileId || fileIdForObject(current.objectKey),
         state: "ready",
-        mime: magic.mime,
+        mime: storedMime,
         size: bytes.length,
         sha256: digest,
-        updatedAt: input.now.toISOString()
+        updatedAt: input.now.toISOString(),
+        ...(inlineUtf8 ? { inlineUtf8 } : {})
       };
       const view = {
         ticketId: nextTicket.ticketId,
@@ -341,7 +363,7 @@ export async function completeUpload(input: {
         assetState: "ready" as const,
         purpose: nextTicket.purpose,
         size: bytes.length,
-        kind: magic.kind
+        kind: storedKind
       };
       return { ticket: nextTicket, asset: nextAsset, result: view };
     }

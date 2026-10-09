@@ -4,6 +4,7 @@ import {
   MINIMAL_JPEG,
   MINIMAL_PNG,
   MINIMAL_WEBP,
+  asUploadPurpose,
   detectImageMagic,
   fakePngNamedHtml,
   fakePngNamedSvg,
@@ -32,7 +33,7 @@ describe("MW10 image magic and tickets", () => {
     expect(detectImageMagic(oversizedImageBytes())).toMatchObject({ ok: false, reason: "IMAGE_TOO_LARGE" });
   });
 
-  it("rejects csv purpose and unknown authorize fields", () => {
+  it("accepts import purpose for csv and rejects bare csv purpose", () => {
     const csv = parseUploadAuthorizeInput({
       purpose: "csv",
       contentType: "text/csv",
@@ -40,7 +41,19 @@ describe("MW10 image magic and tickets", () => {
       sha256: "a".repeat(64),
       caption: "batch"
     });
-    expect(csv).toMatchObject({ ok: false, reason: "CSV_PURPOSE_MW12" });
+    expect(csv).toMatchObject({ ok: false, reason: "CSV_PURPOSE_MUST_BE_IMPORT" });
+    const imported = parseUploadAuthorizeInput({
+      purpose: "import",
+      contentType: "text/csv",
+      size: 12,
+      sha256: "a".repeat(64),
+      caption: "csv-import"
+    });
+    expect(imported).toMatchObject({ ok: true, purpose: "import", kind: "csv" });
+    expect(asUploadPurpose("import")).toBe("import");
+    expect(asUploadPurpose("analysis")).toBe("analysis");
+    expect(asUploadPurpose("prompt")).toBe("prompt");
+    expect(asUploadPurpose("csv")).toBe("prompt");
     const extra = parseUploadAuthorizeInput({
       purpose: "prompt",
       contentType: "image/png",

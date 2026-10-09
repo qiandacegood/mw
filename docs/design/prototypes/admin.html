@@ -90,9 +90,11 @@
         <button class="btn">发布</button>
         <button class="btn warn">紧急撤回</button>`,
       "admin-import": () => `<h1>导入</h1>${banner()}
-        <p>CSV ≤5MB / 1000 行。先题库后试卷。</p>
-        <div class="card">batch_fict_01 · validated · 阻断错误则整批拒绝</div>
-        <div class="modal">半批在 committed 前按 ID 也不可见。</div>`,
+        <p>CSV ≤5MB / 1000 行。UTF-8。先题库后试卷。样例必须虚构。</p>
+        <div class="card">题库导入 · 模板含来源键 / 类目 / 题型 / 题干 / 选项A—H / 答案 / 解析 / 分值 / 难度 / 可选图</div>
+        <div class="card">试卷导入 · 同一卷一题一行，题序连续，只能引用已 committed 的题目来源键</div>
+        <div class="card">batch_fict_01 · validated · 阻断错误则整批拒绝 · 同文件返回原批</div>
+        <div class="modal">半批在 committed 前列表和按 ID 都不可见。类目版本变化必须重新校验。</div>`,
       "admin-members": () => `<h1>会员</h1>${banner()}
         <p>内部 ID、昵称、VIP、等级。不展示无必要的微信身份。</p>
         ${role()==="content" ? `<div class="status err">题库角色不能查看订单明细。</div>` : `<div class="card">mem_fict_1001 · 总分 80（混合卷当时）</div><div class="card">mem_fict_1003 · 总分 190 · 有效 VIP</div>`}`,

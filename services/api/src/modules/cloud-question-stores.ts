@@ -1,4 +1,5 @@
 import {
+  asUploadPurpose,
   auditDocId,
   type AuditEntry,
   type IdempotencyRecord,
@@ -97,7 +98,9 @@ function asQuestion(id: string, data: Record<string, unknown>): QuestionRecord {
     revision: typeof data.revision === "number" ? data.revision : 0,
     schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
     createdAt: asIso(data.createdAt, now),
-    updatedAt: asIso(data.updatedAt, now)
+    updatedAt: asIso(data.updatedAt, now),
+    ...(typeof data.importBatchId === "string" ? { importBatchId: data.importBatchId } : {}),
+    ...(typeof data.sourceKey === "string" ? { sourceKey: data.sourceKey } : {})
   };
 }
 
@@ -150,7 +153,7 @@ function asAsset(id: string, data: Record<string, unknown>): MediaAssetRecord {
     assetId: typeof data.assetId === "string" ? data.assetId : id,
     fileId: typeof data.fileId === "string" ? data.fileId : "",
     objectKey: typeof data.objectKey === "string" ? data.objectKey : "",
-    kind: data.kind === "analysis" ? "analysis" : "prompt",
+    kind: asUploadPurpose(data.kind),
     mime: typeof data.mime === "string" ? data.mime : "",
     size: typeof data.size === "number" ? data.size : 0,
     sha256: typeof data.sha256 === "string" ? data.sha256 : "",
@@ -160,7 +163,8 @@ function asAsset(id: string, data: Record<string, unknown>): MediaAssetRecord {
     ticketId: typeof data.ticketId === "string" ? data.ticketId : "",
     schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
     createdAt: asIso(data.createdAt, now),
-    updatedAt: asIso(data.updatedAt, now)
+    updatedAt: asIso(data.updatedAt, now),
+    ...(typeof data.inlineUtf8 === "string" ? { inlineUtf8: data.inlineUtf8 } : {})
   };
 }
 
@@ -236,9 +240,13 @@ export function cloudQuestionWorkStore(): QuestionWorkStore {
       let snap: unknown;
       if (coll.where) {
         const filtered = coll.where(query);
-        snap = filtered.orderBy
-          ? await filtered.orderBy("updatedAt", "desc").limit(input.limit).get()
-          : await filtered.limit(input.limit).get();
+        try {
+          snap = filtered.orderBy
+            ? await filtered.orderBy("updatedAt", "desc").limit(input.limit).get()
+            : await filtered.limit(input.limit).get();
+        } catch {
+          snap = await filtered.limit(input.limit).get();
+        }
       } else if (coll.limit) {
         snap = await coll.limit(input.limit).get();
       } else {

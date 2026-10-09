@@ -5,9 +5,13 @@ export const IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 export const UPLOAD_TICKET_TTL_MS = 10 * 60 * 1000;
 export const MEDIA_SCHEMA_VERSION = 1;
 export const MEDIA_OBJECT_PREFIX = "mw-test/media";
+export const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+export const IMPORT_INLINE_MAX_BYTES = 200 * 1024;
 
 export const IMAGE_PURPOSES = ["prompt", "analysis"] as const;
 export type ImagePurpose = (typeof IMAGE_PURPOSES)[number];
+export const UPLOAD_PURPOSES = ["prompt", "analysis", "import"] as const;
+export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
 
 export const IMAGE_KINDS = ["jpeg", "png", "webp"] as const;
 export type ImageKind = (typeof IMAGE_KINDS)[number];
@@ -37,7 +41,7 @@ export type MediaAssetRecord = {
   assetId: string;
   fileId: string;
   objectKey: string;
-  kind: ImagePurpose;
+  kind: UploadPurpose;
   mime: string;
   size: number;
   sha256: string;
@@ -48,13 +52,14 @@ export type MediaAssetRecord = {
   schemaVersion: number;
   createdAt: string;
   updatedAt: string;
+  inlineUtf8?: string;
 };
 
 export type UploadTicketRecord = {
   ticketId: string;
   tokenHash: string;
   adminUid: string;
-  purpose: ImagePurpose;
+  purpose: UploadPurpose;
   maxBytes: number;
   contentType: string;
   objectKey: string;
@@ -78,6 +83,14 @@ export type UploadAuthView = {
 
 export function isImagePurpose(value: unknown): value is ImagePurpose {
   return value === "prompt" || value === "analysis";
+}
+
+export function isUploadPurpose(value: unknown): value is UploadPurpose {
+  return value === "prompt" || value === "analysis" || value === "import";
+}
+
+export function asUploadPurpose(value: unknown): UploadPurpose {
+  return value === "analysis" || value === "import" ? value : "prompt";
 }
 
 export function mimeToKind(mime: string): ImageKind | undefined {
@@ -175,8 +188,9 @@ export function hashUploadToken(token: string): string {
   return sha256Hex(token);
 }
 
-export function mediaObjectKey(purpose: ImagePurpose, assetId: string, kind: ImageKind): string {
-  return `${MEDIA_OBJECT_PREFIX}/${purpose}/${assetId}.${extForKind(kind)}`;
+export function mediaObjectKey(purpose: UploadPurpose, assetId: string, kind: ImageKind | "csv"): string {
+  const ext = kind === "csv" ? "csv" : extForKind(kind);
+  return `${MEDIA_OBJECT_PREFIX}/${purpose}/${assetId}.${ext}`;
 }
 
 export function fileIdForObject(objectKey: string): string {
@@ -200,9 +214,9 @@ export function validateCaption(value: unknown): { ok: true; caption: string } |
 export function parseUploadAuthorizeInput(data: Record<string, unknown>):
   | {
       ok: true;
-      purpose: ImagePurpose;
+      purpose: UploadPurpose;
       contentType: string;
-      kind: ImageKind;
+      kind: ImageKind | "csv";
       size: number;
       sha256: string;
       caption: string;
@@ -210,33 +224,40 @@ export function parseUploadAuthorizeInput(data: Record<string, unknown>):
   | { ok: false; issues: string[]; reason?: string } {
   const extra = rejectUnknownKeys(data, [...UPLOAD_AUTHORIZE_FIELDS]);
   const issues = extra.length ? [`unknown fields: ${extra.join(",")}`] : [];
-  if (data.purpose === "csv" || data.purpose === "import") {
-    return { ok: false, issues: ["CSV import is MW12"], reason: "CSV_PURPOSE_MW12" };
+  if (data.purpose === "csv") {
+    return { ok: false, issues: ["purpose must be import for CSV files"], reason: "CSV_PURPOSE_MUST_BE_IMPORT" };
   }
-  if (!isImagePurpose(data.purpose)) {
-    issues.push("purpose must be prompt or analysis");
+  if (!isUploadPurpose(data.purpose)) {
+    issues.push("purpose must be prompt, analysis or import");
   }
   const contentType = typeof data.contentType === "string" ? data.contentType.toLowerCase() : "";
-  const kind = mimeToKind(contentType);
+  const isImport = data.purpose === "import";
+  const kind = isImport
+    ? contentType === "text/csv" || contentType === "text/plain" || contentType === "application/csv"
+      ? "csv"
+      : undefined
+    : mimeToKind(contentType);
   if (!kind) {
-    issues.push("contentType must be image/jpeg, image/png or image/webp");
+    issues.push(isImport ? "contentType must be text/csv" : "contentType must be image/jpeg, image/png or image/webp");
   }
+  const maxBytes = isImport ? IMPORT_MAX_BYTES : IMAGE_MAX_BYTES;
   if (typeof data.size !== "number" || !Number.isInteger(data.size) || data.size <= 0) {
     issues.push("size must be a positive integer");
-  } else if (data.size > IMAGE_MAX_BYTES) {
-    issues.push("size exceeds 2 MB");
+  } else if (data.size > maxBytes) {
+    issues.push(isImport ? "size exceeds 5 MB" : "size exceeds 2 MB");
   }
   if (typeof data.sha256 !== "string" || !SHA256_HEX_RE.test(data.sha256)) {
     issues.push("sha256 must be 64 hex chars");
   }
-  const caption = validateCaption(data.caption);
+  const captionInput = isImport && (data.caption === undefined || data.caption === "") ? "csv-import" : data.caption;
+  const caption = validateCaption(captionInput);
   if (!caption.ok) issues.push(...caption.issues);
   if (issues.length) return { ok: false, issues };
   return {
     ok: true,
-    purpose: data.purpose as ImagePurpose,
+    purpose: data.purpose as UploadPurpose,
     contentType,
-    kind: kind as ImageKind,
+    kind: kind as ImageKind | "csv",
     size: data.size as number,
     sha256: String(data.sha256).toLowerCase(),
     caption: caption.ok ? caption.caption : ""
@@ -263,7 +284,7 @@ export function ticketFailureReason(input: {
   ticket?: UploadTicketRecord;
   now: Date;
   adminUid?: string;
-  purpose?: ImagePurpose;
+  purpose?: UploadPurpose;
   sha256?: string;
   size?: number;
   consumed?: boolean;

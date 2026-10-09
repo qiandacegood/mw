@@ -75,7 +75,7 @@ export async function signOutAdmin(app: CloudApp): Promise<void> {
 export type AdminCallResult = {
   ok?: boolean;
   data?: Record<string, unknown>;
-  error?: { code?: string; message?: string; details?: { reason?: string; note?: string } };
+  error?: { code?: string; message?: string; details?: { reason?: string; note?: string; message?: string } };
 };
 
 export async function callAdminCategory(
@@ -137,6 +137,25 @@ export async function callAdminPaper(
   };
   if (action === "paper.save" || action === "paper.publish" || action === "paper.unpublish" || action === "paper.withdraw") {
     payload.idempotencyKey = idempotencyKey || `mw11/admin/${action}/${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
+export async function callAdminImport(
+  app: CloudApp,
+  action: "import.validate" | "import.preview" | "import.commit" | "import.status",
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action === "import.validate" || action === "import.commit") {
+    payload.idempotencyKey = idempotencyKey || `mw12/admin/${action}/${Date.now()}`;
   }
   const result = await app.callFunction({ name: "mw-admin", data: payload });
   return unwrapCallResult(result);

@@ -12,7 +12,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check:prototypes": "node scripts/check-prototype-scripts.mjs",
-    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && node scripts/mw04-record.test.mjs && node scripts/mw04-assert.test.mjs && node scripts/mw05-secret-scan.test.mjs && node scripts/mw06-assert.test.mjs && node scripts/mw08-assert.test.mjs && node scripts/mw09-assert.test.mjs && node scripts/mw10-assert.test.mjs && node scripts/mw11-assert.test.mjs && node scripts/mw07b-assert.test.mjs && npm run test --workspaces --if-present",
+    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && node scripts/mw04-record.test.mjs && node scripts/mw04-assert.test.mjs && node scripts/mw05-secret-scan.test.mjs && node scripts/mw06-assert.test.mjs && node scripts/mw08-assert.test.mjs && node scripts/mw09-assert.test.mjs && node scripts/mw10-assert.test.mjs && node scripts/mw11-assert.test.mjs && node scripts/mw12-assert.test.mjs && node scripts/mw07b-assert.test.mjs && npm run test --workspaces --if-present",
     "build": "node scripts/ensure-shared-js.mjs && node scripts/mw05-emit-runtime.mjs && npm run build --workspaces --if-present",
     "mw05:write-local": "node scripts/mw05-write-local.mjs",
     "mw05:emit": "node scripts/mw05-emit-runtime.mjs",
@@ -46,7 +46,13 @@
     "mw11:cleanup": "node scripts/mw11-cleanup.mjs",
     "mw11:import-known-ids": "node scripts/mw11-import-known-ids.mjs",
     "mw11:resolve-known-ids": "node scripts/mw11-resolve-known-ids.mjs",
-    "mw11:verify-leftovers": "node scripts/mw11-leftover-verify.mjs"
+    "mw11:verify-leftovers": "node scripts/mw11-leftover-verify.mjs",
+    "mw12:deploy": "node scripts/mw12-deploy.mjs",
+    "mw12:verify": "node scripts/mw12-verify.mjs",
+    "mw12:cleanup": "node scripts/mw12-cleanup.mjs",
+    "mw12:import-known-ids": "node scripts/mw12-import-known-ids.mjs",
+    "mw12:resolve-known-ids": "node scripts/mw12-resolve-known-ids.mjs",
+    "mw12:verify-leftovers": "node scripts/mw12-leftover-verify.mjs"
   },
   "engines": {
     "node": ">=20"

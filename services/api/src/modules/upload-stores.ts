@@ -20,7 +20,7 @@ export type UploadWriteMutation<T> = {
 export interface ObjectStorage {
   issueUploadAuth(input: { objectKey: string; contentType: string; maxBytes: number }): Promise<UploadAuthView>;
   putObject(objectKey: string, bytes: Uint8Array, contentType: string): Promise<{ fileId: string }>;
-  getObject(objectKey: string): Promise<{ bytes: Uint8Array; size: number } | undefined>;
+  getObject(objectKey: string, fileId?: string): Promise<{ bytes: Uint8Array; size: number } | undefined>;
   getTempReadUrl(objectKey: string, ttlSeconds: number): Promise<string | undefined>;
 }
 

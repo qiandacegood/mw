@@ -34,6 +34,7 @@ import {
 } from "@mw/shared";
 import type { CategoryReadStore, CategoryUsageStore } from "./category-stores.js";
 import type { TxBudget } from "./job-stores.js";
+import { isCommittedImport, type ImportVisibilityStore } from "./import-stores.js";
 import type { QuestionUsageStore, QuestionWorkStore } from "./question-stores.js";
 import type { PaperQuestionLookup, PaperWorkStore } from "./paper-stores.js";
 
@@ -107,12 +108,16 @@ function lookupFromQuestionStore(store?: QuestionWorkStore): PaperQuestionLookup
 
 async function resolveDraftItems(
   lookup: PaperQuestionLookup,
-  items: PaperDraftItem[]
+  items: PaperDraftItem[],
+  imports?: ImportVisibilityStore
 ): Promise<{ ok: true; items: PaperDraftItem[] } | { ok: false; code: string; reason: string; details?: Record<string, unknown> }> {
   const resolved: PaperDraftItem[] = [];
   for (const item of items) {
     const question = await lookup.getQuestion(item.questionId);
     if (!question) return { ok: false, code: "NOT_FOUND", reason: "QUESTION_NOT_FOUND", details: { questionId: item.questionId } };
+    if (!(await isCommittedImport(imports, question.importBatchId))) {
+      return { ok: false, code: "NOT_FOUND", reason: "QUESTION_NOT_FOUND", details: { questionId: item.questionId } };
+    }
     if (question.status !== "active") {
       return { ok: false, code: "INVALID_ARGUMENT", reason: "QUESTION_DISABLED", details: { questionId: item.questionId } };
     }
@@ -131,6 +136,7 @@ async function resolveDraftItems(
 
 export async function listPapers(input: {
   store?: PaperWorkStore;
+  imports?: ImportVisibilityStore;
   data: Record<string, unknown>;
   publicView: boolean;
 }): Promise<PaperActionSuccess<{ items: ReturnType<typeof toPublicPaperSummary>[]; complete: boolean }> | PaperActionFailure> {
@@ -147,6 +153,7 @@ export async function listPapers(input: {
   });
   const items = [];
   for (const paper of papers) {
+    if (!(await isCommittedImport(input.imports, paper.importBatchId))) continue;
     if (input.publicView && paper.status !== "published") continue;
     const version = paper.activeVersionId ? await input.store.getVersion(paper.activeVersionId) : undefined;
     items.push(toPublicPaperSummary(paper, version));
@@ -156,6 +163,7 @@ export async function listPapers(input: {
 
 export async function getPublicPaper(input: {
   store?: PaperWorkStore;
+  imports?: ImportVisibilityStore;
   data: Record<string, unknown>;
 }): Promise<PaperActionSuccess<{ paper: ReturnType<typeof toPublicPaperDetail> }> | PaperActionFailure> {
   const parsed = parsePublicPaperDetailInput(input.data);
@@ -165,6 +173,9 @@ export async function getPublicPaper(input: {
   if (!paper || paper.status !== "published" || !paper.activeVersionId) {
     return fail("NOT_FOUND", "PAPER_NOT_FOUND");
   }
+  if (!(await isCommittedImport(input.imports, paper.importBatchId))) {
+    return fail("NOT_FOUND", "PAPER_NOT_FOUND");
+  }
   const version = await input.store.getVersion(paper.activeVersionId);
   if (!version) return fail("NOT_FOUND", "PAPER_VERSION_NOT_FOUND");
   return { ok: true, data: { paper: toPublicPaperDetail(paper, version) }, budget: emptyBudget() };
@@ -172,6 +183,7 @@ export async function getPublicPaper(input: {
 
 export async function getAdminPaper(input: {
   store?: PaperWorkStore;
+  imports?: ImportVisibilityStore;
   data: Record<string, unknown>;
 }): Promise<PaperActionSuccess<{ paper: ReturnType<typeof toAdminPaperView>; version?: PaperVersionRecord }> | PaperActionFailure> {
   const parsed = parsePaperGetInput(input.data);
@@ -179,6 +191,9 @@ export async function getAdminPaper(input: {
   if (!input.store) return fail("INTERNAL_ERROR", "PAPER_STORE_UNAVAILABLE");
   const paper = await input.store.getPaper(parsed.paperId);
   if (!paper) return fail("NOT_FOUND", "PAPER_NOT_FOUND");
+  if (!(await isCommittedImport(input.imports, paper.importBatchId))) {
+    return fail("NOT_FOUND", "PAPER_NOT_FOUND");
+  }
   const versionId = parsed.versionId || paper.activeVersionId;
   const version = versionId ? await input.store.getVersion(versionId) : undefined;
   return { ok: true, data: { paper: toAdminPaperView(paper, version), version }, budget: emptyBudget() };
@@ -218,6 +233,7 @@ async function loadSnapshotView(
 export async function previewPaper(input: {
   store?: PaperWorkStore;
   questions?: QuestionWorkStore;
+  imports?: ImportVisibilityStore;
   data: Record<string, unknown>;
   includeSecrets: boolean;
 }): Promise<
@@ -233,6 +249,9 @@ export async function previewPaper(input: {
   if (!input.store) return fail("INTERNAL_ERROR", "PAPER_STORE_UNAVAILABLE");
   const paper = await input.store.getPaper(parsed.paperId);
   if (!paper) return fail("NOT_FOUND", "PAPER_NOT_FOUND");
+  if (!(await isCommittedImport(input.imports, paper.importBatchId))) {
+    return fail("NOT_FOUND", "PAPER_NOT_FOUND");
+  }
   const lookup = lookupFromQuestionStore(input.questions);
   let draftPreview;
   if (lookup && input.includeSecrets) {
@@ -284,6 +303,7 @@ export async function savePaper(input: {
   questions?: QuestionWorkStore;
   categories?: CategoryReadStore;
   categoryUsage?: CategoryUsageStore;
+  imports?: ImportVisibilityStore;
   actorId: string;
   data: Record<string, unknown>;
   requestId: string;
@@ -301,7 +321,7 @@ export async function savePaper(input: {
   let draftItems = parsed.items;
   if (parsed.items) {
     if (!lookup) return fail("INTERNAL_ERROR", "QUESTION_STORE_UNAVAILABLE");
-    const resolved = await resolveDraftItems(lookup, parsed.items);
+    const resolved = await resolveDraftItems(lookup, parsed.items, input.imports);
     if (!resolved.ok) return fail(resolved.code, resolved.reason, { details: resolved.details });
     draftItems = resolved.items;
   }
@@ -425,6 +445,7 @@ async function publishChecks(input: {
   paper: PaperRecord;
   lookup: PaperQuestionLookup;
   categories?: CategoryReadStore;
+  imports?: ImportVisibilityStore;
 }): Promise<
   | { ok: true; versions: QuestionVersionRecord[]; questions: QuestionRecord[]; categoryPath: string[] }
   | PaperActionFailure
@@ -437,6 +458,9 @@ async function publishChecks(input: {
   for (const item of input.paper.draftItems) {
     const question = await input.lookup.getQuestion(item.questionId);
     if (!question) return fail("NOT_FOUND", "QUESTION_NOT_FOUND", { details: { questionId: item.questionId } });
+    if (!(await isCommittedImport(input.imports, question.importBatchId))) {
+      return fail("NOT_FOUND", "QUESTION_NOT_FOUND", { details: { questionId: item.questionId } });
+    }
     if (question.status !== "active") {
       return fail("INVALID_ARGUMENT", "QUESTION_DISABLED", { details: { questionId: item.questionId } });
     }
@@ -466,6 +490,7 @@ export async function publishPaper(input: {
   questions?: QuestionWorkStore;
   categories?: CategoryReadStore;
   questionUsage?: QuestionUsageStore;
+  imports?: ImportVisibilityStore;
   actorId: string;
   data: Record<string, unknown>;
   requestId: string;
@@ -479,9 +504,12 @@ export async function publishPaper(input: {
   if (!parsed.ok) return fail("INVALID_ARGUMENT", parsed.issues[0] || "INVALID_PUBLISH", { issues: parsed.issues });
   const paper = await input.store.getPaper(parsed.paperId);
   if (!paper) return fail("NOT_FOUND", "PAPER_NOT_FOUND");
+  if (!(await isCommittedImport(input.imports, paper.importBatchId))) {
+    return fail("NOT_FOUND", "PAPER_NOT_FOUND");
+  }
   const lookup = lookupFromQuestionStore(input.questions);
   if (!lookup) return fail("INTERNAL_ERROR", "QUESTION_STORE_UNAVAILABLE");
-  const checked = await publishChecks({ paper, lookup, categories: input.categories });
+  const checked = await publishChecks({ paper, lookup, categories: input.categories, imports: input.imports });
   if (!checked.ok) return checked;
   const others = (await input.store.listPublishedVersions()).filter((row) => row.paperId !== paper.paperId);
   const overlap = overlappingPaperIds(

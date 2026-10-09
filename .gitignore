@@ -20,6 +20,8 @@ configs/mw10-state.json
 configs/mw10-verify-state.json
 configs/mw11-state.json
 configs/mw11-verify-state.json
+configs/mw12-state.json
+configs/mw12-verify-state.json
 configs/mw07-state.json
 configs/mw07-verify-state.json
 configs/mw07b-state.json

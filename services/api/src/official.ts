@@ -67,6 +67,8 @@ import {
   withdrawPaper
 } from "./modules/paper.js";
 import type { PaperWorkStore } from "./modules/paper-stores.js";
+import { commitImport, previewImport, readImportStatus, validateImport } from "./modules/import.js";
+import type { ImportWorkStore } from "./modules/import-stores.js";
 import {
   isVirtualPayUrlVerify,
   verifyVirtualPayNotify,
@@ -86,7 +88,9 @@ export const ADMIN_ACTIONS = [
   "upload.status",
   "paper.list",
   "paper.get",
-  "paper.preview"
+  "paper.preview",
+  "import.preview",
+  "import.status"
 ] as const;
 export const ADMIN_WRITE_ACTIONS = [
   "job.resume",
@@ -100,7 +104,9 @@ export const ADMIN_WRITE_ACTIONS = [
   "paper.save",
   "paper.publish",
   "paper.unpublish",
-  "paper.withdraw"
+  "paper.withdraw",
+  "import.validate",
+  "import.commit"
 ] as const;
 export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit"] as const;
 
@@ -150,6 +156,7 @@ export interface OfficialContext {
   questionUsage?: QuestionUsageStore;
   uploadStore?: UploadWorkStore;
   paperStore?: PaperWorkStore;
+  importStore?: ImportWorkStore;
   virtualPayNotify?: VirtualPayNotifyConfig;
 }
 
@@ -407,13 +414,13 @@ async function handlePublic(
     const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
     const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
     if (action === "paper.list") {
-      const result = await listPapers({ store: ctx.paperStore, data, publicView: true });
+      const result = await listPapers({ store: ctx.paperStore, imports: ctx.importStore, data, publicView: true });
       if (!result.ok) {
         return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
       }
       return publicSafe(requestId, now, result.data);
     }
-    const result = await getPublicPaper({ store: ctx.paperStore, data });
+    const result = await getPublicPaper({ store: ctx.paperStore, imports: ctx.importStore, data });
     if (!result.ok) {
       return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
     }
@@ -544,6 +551,9 @@ async function handleAdmin(
   }
   if (action.startsWith("paper.")) {
     return handleAdminPaper(ctx, admin.record, action, requestId, now);
+  }
+  if (action.startsWith("import.")) {
+    return handleAdminImport(ctx, admin.record, action, requestId, now);
   }
   if (action === "admin.me") {
     return ok(requestId, now, {
@@ -688,6 +698,88 @@ async function handleAdminCategory(
   return ok(requestId, now, { ...result.data, replayed: result.replayed === true, writeConcurrency: "expectedTreeVersion" });
 }
 
+async function handleAdminImport(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  if (!adminHasRole(admin.roles, "content")) {
+    return fail(requestId, "FORBIDDEN", { reason: "CONTENT_ROLE_REQUIRED" });
+  }
+  const event = unwrapFunctionEvent(ctx.event);
+  const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+  const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+  const write = action === "import.validate" || action === "import.commit";
+  if (write) {
+    if (typeof rec.idempotencyKey !== "string" || rec.idempotencyKey.length === 0) {
+      return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+    }
+    const blocked = contentWritesBlocked(ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined);
+    if (blocked) {
+      return fail(requestId, blocked.code as ErrorCode, { reason: blocked.reason, ...blocked.details });
+    }
+  }
+  if (!ctx.importStore) {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "IMPORT_STORE_UNAVAILABLE" });
+  }
+  if (action === "import.validate") {
+    const result = await validateImport({
+      store: ctx.importStore,
+      questions: ctx.questionStore,
+      papers: ctx.paperStore,
+      categories: ctx.categoryStore,
+      upload: ctx.uploadStore,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: String(rec.idempotencyKey),
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+  }
+  if (action === "import.preview") {
+    const result = await previewImport({ store: ctx.importStore, data });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return ok(requestId, now, result.data);
+  }
+  if (action === "import.commit") {
+    const result = await commitImport({
+      store: ctx.importStore,
+      questions: ctx.questionStore,
+      papers: ctx.paperStore,
+      categories: ctx.categoryStore,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: String(rec.idempotencyKey),
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+  }
+  if (action === "import.status") {
+    const result = await readImportStatus({ store: ctx.importStore, data });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return ok(requestId, now, result.data);
+  }
+  return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
+}
+
 function questionStoreWithAssets(
   question?: QuestionWorkStore,
   upload?: UploadWorkStore
@@ -728,7 +820,7 @@ async function handleAdminQuestionBank(
   }
   const questionStore = questionStoreWithAssets(ctx.questionStore, ctx.uploadStore);
   if (action === "question.list") {
-    const result = await listQuestions({ store: questionStore, data });
+    const result = await listQuestions({ store: questionStore, imports: ctx.importStore, data });
     if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
     if (hasQuestionSecrets(result.data).length > 0) {
       return fail(requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" });
@@ -738,6 +830,7 @@ async function handleAdminQuestionBank(
   if (action === "question.get") {
     const result = await getQuestion({
       store: questionStore,
+      imports: ctx.importStore,
       storage: ctx.uploadStore?.storage,
       data,
       includeSecrets: true
@@ -840,13 +933,13 @@ async function handleAdminPaper(
     return fail(requestId, "INTERNAL_ERROR", { reason: "PAPER_STORE_UNAVAILABLE" });
   }
   if (action === "paper.list") {
-    const result = await listPapers({ store: ctx.paperStore, data, publicView: false });
+    const result = await listPapers({ store: ctx.paperStore, imports: ctx.importStore, data, publicView: false });
     if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
     if (hasPaperSecrets(result.data).length > 0) return fail(requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" });
     return ok(requestId, now, result.data);
   }
   if (action === "paper.get") {
-    const result = await getAdminPaper({ store: ctx.paperStore, data });
+    const result = await getAdminPaper({ store: ctx.paperStore, imports: ctx.importStore, data });
     if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
     return ok(requestId, now, result.data);
   }
@@ -854,6 +947,7 @@ async function handleAdminPaper(
     const result = await previewPaper({
       store: ctx.paperStore,
       questions: ctx.questionStore,
+      imports: ctx.importStore,
       data,
       includeSecrets: true
     });
@@ -867,6 +961,7 @@ async function handleAdminPaper(
       questions: ctx.questionStore,
       categories: ctx.categoryStore,
       categoryUsage: ctx.categoryUsage,
+      imports: ctx.importStore,
       actorId: admin.uid,
       data,
       requestId,
@@ -889,6 +984,7 @@ async function handleAdminPaper(
       questions: ctx.questionStore,
       categories: ctx.categoryStore,
       questionUsage: ctx.questionUsage,
+      imports: ctx.importStore,
       actorId: admin.uid,
       data,
       requestId,

@@ -6,6 +6,7 @@ import {
   oversizedImageBytes,
   seedCategoryId,
   sha256OfBytes,
+  utf8Bytes,
   type CategoryRecord
 } from "@mw/shared";
 import { handleOfficial, memoryAdminStore } from "./official.js";
@@ -453,6 +454,48 @@ describe("MW10 question bank and media", () => {
       }
     });
     expect(wrongSha).toMatchObject({ ok: false, error: { details: { reason: "TICKET_SHA256_MISMATCH" } } });
+  });
+
+  it("completes import-purpose csv without treating it as an image", async () => {
+    const questionStore = memoryQuestionStore();
+    const storage = memoryObjectStorage();
+    const uploadStore = memoryUploadStore(storage);
+    const categoryStore = memoryCategoryStore([seedCategory()]);
+    const csv = utf8Bytes("questionSourceKey,stem\n");
+    const csvHash = sha256OfBytes(csv);
+    const authorized = (await ctx({
+      questionStore,
+      uploadStore,
+      categoryStore,
+      uid: contentUid,
+      event: req(
+        "upload.authorize",
+        {
+          purpose: "import",
+          contentType: "text/csv",
+          size: csv.length,
+          sha256: csvHash,
+          caption: "csv-import"
+        },
+        { idempotencyKey: "auth-import-csv" }
+      )
+    })) as { ok: true; data: { uploadTicket: string; purpose: string } };
+    expect(authorized).toMatchObject({ ok: true, data: { purpose: "import" } });
+    const completed = await ctx({
+      questionStore,
+      uploadStore,
+      categoryStore,
+      uid: contentUid,
+      entry: "mw-upload",
+      event: {
+        requestId: "req_import_csv",
+        uploadTicket: authorized.data.uploadTicket,
+        sha256: csvHash,
+        size: csv.length,
+        fileBase64: Buffer.from(csv).toString("base64")
+      }
+    });
+    expect(completed).toMatchObject({ ok: true, data: { purpose: "import", kind: "csv", assetState: "ready" } });
   });
 
   it("hides answers and analysis from public member ops and forged admin", async () => {

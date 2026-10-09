@@ -11,17 +11,25 @@ import { cloudCategoryUsageStore, cloudCategoryWorkStore } from "./modules/cloud
 import { cloudQuestionWorkStore } from "./modules/cloud-question-stores.js";
 import { cloudUploadWorkStore } from "./modules/cloud-upload-stores.js";
 import { cloudPaperWorkStore, cloudQuestionUsageStore } from "./modules/cloud-paper-stores.js";
+import { cloudImportWorkStore } from "./modules/cloud-import-stores.js";
 import { handleOfficial, type AdminUserRecord, type AdminUserStore, type OfficialEntry } from "./official.js";
 
 function present(value: unknown): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function redactError(error: unknown): { name: string; message: string } {
+function redactError(error: unknown): { name: string; message: string; reason: string } {
   const err = error && typeof error === "object" ? (error as { name?: unknown; message?: unknown }) : {};
+  const message = typeof err.message === "string" ? err.message : "unknown";
+  let reason = "UNCAUGHT";
+  if (/index|索引/i.test(message)) reason = "DATABASE_INDEX_MISSING";
+  else if (/fileID|file id|download|storage/i.test(message)) reason = "OBJECT_DOWNLOAD_FAILED";
+  else if (/timeout|ETIMEDOUT/i.test(message)) reason = "TIMEOUT";
+  else if (/DOCUMENT_SIZE|too large|exceed/i.test(message)) reason = "DOCUMENT_TOO_LARGE";
   return {
     name: typeof err.name === "string" ? err.name : "Error",
-    message: typeof err.message === "string" ? err.message : "unknown"
+    message: "redacted",
+    reason
   };
 }
 
@@ -141,6 +149,7 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       questionUsage: entry === "mw-admin" ? cloudQuestionUsageStore() : undefined,
       uploadStore: entry === "mw-admin" || entry === "mw-upload" ? cloudUploadWorkStore() : undefined,
       paperStore: entry === "mw-admin" || entry === "mw-public" ? cloudPaperWorkStore() : undefined,
+      importStore: entry === "mw-admin" || entry === "mw-public" ? cloudImportWorkStore() : undefined,
       virtualPayNotify:
         entry === "mw-pay-hook"
           ? {

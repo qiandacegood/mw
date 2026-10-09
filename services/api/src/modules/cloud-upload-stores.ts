@@ -1,4 +1,5 @@
 import {
+  asUploadPurpose,
   auditDocId,
   fileIdForObject,
   type AuditEntry,
@@ -86,7 +87,7 @@ function asTicket(id: string, data: Record<string, unknown>): UploadTicketRecord
     ticketId: typeof data.ticketId === "string" ? data.ticketId : id,
     tokenHash: typeof data.tokenHash === "string" ? data.tokenHash : "",
     adminUid: typeof data.adminUid === "string" ? data.adminUid : "",
-    purpose: data.purpose === "analysis" ? "analysis" : "prompt",
+    purpose: asUploadPurpose(data.purpose),
     maxBytes: typeof data.maxBytes === "number" ? data.maxBytes : 0,
     contentType: typeof data.contentType === "string" ? data.contentType : "",
     objectKey: typeof data.objectKey === "string" ? data.objectKey : "",
@@ -107,7 +108,7 @@ function asAsset(id: string, data: Record<string, unknown>): MediaAssetRecord {
     assetId: typeof data.assetId === "string" ? data.assetId : id,
     fileId: typeof data.fileId === "string" ? data.fileId : "",
     objectKey: typeof data.objectKey === "string" ? data.objectKey : "",
-    kind: data.kind === "analysis" ? "analysis" : "prompt",
+    kind: asUploadPurpose(data.kind),
     mime: typeof data.mime === "string" ? data.mime : "",
     size: typeof data.size === "number" ? data.size : 0,
     sha256: typeof data.sha256 === "string" ? data.sha256 : "",
@@ -117,7 +118,8 @@ function asAsset(id: string, data: Record<string, unknown>): MediaAssetRecord {
     ticketId: typeof data.ticketId === "string" ? data.ticketId : "",
     schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
     createdAt: asIso(data.createdAt, now),
-    updatedAt: asIso(data.updatedAt, now)
+    updatedAt: asIso(data.updatedAt, now),
+    ...(typeof data.inlineUtf8 === "string" ? { inlineUtf8: data.inlineUtf8 } : {})
   };
 }
 
@@ -193,23 +195,41 @@ export function cloudObjectStorage(): ObjectStorage {
     async putObject(objectKey, bytes, _contentType) {
       const app = cloudApp();
       if (typeof app.uploadFile === "function") {
-        await app.uploadFile({ cloudPath: objectKey, fileContent: Buffer.from(bytes) });
+        const raw = await app.uploadFile({ cloudPath: objectKey, fileContent: Buffer.from(bytes) });
+        const rec = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+        const nested = rec.data && typeof rec.data === "object" ? (rec.data as Record<string, unknown>) : {};
+        const fileId =
+          typeof rec.fileID === "string"
+            ? rec.fileID
+            : typeof rec.fileId === "string"
+              ? rec.fileId
+              : typeof nested.fileID === "string"
+                ? nested.fileID
+                : typeof nested.fileId === "string"
+                  ? nested.fileId
+                  : fileIdForObject(objectKey);
+        return { fileId };
       }
       return { fileId: fileIdForObject(objectKey) };
     },
-    async getObject(objectKey) {
+    async getObject(objectKey, fileId) {
       const app = cloudApp();
       if (typeof app.downloadFile !== "function") return undefined;
-      const raw = await app.downloadFile({ fileID: fileIdForObject(objectKey) });
-      const rec = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-      const fileContent = rec.fileContent || rec.data;
-      if (Buffer.isBuffer(fileContent)) {
-        return { bytes: Uint8Array.from(fileContent), size: fileContent.length };
+      const id = typeof fileId === "string" && fileId.length > 0 ? fileId : fileIdForObject(objectKey);
+      try {
+        const raw = await app.downloadFile({ fileID: id });
+        const rec = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+        const fileContent = rec.fileContent || rec.data;
+        if (Buffer.isBuffer(fileContent)) {
+          return { bytes: Uint8Array.from(fileContent), size: fileContent.length };
+        }
+        if (fileContent instanceof Uint8Array) {
+          return { bytes: fileContent, size: fileContent.length };
+        }
+        return undefined;
+      } catch {
+        return undefined;
       }
-      if (fileContent instanceof Uint8Array) {
-        return { bytes: fileContent, size: fileContent.length };
-      }
-      return undefined;
     },
     async getTempReadUrl(objectKey, _ttlSeconds) {
       const app = cloudApp();

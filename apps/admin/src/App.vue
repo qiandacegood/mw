@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import {
+  paperIdForSourceKey,
+  paperTemplateCsv,
+  questionIdForSourceKey,
+  questionTemplateCsv
+} from "@mw/shared";
+import {
   callAdminCategory,
   callAdminJob,
   callAdminQuestion,
   callAdminPaper,
+  callAdminImport,
   completeAdminUpload,
   createAdminApp,
   loginAndReadAdmin,
@@ -87,6 +94,17 @@ const knownPapers = ref<string[]>([]);
 const knownPaperVersions = ref<string[]>([]);
 const knownChunks = ref<string[]>([]);
 const knownAnswers = ref<string[]>([]);
+const iKind = ref<"question" | "paper">("question");
+const iStatus = ref("先下载模板，只填虚构内容。必须先导题库再导试卷。operations 不能导入。");
+const iEvidence = ref("");
+const iPreview = ref("");
+const iBatchId = ref("");
+const iBatchState = ref("");
+const iTicketId = ref("");
+const iSampleKeys = ref<string[]>([]);
+const knownBatches = ref<string[]>([]);
+const knownImportRows = ref<string[]>([]);
+const knownSourceKeys = ref<string[]>([]);
 
 function rememberId(list: { value: string[] }, id: string): void {
   if (id && !list.value.includes(id)) list.value = [...list.value, id];
@@ -921,6 +939,230 @@ async function copyPaperEvidence(): Promise<void> {
   setPaperStatus("已复制试卷脱敏 knownIds。不要发送密码、环境 ID 或明文 _id。");
 }
 
+function downloadText(name: string, text: string): void {
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadQuestionTemplate(): void {
+  downloadText("mw12-question-template.csv", questionTemplateCsv());
+  iStatus.value = "已下载题库模板。把「请填入已有类目标识」换成上方类目树里的真实类目 ID。样例是虚构的。";
+}
+
+function downloadPaperTemplate(): void {
+  downloadText("mw12-paper-template.csv", paperTemplateCsv());
+  iStatus.value = "已下载试卷模板。试卷只能引用已经导入并 committed 的题目来源键。";
+}
+
+function downloadFilledSamples(): void {
+  const category = qCategoryId.value || selectedId.value;
+  if (!category) {
+    iStatus.value = "请先在类目树点选一个节点，再生成带类目 ID 的虚构样例。";
+    return;
+  }
+  downloadText("mw12-question-sample.csv", questionTemplateCsv().replace(/请填入已有类目标识/g, category));
+  downloadText("mw12-paper-sample.csv", paperTemplateCsv().replace(/请填入已有类目标识/g, category));
+  iStatus.value = "已下载虚构题库与试卷样例。不要导入真实会员或真实题。";
+}
+
+function recordImportEvidence(action: string, result: AdminCallResult, extra: Record<string, unknown> = {}): void {
+  const data = result.data || {};
+  const row = {
+    action,
+    ok: result.ok === true,
+    errorCode: result.error?.code || "",
+    errorReason: result.error?.details?.reason || result.error?.message || "",
+    batchState: data.state || extra.state || "",
+    originalBatch: data.originalBatch === true,
+    rowCount: data.rowCount,
+    errorCount: data.errorCount
+  };
+  const parsed = iEvidence.value ? JSON.parse(iEvidence.value) : { steps: [] };
+  parsed.steps.push(row);
+  iEvidence.value = JSON.stringify(parsed, null, 2);
+}
+
+async function runImport(
+  action: "import.validate" | "import.preview" | "import.commit" | "import.status",
+  data: Record<string, unknown>
+): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  const result = await callAdminImport(app, action, data);
+  lastError.value = result.ok ? "" : result.error?.code || "CALL_FAILED";
+  recordImportEvidence(action, result, data);
+  if (typeof result.data?.batchId === "string") {
+    iBatchId.value = result.data.batchId;
+    rememberId(knownBatches, result.data.batchId);
+  }
+  if (typeof result.data?.state === "string") iBatchState.value = result.data.state;
+  const keys = Array.isArray(result.data?.sampleKeys) ? result.data.sampleKeys.filter((item): item is string => typeof item === "string") : [];
+  if (keys.length) iSampleKeys.value = keys;
+  iPreview.value = JSON.stringify(result.data || result.error || {}, null, 2);
+  return result;
+}
+
+async function uploadImportFile(file: File | undefined): Promise<void> {
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    iStatus.value = "超过 5 MB，整批拒绝。";
+    lastError.value = "INVALID_ARGUMENT";
+    return;
+  }
+  busy.value = true;
+  try {
+    const sha256 = await hashFile(file);
+    const authorized = await runQuestion("upload.authorize", {
+      purpose: "import",
+      contentType: "text/csv",
+      size: file.size,
+      sha256,
+      caption: iKind.value === "paper" ? "虚构试卷CSV" : "虚构题库CSV"
+    });
+    if (!authorized.ok || typeof authorized.data?.uploadTicket !== "string") {
+      iStatus.value = `导入票据签发失败：${authorized.error?.code || ""}${authorized.error?.details?.reason ? " / " + authorized.error.details.reason : ""}`;
+      return;
+    }
+    const uploadTicket = authorized.data.uploadTicket as string;
+    const ticketId = typeof authorized.data.ticketId === "string" ? authorized.data.ticketId : "";
+    iTicketId.value = ticketId;
+    const app = await createAdminApp();
+    const completed = await completeAdminUpload(app, {
+      uploadTicket,
+      sha256,
+      size: file.size,
+      fileBase64: await fileToBase64(file)
+    });
+    recordImportEvidence("mw-upload.complete", completed, { kind: iKind.value });
+    if (!completed.ok) {
+      iStatus.value = `导入文件上传失败：${completed.error?.code || ""}${completed.error?.details?.reason ? " / " + completed.error.details.reason : ""}`;
+      return;
+    }
+    if (typeof authorized.data.assetId === "string") rememberId(knownAssets, authorized.data.assetId);
+    iStatus.value = ticketId ? "文件已暂存，可点校验预览。明文票据不会写入证据。" : "上传完成但未返回 ticketId，请重试。";
+    if (ticketId) {
+      const validated = await runImport("import.validate", { kind: iKind.value, ticketId });
+      iStatus.value = validated.ok
+        ? `校验通过，状态 ${String(validated.data?.state || "")}。请再点预览并确认提交。`
+        : `整批拒绝：${validated.error?.code || ""}${validated.error?.details?.reason ? " / " + validated.error.details.reason : validated.error?.message ? " / " + validated.error.message : ""}。半批不会作为有效题目出现。`;
+    }
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function previewImportBatch(): Promise<void> {
+  if (!iBatchId.value) {
+    iStatus.value = "还没有批次。请先上传 CSV。";
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await runImport("import.preview", { batchId: iBatchId.value });
+    iStatus.value = result.ok ? `预览绑定摘要与类目版本。状态 ${String(result.data?.state || "")}` : `预览失败：${result.error?.code}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function commitImportBatch(): Promise<void> {
+  if (!iBatchId.value) {
+    iStatus.value = "还没有可提交的批次。";
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await runImport("import.commit", { batchId: iBatchId.value });
+    iStatus.value = result.ok
+      ? `已提交，状态 ${String(result.data?.state || "")}。committed 后才能按 ID 读到草稿。`
+      : `提交失败：${result.error?.code || result.error?.details?.reason}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function readImportStatus(): Promise<void> {
+  if (!iBatchId.value) {
+    iStatus.value = "还没有批次。";
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await runImport("import.status", { batchId: iBatchId.value });
+    iStatus.value = result.ok ? `批次状态 ${String(result.data?.state || "")}` : `状态读取失败：${result.error?.code}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function readImportedDrafts(): Promise<void> {
+  if (!iSampleKeys.value.length && iKind.value === "question") {
+    iStatus.value = "请先预览以得到来源键，再按 ID 读取。";
+    return;
+  }
+  busy.value = true;
+  try {
+    if (iKind.value === "question") {
+      for (const key of iSampleKeys.value) {
+        const questionId = questionIdForSourceKey(key);
+        const result = await runQuestion("question.get", { questionId });
+        if (result.ok) {
+          const question = (result.data?.question || {}) as { questionId?: string; versionId?: string };
+          if (question.questionId) rememberId(knownQuestions, question.questionId);
+          if (question.versionId) rememberId(knownVersions, question.versionId);
+        } else {
+          iStatus.value = `按 ID 读取失败（未 committed 时应 NOT_FOUND）：${result.error?.code}`;
+          return;
+        }
+      }
+      iStatus.value = "已按 ID 读到导入草稿题。";
+    } else {
+      for (const key of iSampleKeys.value) {
+        const paperId = paperIdForSourceKey(key);
+        const result = await runPaper("paper.get", { paperId });
+        if (result.ok) {
+          const paper = (result.data?.paper || {}) as { paperId?: string };
+          if (paper.paperId) rememberId(knownPapers, paper.paperId);
+        } else {
+          iStatus.value = `按 ID 读取试卷失败（未 committed 时应 NOT_FOUND）：${result.error?.code}`;
+          return;
+        }
+      }
+      iStatus.value = "已按 ID 读到导入草稿试卷。";
+    }
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function copyImportEvidence(): Promise<void> {
+  const parsed = iEvidence.value ? JSON.parse(iEvidence.value) : { steps: [] };
+  parsed.knownIds = {
+    batches: await Promise.all(knownBatches.value.map((id) => hashText(id))),
+    rows: await Promise.all(knownImportRows.value.map((id) => hashText(id))),
+    sourceKeys: await Promise.all(knownSourceKeys.value.map((id) => hashText(id))),
+    questions: await Promise.all(knownQuestions.value.map((id) => hashText(id))),
+    questionVersions: await Promise.all(knownVersions.value.map((id) => hashText(id))),
+    papers: await Promise.all(knownPapers.value.map((id) => hashText(id))),
+    assets: await Promise.all(knownAssets.value.map((id) => hashText(id))),
+    idempotency: [],
+    audits: []
+  };
+  parsed.summary = {
+    batchState: iBatchState.value,
+    kind: iKind.value,
+    sampleKeyCount: iSampleKeys.value.length
+  };
+  const text = JSON.stringify(parsed, null, 2);
+  iEvidence.value = text;
+  void navigator.clipboard?.writeText(text);
+  iStatus.value = "已复制 SHA-256 knownIds。不要发送密码、环境 ID 或明文 _id。";
+}
+
 async function logout(): Promise<void> {
   try {
     const app = await createAdminApp();
@@ -1122,6 +1364,41 @@ async function logout(): Promise<void> {
       </p>
       <pre data-testid="paper-preview">{{ pPreview }}</pre>
       <pre data-testid="paper-evidence">{{ pEvidence }}</pre>
+    </section>
+    <section v-if="session?.loggedIn" data-page="admin-import-questions">
+      <h1>题库导入</h1>
+      <p>
+        UTF-8 CSV，单文件 ≤5 MB、最多 1000 个数据行。字段：导入来源键、类目标识、题型、题干、选项 A—H、正确答案、解析、默认分值、难度、可选图片素材标识。多选答案 A|C；判断 TRUE/FALSE。阻断错误整批拒绝。
+      </p>
+      <button type="button" class="ghost" @click="iKind = 'question'; downloadQuestionTemplate()">下载题库模板</button>
+      <button type="button" class="ghost" @click="downloadFilledSamples">用当前类目生成虚构样例</button>
+      <label>
+        上传虚构题库 CSV
+        <input type="file" accept=".csv,text/csv,text/plain" @change="iKind = 'question'; uploadImportFile(($event.target as HTMLInputElement).files?.[0])" />
+      </label>
+    </section>
+    <section v-if="session?.loggedIn" data-page="admin-import-papers">
+      <h1>试卷导入</h1>
+      <p>
+        同一卷一题一行。卷级字段必须一致，题序必须连续。只能引用已存在且可用的题目来源键。未先导题库的试卷导入必须失败。
+      </p>
+      <button type="button" class="ghost" @click="iKind = 'paper'; downloadPaperTemplate()">下载试卷模板</button>
+      <label>
+        上传虚构试卷 CSV
+        <input type="file" accept=".csv,text/csv,text/plain" @change="iKind = 'paper'; uploadImportFile(($event.target as HTMLInputElement).files?.[0])" />
+      </label>
+    </section>
+    <section v-if="session?.loggedIn" data-page="admin-import">
+      <h2>导入预览、提交与批次</h2>
+      <p class="status">{{ iStatus }}</p>
+      <p class="status">kind={{ iKind }} · batchState={{ iBatchState }} · 来源键 {{ iSampleKeys.length }}</p>
+      <button type="button" :disabled="busy" @click="previewImportBatch">预览当前批次</button>
+      <button type="button" :disabled="busy" @click="commitImportBatch">确认提交</button>
+      <button type="button" class="ghost" :disabled="busy" @click="readImportStatus">刷新批次状态</button>
+      <button type="button" class="ghost" :disabled="busy" @click="readImportedDrafts">按 ID 读本批草稿</button>
+      <button type="button" class="ghost" @click="copyImportEvidence">复制 knownIds</button>
+      <pre data-testid="import-preview">{{ iPreview }}</pre>
+      <pre data-testid="import-evidence">{{ iEvidence }}</pre>
     </section>
     <section v-if="session?.loggedIn">
       <h2>任务查询与恢复</h2>
