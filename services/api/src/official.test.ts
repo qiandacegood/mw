@@ -243,7 +243,7 @@ describe("official identity and entry boundaries", () => {
       allowedAppIds,
       now
     });
-    expect(pay).toMatchObject({ ok: false, reason: "SIGNATURE_REQUIRED" });
+    expect(pay).toMatchObject({ ok: false, reason: "SIGNATURE_REQUIRED", vipGranted: false });
 
     const jobs = await handleOfficial({
       entry: "mw-jobs",
@@ -252,6 +252,126 @@ describe("official identity and entry boundaries", () => {
       now
     });
     expect(jobs).toMatchObject({ ok: false, reason: "CLIENT_INVOKE_DENIED" });
+  });
+
+  it("pay-hook verifies real message-push shapes that include openid", async () => {
+    const url = {
+      token: "AAAAA",
+      timestamp: "1714036504",
+      nonce: "1514711492",
+      signature: "f464b24fc39322e44b38aa78f5edd27bd1441696",
+      echostr: "4375120948345356249"
+    };
+    const handshake = await handleOfficial({
+      entry: "mw-pay-hook",
+      event: {
+        httpMethod: "GET",
+        queryStringParameters: {
+          signature: url.signature,
+          timestamp: url.timestamp,
+          nonce: url.nonce,
+          echostr: url.echostr,
+          openid: "mp_notify_openid_fixture"
+        }
+      },
+      allowedAppIds,
+      virtualPayNotify: { token: url.token },
+      now
+    });
+    expect(handshake).toBe(url.echostr);
+
+    const plain = {
+      token: "AAAAA",
+      timestamp: "1714037059",
+      nonce: "486452656",
+      signature: "899cf89e464efb63f54ddac96b0a0a235f53aa78"
+    };
+    const xml = await handleOfficial({
+      entry: "mw-pay-hook",
+      event: {
+        httpMethod: "POST",
+        queryStringParameters: {
+          signature: plain.signature,
+          timestamp: plain.timestamp,
+          nonce: plain.nonce,
+          openid: "mp_notify_openid_fixture"
+        },
+        body:
+          "<xml><ToUserName><![CDATA[gh_fixture]]></ToUserName><FromUserName><![CDATA[official_openid_fixture]]></FromUserName><CreateTime>1714037059</CreateTime><MsgType><![CDATA[event]]></MsgType><Event><![CDATA[xpay_goods_deliver_notify]]></Event><OpenId><![CDATA[mp_notify_openid_fixture]]></OpenId><Env>1</Env></xml>"
+      },
+      allowedAppIds,
+      virtualPayNotify: { token: plain.token },
+      now
+    });
+    expect(xml).toMatchObject({
+      ErrCode: 0,
+      eventType: "xpay_goods_deliver_notify",
+      vipGranted: false
+    });
+
+    const json = await handleOfficial({
+      entry: "mw-pay-hook",
+      event: {
+        httpMethod: "POST",
+        queryStringParameters: {
+          signature: plain.signature,
+          timestamp: plain.timestamp,
+          nonce: plain.nonce,
+          openid: "mp_notify_openid_fixture"
+        },
+        body: JSON.stringify({
+          MsgType: "event",
+          Event: "xpay_goods_deliver_notify",
+          OpenId: "mp_notify_openid_fixture",
+          openid: "mp_notify_openid_fixture",
+          FromUserName: "official_openid_fixture",
+          Env: 1
+        })
+      },
+      allowedAppIds,
+      virtualPayNotify: { token: plain.token },
+      now
+    });
+    expect(json).toMatchObject({
+      ErrCode: 0,
+      eventType: "xpay_goods_deliver_notify",
+      vipGranted: false
+    });
+
+    const forged = await handleOfficial({
+      entry: "mw-pay-hook",
+      event: {
+        httpMethod: "POST",
+        queryStringParameters: {
+          signature: "0".repeat(40),
+          timestamp: plain.timestamp,
+          nonce: plain.nonce,
+          openid: "mp_notify_openid_fixture"
+        },
+        body: JSON.stringify({ Event: "xpay_goods_deliver_notify", openid: "mp_notify_openid_fixture" })
+      },
+      allowedAppIds,
+      virtualPayNotify: { token: plain.token },
+      now
+    });
+    expect(forged).toMatchObject({ ok: false, reason: "SIGNATURE_INVALID", vipGranted: false });
+
+    const apiV3 = await handleOfficial({
+      entry: "mw-pay-hook",
+      event: {
+        httpMethod: "POST",
+        headers: { "Wechatpay-Signature": "fake" },
+        queryStringParameters: { openid: "mp_notify_openid_fixture" },
+        body: JSON.stringify({
+          event_type: "TRANSACTION.SUCCESS",
+          resource: { ciphertext: "not-used" }
+        })
+      },
+      allowedAppIds,
+      virtualPayNotify: { token: plain.token },
+      now
+    });
+    expect(apiV3).toMatchObject({ ok: false, reason: "APIV3_REJECTED", vipGranted: false });
   });
 
   it("cloudbase_auth allows only the MW shared AppID", () => {

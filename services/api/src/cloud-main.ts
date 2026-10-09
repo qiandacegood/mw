@@ -140,7 +140,15 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       questionStore: entry === "mw-admin" ? cloudQuestionWorkStore() : undefined,
       questionUsage: entry === "mw-admin" ? cloudQuestionUsageStore() : undefined,
       uploadStore: entry === "mw-admin" || entry === "mw-upload" ? cloudUploadWorkStore() : undefined,
-      paperStore: entry === "mw-admin" || entry === "mw-public" ? cloudPaperWorkStore() : undefined
+      paperStore: entry === "mw-admin" || entry === "mw-public" ? cloudPaperWorkStore() : undefined,
+      virtualPayNotify:
+        entry === "mw-pay-hook"
+          ? {
+              token: process.env.VIRTUAL_PAY_NOTIFY_TOKEN,
+              encodingAesKey: process.env.VIRTUAL_PAY_ENCODING_AES_KEY,
+              appId: process.env.WECHAT_APP_ID
+            }
+          : undefined
     });
   } catch (error) {
     return {

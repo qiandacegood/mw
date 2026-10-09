@@ -20,6 +20,10 @@ configs/mw10-state.json
 configs/mw10-verify-state.json
 configs/mw11-state.json
 configs/mw11-verify-state.json
+configs/mw07-state.json
+configs/mw07-verify-state.json
+configs/mw07b-state.json
+configs/mw07b-verify-state.json
 apps/admin/.env.local
 apps/miniprogram/cloud.local.js
 apps/miniprogram/services/cloud.runtime.js

@@ -67,6 +67,11 @@ import {
   withdrawPaper
 } from "./modules/paper.js";
 import type { PaperWorkStore } from "./modules/paper-stores.js";
+import {
+  isVirtualPayUrlVerify,
+  verifyVirtualPayNotify,
+  type VirtualPayNotifyConfig
+} from "./modules/virtual-pay-notify.js";
 
 export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
@@ -145,6 +150,7 @@ export interface OfficialContext {
   questionUsage?: QuestionUsageStore;
   uploadStore?: UploadWorkStore;
   paperStore?: PaperWorkStore;
+  virtualPayNotify?: VirtualPayNotifyConfig;
 }
 
 export interface MemoryAdminStore extends AdminUserStore {
@@ -318,6 +324,11 @@ export async function handleOfficial(ctx: OfficialContext): Promise<unknown> {
   if (ctx.entry === "mw-jobs") {
     return handleJobs(ctx);
   }
+  if (ctx.entry === "mw-pay-hook") {
+    // Platform notify query/body may include openid / OpenId / FromUserName.
+    // Those are not client-forged identity fields; verify signature on raw bytes first.
+    return handlePayHook(ctx, ctx.event);
+  }
 
   const event = unwrapFunctionEvent(ctx.event);
   const forged = forgedDenied(event);
@@ -325,9 +336,6 @@ export async function handleOfficial(ctx: OfficialContext): Promise<unknown> {
 
   if (ctx.entry === "mw-upload") {
     return handleUpload(ctx, ctx.event);
-  }
-  if (ctx.entry === "mw-pay-hook") {
-    return handlePayHook(ctx, event);
   }
 
   const parsed = parseApiRequest(event);
@@ -993,7 +1001,7 @@ async function handleUpload(ctx: OfficialContext, event: unknown): Promise<ApiRe
   return redactUploadSecrets(ok(requestId, ctx.now ?? new Date(), result.data));
 }
 
-async function handlePayHook(ctx: OfficialContext, event: unknown): Promise<Record<string, unknown>> {
+async function handlePayHook(ctx: OfficialContext, event: unknown): Promise<unknown> {
   if (ctx.maintenanceStore) {
     const config = await ctx.maintenanceStore.get();
     const blocked = paymentNotifyBlockedByMaintenance(config, "mw-pay-hook");
@@ -1001,12 +1009,28 @@ async function handlePayHook(ctx: OfficialContext, event: unknown): Promise<Reco
       return { ok: false, entry: "mw-pay-hook", reason: "MAINTENANCE_SHOULD_NOT_BLOCK_NOTIFY" };
     }
   }
-  const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
-  const hasSignature = Boolean(rec.signature || rec.sign);
-  if (!hasSignature) {
-    return { ok: false, entry: "mw-pay-hook", reason: "SIGNATURE_REQUIRED" };
+  const verified = verifyVirtualPayNotify(event, ctx.virtualPayNotify);
+  if (isVirtualPayUrlVerify(verified)) {
+    return verified.echostr;
   }
-  return { ok: false, entry: "mw-pay-hook", reason: "NOT_A_REAL_PAYMENT_CHANNEL" };
+  if (!verified.ok) {
+    return {
+      ok: false,
+      entry: "mw-pay-hook",
+      reason: verified.reason,
+      ErrCode: verified.ErrCode,
+      ErrMsg: verified.ErrMsg,
+      vipGranted: false,
+      protocol: verified.protocol
+    };
+  }
+  return {
+    ErrCode: 0,
+    ErrMsg: "success",
+    eventType: verified.eventType,
+    vipGranted: false,
+    protocol: "virtual-pay-message-push"
+  };
 }
 
 function jobsEventWithoutPlatform(event: unknown): unknown {

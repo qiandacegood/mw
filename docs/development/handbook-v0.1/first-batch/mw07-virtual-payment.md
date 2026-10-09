@@ -1,9 +1,10 @@
 # MW07 虚拟支付资格与接入验证
 
-开发手册 v0.1｜任务状态：部分完成（A 已完成，B 未开始/受阻；结果见 [results/mw07a-result.md](results/mw07a-result.md)）  
-[任务总览](../02-roadmap.md)｜[实际进度](../07-progress.md)
+开发手册 v0.1｜任务状态：已完成（仅技术样例；结果见 [results/mw07a-result.md](results/mw07a-result.md) 与 [results/mw07b-result.md](results/mw07b-result.md)）
 
-本任务分两段。**本轮只执行 MW07-A**。不得把整项标为已完成，不得把 A14/A20 或 T20/T26 标为通过。
+[任务总览](../02-roadmap.md)｜[实际进度](../07-progress.md)｜[B 段说明](mw07b-virtual-payment.md)
+
+本任务分两段。A 已于 2026-10-08 完成。**B 已于 2026-10-09 执行**，见 [mw07b-virtual-payment.md](mw07b-virtual-payment.md)。不得把 A14/A20 或 T20/T26 标为通过。
 
 ## 目标与可见结果
 
@@ -13,16 +14,16 @@
 
 1. 本执行说明。
 2. A 段结果：[results/mw07a-result.md](results/mw07a-result.md)。
-3. 07-progress.md 的真实状态：A 完成后整项最多标“部分完成（A 已完成，B 未开始/受阻）”。
+3. 07-progress.md 的真实状态：B 的沙箱查单通路已记录后，整项可标“已完成（仅技术样例）”，仍不得把 A14/A20 或 T20/T26 标通过。
 
-B 段技术验证不在本轮范围，不创建 `mw07b-result.md`，不调用支付接口。
+B 段技术验证见 [mw07b-virtual-payment.md](mw07b-virtual-payment.md) 与 [results/mw07b-result.md](results/mw07b-result.md)。
 
 ## 分段
 
 | 分段 | 名称 | 本轮 |
 | --- | --- | --- |
-| **MW07-A** | 主体及渠道资格核对 | **执行** |
-| **MW07-B** | 签名、查单、通知和发货样例技术验证 | **禁止启动** |
+| **MW07-A** | 主体及渠道资格核对 | **已完成** |
+| **MW07-B** | 签名、查单、通知和发货样例技术验证 | **已完成（仅技术样例；沙箱查单已发出）** |
 
 A 只回答：当前 MW 小程序是否具备虚拟支付资格、后台入口状态如何、各端能力如何、B 现在能不能开始。B 才做 `wx.requestVirtualPayment` 签名、`/xpay/query_order`、发货通知和发货确认的隔离样例。没有资格或入口不通时，B 保持未开始或受阻，不得改用普通支付绕开。
 
@@ -58,7 +59,7 @@ A 只回答：当前 MW 小程序是否具备虚拟支付资格、后台入口�
 
 需要登录、扫码、验证码或敏感信息时暂停，由用户亲自操作。不得要求用户在对话中发送账号密码、验证码、身份证资料或密钥。
 
-## MW07-B 工作范围（本轮不执行）
+## MW07-B 工作范围（2026-10-09 已执行）
 
 B 依赖 A 的明确资格结论，以及 MW04 已锁定的 mw-test 云端能力。启动 B 前至少具备：
 

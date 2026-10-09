@@ -17,6 +17,10 @@ const secrets = [
   env.WECHAT_APP_ID,
   env.MW_RESOURCE_APPID,
   env.VIRTUAL_PAY_APP_KEY,
+  env.VIRTUAL_PAY_APP_KEY_LIVE,
+  env.VIRTUAL_PAY_OFFER_ID,
+  env.VIRTUAL_PAY_NOTIFY_TOKEN,
+  env.VIRTUAL_PAY_ENCODING_AES_KEY,
   env.WECHAT_APP_SECRET,
   env.MW_JOBS_INVOKE_TOKEN
 ].filter((value) => value && !/placeholder|example|xxxx|your-/i.test(value));

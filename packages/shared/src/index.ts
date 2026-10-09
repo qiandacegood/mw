@@ -16,4 +16,5 @@ export * from "./member.js";
 export * from "./media.js";
 export * from "./question.js";
 export * from "./paper.js";
+export * from "./virtual-pay.js";
 export * from "./mock/paper-detail.js";
