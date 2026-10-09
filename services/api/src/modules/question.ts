@@ -346,7 +346,7 @@ export async function disableQuestion(input: {
 }): Promise<QuestionActionSuccess<{ questionId: string; status: "disabled"; revision: number; idempotencyId: string }> | QuestionActionFailure> {
   const parsed = parseQuestionDisableInput(input.data);
   if (!parsed.ok) return fail("INVALID_ARGUMENT", parsed.issues[0] || "INVALID_DISABLE", { issues: parsed.issues });
-  const paperRefs = input.usage ? input.usage.paperRefsFor(parsed.questionId) : [];
+  const paperRefs = input.usage ? await Promise.resolve(input.usage.paperRefsFor(parsed.questionId)) : [];
   if (paperRefs.length > 0) {
     return fail("INVALID_ARGUMENT", "QUESTION_IN_USE", {
       details: { paperRefs: paperRefs.length, note: "referenced versions are immutable" }

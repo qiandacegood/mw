@@ -116,6 +116,32 @@ export async function callAdminQuestion(
   return unwrapCallResult(result);
 }
 
+export async function callAdminPaper(
+  app: CloudApp,
+  action:
+    | "paper.list"
+    | "paper.get"
+    | "paper.save"
+    | "paper.preview"
+    | "paper.publish"
+    | "paper.unpublish"
+    | "paper.withdraw",
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action === "paper.save" || action === "paper.publish" || action === "paper.unpublish" || action === "paper.withdraw") {
+    payload.idempotencyKey = idempotencyKey || `mw11/admin/${action}/${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
 export async function completeAdminUpload(
   app: CloudApp,
   input: { uploadTicket: string; sha256: string; size: number; fileBase64: string }

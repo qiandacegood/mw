@@ -51,7 +51,9 @@ export const QUESTION_SECRET_KEYS = [
   "correctOptionIds",
   "analysisAssetIds",
   "analysisFileId",
-  "question_versions"
+  "question_versions",
+  "paper_answers",
+  "answerChunkIds"
 ] as const;
 
 export const PUBLIC_QUESTION_FORBIDDEN_KEYS = QUESTION_SECRET_KEYS;

@@ -19,7 +19,7 @@ export type QuestionWriteMutation<T> = {
 };
 
 export interface QuestionUsageStore {
-  paperRefsFor(questionId: string): string[];
+  paperRefsFor(questionId: string): string[] | Promise<string[]>;
   setPaperRefs(questionId: string, paperIds: string[]): void;
 }
 

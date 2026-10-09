@@ -3,6 +3,7 @@ import {
   callAdminCategory,
   callAdminJob,
   callAdminQuestion,
+  callAdminPaper,
   completeAdminUpload,
   loginAndReadAdmin,
   type AdminSession
@@ -96,6 +97,27 @@ describe("admin question helpers", () => {
     await completeAdminUpload(app, { uploadTicket: "tkt_x", sha256: "ab".repeat(32), size: 12, fileBase64: "AA==" });
     expect(calls[0]).toMatchObject({ name: "mw-admin", data: { action: "question.save", idempotencyKey: "mw10/admin/save" } });
     expect(calls[1]).toMatchObject({ name: "mw-upload", data: { uploadTicket: "tkt_x" } });
+  });
+});
+
+describe("admin paper helpers", () => {
+  it("calls paper actions through mw-admin with write keys", async () => {
+    const calls: unknown[] = [];
+    const app = {
+      auth: () => ({
+        signInWithPassword: async () => ({}),
+        getLoginState: async () => ({ user: { uid: "uid_super" } }),
+        signOut: async () => ({})
+      }),
+      callFunction: async (input: { name: string; data: unknown }) => {
+        calls.push(input);
+        return { result: { ok: true, data: { paperId: "p1", status: "draft" } } };
+      }
+    };
+    await callAdminPaper(app, "paper.save", { expectedRevision: 0 }, "mw11/admin/save");
+    await callAdminPaper(app, "paper.preview", { paperId: "p1" });
+    expect(calls[0]).toMatchObject({ name: "mw-admin", data: { action: "paper.save", idempotencyKey: "mw11/admin/save" } });
+    expect(calls[1]).toMatchObject({ name: "mw-admin", data: { action: "paper.preview" } });
   });
 });
 

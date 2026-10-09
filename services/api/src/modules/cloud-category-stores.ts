@@ -234,10 +234,12 @@ export function cloudCategoryUsageStore(): CategoryUsageStore {
       const questionRefs = rows.filter(
         (row) => row.categoryId === categoryId && row.status !== "deleted"
       ).length;
-      return { questionRefs, paperRefs: 0 };
+      const papers = await listCollection(cloudApp().database(), "papers");
+      const paperRefs = papers.filter((row) => row.categoryId === categoryId).length;
+      return { questionRefs, paperRefs };
     },
     setPaperRefs() {
-      /* papers are MW11 */
+      /* paper refs are counted from papers */
     },
     setQuestionRefs() {
       /* question refs are counted from questions */

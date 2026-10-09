@@ -10,6 +10,7 @@ import { cloudMemberWorkStore, cloudPolicyStore } from "./modules/cloud-member-s
 import { cloudCategoryUsageStore, cloudCategoryWorkStore } from "./modules/cloud-category-stores.js";
 import { cloudQuestionWorkStore } from "./modules/cloud-question-stores.js";
 import { cloudUploadWorkStore } from "./modules/cloud-upload-stores.js";
+import { cloudPaperWorkStore, cloudQuestionUsageStore } from "./modules/cloud-paper-stores.js";
 import { handleOfficial, type AdminUserRecord, type AdminUserStore, type OfficialEntry } from "./official.js";
 
 function present(value: unknown): boolean {
@@ -137,7 +138,9 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       categoryStore: entry === "mw-admin" || entry === "mw-public" ? cloudCategoryWorkStore() : undefined,
       categoryUsage: entry === "mw-admin" ? cloudCategoryUsageStore() : undefined,
       questionStore: entry === "mw-admin" ? cloudQuestionWorkStore() : undefined,
-      uploadStore: entry === "mw-admin" || entry === "mw-upload" ? cloudUploadWorkStore() : undefined
+      questionUsage: entry === "mw-admin" ? cloudQuestionUsageStore() : undefined,
+      uploadStore: entry === "mw-admin" || entry === "mw-upload" ? cloudUploadWorkStore() : undefined,
+      paperStore: entry === "mw-admin" || entry === "mw-public" ? cloudPaperWorkStore() : undefined
     });
   } catch (error) {
     return {

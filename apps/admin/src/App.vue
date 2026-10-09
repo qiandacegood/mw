@@ -4,6 +4,7 @@ import {
   callAdminCategory,
   callAdminJob,
   callAdminQuestion,
+  callAdminPaper,
   completeAdminUpload,
   createAdminApp,
   loginAndReadAdmin,
@@ -65,6 +66,27 @@ const lastTicketOnce = ref(false);
 const knownQuestions = ref<string[]>([]);
 const knownVersions = ref<string[]>([]);
 const knownAssets = ref<string[]>([]);
+const pTitle = ref("MW11虚构练习卷");
+const pSummary = ref("虚构简介，只用于组卷发布核验。");
+const pGoal = ref("练习条件判断");
+const pAccess = ref<"free" | "vip">("free");
+const pDifficulty = ref("beginner");
+const pSort = ref(10);
+const pRevision = ref(0);
+const pPaperId = ref("");
+const pStatus = ref("");
+const pMaxScore = ref(0);
+const pQuestionCount = ref(0);
+const pActiveVersionId = ref("");
+const pWithdrawReason = ref("答案错误，紧急撤回未提交交卷");
+const pItemText = ref("");
+const pPreview = ref("");
+const pEvidence = ref("");
+const pLocalStatus = ref("先在上方题库保存至少 1 道虚构题，再点「加入上方当前题」。不要手填 111、222 这种假号。");
+const knownPapers = ref<string[]>([]);
+const knownPaperVersions = ref<string[]>([]);
+const knownChunks = ref<string[]>([]);
+const knownAnswers = ref<string[]>([]);
 
 function rememberId(list: { value: string[] }, id: string): void {
   if (id && !list.value.includes(id)) list.value = [...list.value, id];
@@ -646,6 +668,259 @@ async function copyQuestionEvidence(): Promise<void> {
   status.value = "已复制题库脱敏证据。不要发送密码、明文票据或环境 ID。";
 }
 
+function recordPaperEvidence(action: string, result: AdminCallResult, extra: Record<string, unknown> = {}): void {
+  const data = result.data || {};
+  const row = {
+    action,
+    ok: result.ok === true,
+    errorCode: result.error?.code || "",
+    errorReason: result.error?.details?.reason || extra.reason || "",
+    paperId: typeof data.paperId === "string" ? data.paperId : extra.paperId || pPaperId.value,
+    status: data.status || extra.status || "",
+    revision: data.revision,
+    versionId: data.versionId || data.activeVersionId || "",
+    questionCount: data.questionCount || data.draftQuestionCount,
+    maxScore: data.maxScore || data.draftMaxScore
+  };
+  const parsed = pEvidence.value ? JSON.parse(pEvidence.value) : { writeConcurrency: "expectedRevision", steps: [] };
+  parsed.steps.push(row);
+  pEvidence.value = JSON.stringify(parsed, null, 2);
+}
+
+function paperItems(): Array<{ questionId: string; points: number; ord: number }> {
+  const lines = pItemText.value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.map((line, index) => {
+    const [id, points] = line.split(":");
+    return { questionId: (id || "").trim(), points: Number(points || 5), ord: index + 1 };
+  });
+}
+
+function setPaperStatus(message: string): void {
+  pLocalStatus.value = message;
+  status.value = message;
+}
+
+function looksLikeFakeQuestionId(id: string): boolean {
+  return /^(?:1+|2+|3+|123+|111+|222+|333+)$/.test(id) || (id.length < 16 && /^\d+$/.test(id));
+}
+
+function addCurrentQuestion(): void {
+  if (!qQuestionId.value) {
+    setPaperStatus("请先滚到上方「题库」，保存一道虚构题。保存成功后这里才会出现 questionId，再点本按钮。");
+    return;
+  }
+  const lines = pItemText.value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !looksLikeFakeQuestionId(line.split(":")[0] || ""));
+  if (!lines.some((line) => line.startsWith(qQuestionId.value))) {
+    lines.push(`${qQuestionId.value}:${qPoints.value || 5}`);
+  }
+  pItemText.value = lines.join("\n");
+  setPaperStatus(`已加入当前题 ${qQuestionId.value.slice(0, 12)}…，共 ${lines.length} 题。不要手填 111/222。`);
+}
+
+async function runPaper(
+  action: "paper.list" | "paper.get" | "paper.save" | "paper.preview" | "paper.publish" | "paper.unpublish" | "paper.withdraw",
+  data: Record<string, unknown>
+): Promise<AdminCallResult> {
+  try {
+    const app = await createAdminApp();
+    const result = await callAdminPaper(app, action, data);
+    lastError.value = result.ok ? "" : result.error?.code || "CALL_FAILED";
+    recordPaperEvidence(action, result, data);
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "CALL_FAILED";
+    lastError.value = "CALL_FAILED";
+    const failed = { ok: false, error: { code: "CALL_FAILED", message, details: { reason: message } } };
+    recordPaperEvidence(action, failed, data);
+    return failed;
+  }
+}
+
+function applyPaperView(data: Record<string, unknown>): void {
+  const paper = (data.paper && typeof data.paper === "object" ? data.paper : data) as Record<string, unknown>;
+  pPaperId.value = String(paper.paperId || data.paperId || pPaperId.value);
+  pRevision.value = Number(paper.revision || data.revision || pRevision.value);
+  pStatus.value = String(paper.status || data.status || "");
+  pMaxScore.value = Number(paper.draftMaxScore || paper.maxScore || data.maxScore || 0);
+  pQuestionCount.value = Number(paper.draftQuestionCount || paper.questionCount || data.questionCount || 0);
+  pActiveVersionId.value = String(paper.activeVersionId || data.versionId || pActiveVersionId.value);
+  rememberId(knownPapers, pPaperId.value);
+  if (pActiveVersionId.value) rememberId(knownPaperVersions, pActiveVersionId.value);
+}
+
+async function savePaperDraft(): Promise<void> {
+  if (!qCategoryId.value && selectedId.value) qCategoryId.value = selectedId.value;
+  const items = paperItems();
+  if (!items.length) {
+    setPaperStatus("题目栏是空的。请先在上方题库保存题目，再点「加入上方当前题」。");
+    return;
+  }
+  if (items.some((item) => looksLikeFakeQuestionId(item.questionId))) {
+    setPaperStatus("题目栏里的 111/222/333 是假号，云端没有这些题。请清空，用「加入上方当前题」填入真实 questionId。");
+    return;
+  }
+  if (!qCategoryId.value) {
+    setPaperStatus("还没选类目。请先在上方类目树点一个节点，或在题库填类目 ID。");
+    return;
+  }
+  busy.value = true;
+  setPaperStatus("正在保存草稿…");
+  try {
+    const result = await runPaper("paper.save", {
+      ...(pPaperId.value ? { paperId: pPaperId.value } : {}),
+      expectedRevision: pRevision.value,
+      title: pTitle.value,
+      summary: pSummary.value,
+      goal: pGoal.value,
+      categoryId: qCategoryId.value,
+      access: pAccess.value,
+      difficulty: pDifficulty.value,
+      sort: pSort.value,
+      suggestedMinutes: 20,
+      items
+    });
+    if (result.ok) {
+      applyPaperView(result.data || {});
+      setPaperStatus(`草稿已保存 revision=${pRevision.value}，${pQuestionCount.value} 题，满分 ${pMaxScore.value}`);
+    } else {
+      setPaperStatus(`保存草稿失败：${result.error?.code || ""} ${result.error?.details?.reason || result.error?.message || ""}`);
+    }
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function previewPaper(): Promise<void> {
+  if (!pPaperId.value) {
+    setPaperStatus("还没有 paperId。必须先「保存草稿」成功，预览/发布才会有反应。");
+    return;
+  }
+  busy.value = true;
+  setPaperStatus("正在整卷预览…");
+  try {
+    const result = await runPaper("paper.preview", { paperId: pPaperId.value });
+    pPreview.value = JSON.stringify(result.data || result.error || {}, null, 2);
+    setPaperStatus(result.ok ? "整卷预览已生成（含管理端解析，不进公开包）" : `预览失败：${result.error?.code}`);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function publishPaper(fault?: "missingChunk" | "badManifest"): Promise<void> {
+  if (!pPaperId.value) {
+    setPaperStatus("还没有 paperId。必须先「保存草稿」成功，再发布。");
+    return;
+  }
+  busy.value = true;
+  setPaperStatus(fault ? `正在故意${fault === "missingChunk" ? "缺块" : "坏摘要"}发布（应拒绝）…` : "正在发布…");
+  try {
+    const result = await runPaper("paper.publish", {
+      paperId: pPaperId.value,
+      expectedRevision: pRevision.value,
+      confirmOverlap: true,
+      ...(fault ? { injectPublishFault: fault } : {})
+    });
+    if (result.ok) {
+      applyPaperView(result.data || {});
+      setPaperStatus(`发布成功 version=${pActiveVersionId.value}`);
+    } else {
+      setPaperStatus(`发布拒绝：${result.error?.code || ""} ${result.error?.details?.reason || result.error?.message || ""}`);
+    }
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function unpublishPaper(): Promise<void> {
+  if (!pPaperId.value) {
+    setPaperStatus("还没有已保存的试卷，不能下架。");
+    return;
+  }
+  busy.value = true;
+  setPaperStatus("正在普通下架…");
+  try {
+    const result = await runPaper("paper.unpublish", { paperId: pPaperId.value, expectedRevision: pRevision.value });
+    if (result.ok) applyPaperView(result.data || {});
+    setPaperStatus(result.ok ? "已普通下架，只阻止新开始" : `下架失败：${result.error?.code}`);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function withdrawPaper(): Promise<void> {
+  if (!pPaperId.value) {
+    setPaperStatus("还没有已保存的试卷，不能撤回。");
+    return;
+  }
+  busy.value = true;
+  setPaperStatus("正在紧急撤回…");
+  try {
+    const result = await runPaper("paper.withdraw", {
+      paperId: pPaperId.value,
+      expectedRevision: pRevision.value,
+      reason: pWithdrawReason.value
+    });
+    if (result.ok) applyPaperView(result.data || {});
+    setPaperStatus(result.ok ? "已紧急撤回，未提交不可交卷" : `撤回失败：${result.error?.code}`);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function readPublishedSnapshot(): Promise<void> {
+  if (!pPaperId.value) {
+    setPaperStatus("还没有已保存的试卷，不能读快照。");
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await runPaper("paper.get", { paperId: pPaperId.value, ...(pActiveVersionId.value ? { versionId: pActiveVersionId.value } : {}) });
+    if (result.ok) {
+      applyPaperView(result.data || {});
+      const version = (result.data as { version?: { chunkIds?: string[]; answerChunkIds?: string[] } })?.version;
+      for (const id of version?.chunkIds || []) rememberId(knownChunks, id);
+      for (const id of version?.answerChunkIds || []) rememberId(knownAnswers, id);
+    }
+    const preview = await runPaper("paper.preview", { paperId: pPaperId.value });
+    pPreview.value = JSON.stringify(preview.data || preview.error || {}, null, 2);
+    setPaperStatus(result.ok ? "已读取发布快照。改题后这里应仍是旧题面。" : `读取失败：${result.error?.code}`);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function copyPaperEvidence(): Promise<void> {
+  const parsed = pEvidence.value ? JSON.parse(pEvidence.value) : { steps: [] };
+  parsed.knownIds = {
+    papers: await Promise.all(knownPapers.value.map((id) => hashText(id))),
+    versions: await Promise.all(knownPaperVersions.value.map((id) => hashText(id))),
+    chunks: await Promise.all(knownChunks.value.map((id) => hashText(id))),
+    answers: await Promise.all(knownAnswers.value.map((id) => hashText(id))),
+    questions: await Promise.all(knownQuestions.value.map((id) => hashText(id))),
+    questionVersions: await Promise.all(knownVersions.value.map((id) => hashText(id))),
+    assets: await Promise.all(knownAssets.value.map((id) => hashText(id))),
+    idempotency: [],
+    audits: []
+  };
+  parsed.summary = {
+    paperIdHashed: pPaperId.value ? await hashText(pPaperId.value) : "",
+    status: pStatus.value,
+    revision: pRevision.value,
+    questionCount: pQuestionCount.value,
+    maxScore: pMaxScore.value
+  };
+  const text = JSON.stringify(parsed, null, 2);
+  pEvidence.value = text;
+  void navigator.clipboard?.writeText(text);
+  setPaperStatus("已复制试卷脱敏 knownIds。不要发送密码、环境 ID 或明文 _id。");
+}
+
 async function logout(): Promise<void> {
   try {
     const app = await createAdminApp();
@@ -783,6 +1058,70 @@ async function logout(): Promise<void> {
       <button type="button" class="ghost" @click="copyQuestionEvidence">复制题库脱敏证据</button>
       <p class="status">question revision={{ qRevision }} · status={{ qStatus }} · ticketOnce={{ lastTicketOnce }}</p>
       <pre data-testid="question-evidence">{{ qEvidence }}</pre>
+    </section>
+    <section v-if="session?.loggedIn" data-page="admin-papers">
+      <h1>试卷编排与发布</h1>
+      <p>
+        组卷、整卷预览、发布、普通下架、紧急撤回。发布不等于公众上线，也不等于 MW13 首页选卷。解析图不得进公开包。
+      </p>
+      <label>
+        标题
+        <input v-model="pTitle" autocomplete="off" />
+      </label>
+      <label>
+        简介
+        <input v-model="pSummary" autocomplete="off" />
+      </label>
+      <label>
+        练习目标
+        <input v-model="pGoal" autocomplete="off" />
+      </label>
+      <label>
+        权限
+        <select v-model="pAccess">
+          <option value="free">免费</option>
+          <option value="vip">VIP</option>
+        </select>
+      </label>
+      <label>
+        难度
+        <select v-model="pDifficulty">
+          <option value="beginner">入门</option>
+          <option value="intermediate">进阶</option>
+          <option value="challenge">挑战</option>
+        </select>
+      </label>
+      <label>
+        排序
+        <input v-model.number="pSort" type="number" />
+      </label>
+      <p class="status">
+        当前题库题：{{ qQuestionId || "还没有。请先在上方题库点「保存题目」" }} · 类目：{{ qCategoryId || selectedId || "未选" }}
+      </p>
+      <p class="status">{{ pLocalStatus }}</p>
+      <label>
+        题目（不要手填 111/222。用「加入上方当前题」带入真实 questionId）
+        <textarea v-model="pItemText" rows="6" placeholder="先保存题库题，再点加入"></textarea>
+      </label>
+      <button type="button" class="ghost" :disabled="busy" @click="addCurrentQuestion">加入上方当前题</button>
+      <button type="button" :disabled="busy" @click="savePaperDraft">保存草稿</button>
+      <button type="button" :disabled="busy" @click="previewPaper">整卷预览</button>
+      <button type="button" :disabled="busy" @click="publishPaper()">发布</button>
+      <button type="button" class="ghost" :disabled="busy" @click="publishPaper('missingChunk')">故意缺块发布（应拒绝）</button>
+      <button type="button" class="ghost" :disabled="busy" @click="publishPaper('badManifest')">故意坏摘要发布（应拒绝）</button>
+      <button type="button" class="ghost" :disabled="busy" @click="readPublishedSnapshot">读取已发布快照</button>
+      <button type="button" :disabled="busy" @click="unpublishPaper">普通下架</button>
+      <label>
+        紧急撤回原因
+        <input v-model="pWithdrawReason" autocomplete="off" />
+      </label>
+      <button type="button" :disabled="busy" @click="withdrawPaper">紧急撤回</button>
+      <button type="button" class="ghost" @click="copyPaperEvidence">复制试卷 knownIds</button>
+      <p class="status">
+        paper revision={{ pRevision }} · status={{ pStatus }} · 题数={{ pQuestionCount }} · 满分={{ pMaxScore }}
+      </p>
+      <pre data-testid="paper-preview">{{ pPreview }}</pre>
+      <pre data-testid="paper-evidence">{{ pEvidence }}</pre>
     </section>
     <section v-if="session?.loggedIn">
       <h2>任务查询与恢复</h2>

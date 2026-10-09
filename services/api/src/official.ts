@@ -18,6 +18,7 @@ import {
   PARENT_CHANGE_NOTE,
   CATEGORY_TREE_FIELDS,
   hasQuestionSecrets,
+  hasPaperSecrets,
   redactUploadSecrets,
   type AdminRole,
   type ApiFailure,
@@ -55,10 +56,21 @@ import { disableQuestion, getQuestion, listQuestions, saveQuestion } from "./mod
 import type { QuestionUsageStore, QuestionWorkStore } from "./modules/question-stores.js";
 import { authorizeUpload, completeUpload, readUploadStatus } from "./modules/upload.js";
 import type { UploadWorkStore } from "./modules/upload-stores.js";
+import {
+  getAdminPaper,
+  getPublicPaper,
+  listPapers,
+  previewPaper,
+  publishPaper,
+  savePaper,
+  unpublishPaper,
+  withdrawPaper
+} from "./modules/paper.js";
+import type { PaperWorkStore } from "./modules/paper-stores.js";
 
 export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
-export const PUBLIC_ACTIONS = ["public.ping", "home.get", "policies.current", "category.tree"] as const;
+export const PUBLIC_ACTIONS = ["public.ping", "home.get", "policies.current", "category.tree", "paper.list", "paper.detail"] as const;
 export const MEMBER_ACTIONS = ["member.session", "member.register", "member.me", "member.updateProfile"] as const;
 export const ADMIN_ACTIONS = [
   "admin.me",
@@ -66,7 +78,10 @@ export const ADMIN_ACTIONS = [
   "category.tree",
   "question.list",
   "question.get",
-  "upload.status"
+  "upload.status",
+  "paper.list",
+  "paper.get",
+  "paper.preview"
 ] as const;
 export const ADMIN_WRITE_ACTIONS = [
   "job.resume",
@@ -76,7 +91,11 @@ export const ADMIN_WRITE_ACTIONS = [
   "category.seed",
   "question.save",
   "question.disable",
-  "upload.authorize"
+  "upload.authorize",
+  "paper.save",
+  "paper.publish",
+  "paper.unpublish",
+  "paper.withdraw"
 ] as const;
 export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit"] as const;
 
@@ -125,6 +144,7 @@ export interface OfficialContext {
   questionStore?: QuestionWorkStore;
   questionUsage?: QuestionUsageStore;
   uploadStore?: UploadWorkStore;
+  paperStore?: PaperWorkStore;
 }
 
 export interface MemoryAdminStore extends AdminUserStore {
@@ -165,7 +185,7 @@ function ok<T>(requestId: string, now: Date, data: T): ApiResponse<T> {
 }
 
 function publicSafe<T>(requestId: string, now: Date, data: T): ApiResponse<T> {
-  if (hasQuestionSecrets(data).length > 0) {
+  if (hasQuestionSecrets(data).length > 0 || hasPaperSecrets(data).length > 0) {
     return fail(requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" }) as ApiResponse<T>;
   }
   return ok(requestId, now, data);
@@ -374,6 +394,23 @@ async function handlePublic(
     const tree = await readCategoryTree(ctx.categoryStore, { knownVersion: data.knownVersion, publicView: true });
     return publicSafe(requestId, now, tree.data);
   }
+  if (action === "paper.list" || action === "paper.detail") {
+    const event = unwrapFunctionEvent(ctx.event);
+    const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+    const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+    if (action === "paper.list") {
+      const result = await listPapers({ store: ctx.paperStore, data, publicView: true });
+      if (!result.ok) {
+        return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+      }
+      return publicSafe(requestId, now, result.data);
+    }
+    const result = await getPublicPaper({ store: ctx.paperStore, data });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    return publicSafe(requestId, now, result.data);
+  }
   return publicSafe(requestId, now, {
     roots: [],
     recommended: [],
@@ -496,6 +533,9 @@ async function handleAdmin(
   }
   if (action.startsWith("question.") || action.startsWith("upload.")) {
     return handleAdminQuestionBank(ctx, admin.record, action, requestId, now);
+  }
+  if (action.startsWith("paper.")) {
+    return handleAdminPaper(ctx, admin.record, action, requestId, now);
   }
   if (action === "admin.me") {
     return ok(requestId, now, {
@@ -761,6 +801,130 @@ async function handleAdminQuestionBank(
     const result = await readUploadStatus({ store: ctx.uploadStore, data, actorId: admin.uid });
     if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
     return ok(requestId, now, result.data);
+  }
+  return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
+}
+
+async function handleAdminPaper(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  if (!adminHasRole(admin.roles, "content")) {
+    return fail(requestId, "FORBIDDEN", { reason: "CONTENT_ROLE_REQUIRED" });
+  }
+  const event = unwrapFunctionEvent(ctx.event);
+  const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+  const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+  const write = action === "paper.save" || action === "paper.publish" || action === "paper.unpublish" || action === "paper.withdraw";
+  if (write) {
+    if (typeof rec.idempotencyKey !== "string" || rec.idempotencyKey.length === 0) {
+      return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+    }
+    const blocked = contentWritesBlocked(ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined);
+    if (blocked) {
+      return fail(requestId, blocked.code as ErrorCode, { reason: blocked.reason, ...blocked.details });
+    }
+  }
+  if (!ctx.paperStore && action !== "paper.list") {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "PAPER_STORE_UNAVAILABLE" });
+  }
+  if (action === "paper.list") {
+    const result = await listPapers({ store: ctx.paperStore, data, publicView: false });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    if (hasPaperSecrets(result.data).length > 0) return fail(requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" });
+    return ok(requestId, now, result.data);
+  }
+  if (action === "paper.get") {
+    const result = await getAdminPaper({ store: ctx.paperStore, data });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return ok(requestId, now, result.data);
+  }
+  if (action === "paper.preview") {
+    const result = await previewPaper({
+      store: ctx.paperStore,
+      questions: ctx.questionStore,
+      data,
+      includeSecrets: true
+    });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return ok(requestId, now, result.data);
+  }
+  if (action === "paper.save") {
+    if (!ctx.paperStore) return fail(requestId, "INTERNAL_ERROR", { reason: "PAPER_STORE_UNAVAILABLE" });
+    const result = await savePaper({
+      store: ctx.paperStore,
+      questions: ctx.questionStore,
+      categories: ctx.categoryStore,
+      categoryUsage: ctx.categoryUsage,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: String(rec.idempotencyKey),
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+  }
+  if (action === "paper.publish") {
+    if (!ctx.paperStore) return fail(requestId, "INTERNAL_ERROR", { reason: "PAPER_STORE_UNAVAILABLE" });
+    const result = await publishPaper({
+      store: ctx.paperStore,
+      questions: ctx.questionStore,
+      categories: ctx.categoryStore,
+      questionUsage: ctx.questionUsage,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: String(rec.idempotencyKey),
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+  }
+  if (action === "paper.unpublish") {
+    if (!ctx.paperStore) return fail(requestId, "INTERNAL_ERROR", { reason: "PAPER_STORE_UNAVAILABLE" });
+    const result = await unpublishPaper({
+      store: ctx.paperStore,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: String(rec.idempotencyKey),
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+  }
+  if (action === "paper.withdraw") {
+    if (!ctx.paperStore) return fail(requestId, "INTERNAL_ERROR", { reason: "PAPER_STORE_UNAVAILABLE" });
+    const result = await withdrawPaper({
+      store: ctx.paperStore,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: String(rec.idempotencyKey),
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
   }
   return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
 }
