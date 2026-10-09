@@ -16,6 +16,8 @@ configs/mw08-state.json
 configs/mw08-verify-state.json
 configs/mw09-state.json
 configs/mw09-verify-state.json
+configs/mw10-state.json
+configs/mw10-verify-state.json
 apps/admin/.env.local
 apps/miniprogram/cloud.local.js
 apps/miniprogram/services/cloud.runtime.js

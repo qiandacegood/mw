@@ -97,6 +97,42 @@ export async function callAdminCategory(
   return unwrapCallResult(result);
 }
 
+export async function callAdminQuestion(
+  app: CloudApp,
+  action: "question.list" | "question.get" | "question.save" | "question.disable" | "upload.authorize" | "upload.status",
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action === "question.save" || action === "question.disable" || action === "upload.authorize") {
+    payload.idempotencyKey = idempotencyKey || `mw10/admin/${action}/${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
+export async function completeAdminUpload(
+  app: CloudApp,
+  input: { uploadTicket: string; sha256: string; size: number; fileBase64: string }
+): Promise<AdminCallResult> {
+  const result = await app.callFunction({
+    name: "mw-upload",
+    data: {
+      requestId: `req_admin_upload_${Date.now()}`,
+      uploadTicket: input.uploadTicket,
+      sha256: input.sha256,
+      size: input.size,
+      fileBase64: input.fileBase64
+    }
+  });
+  return unwrapCallResult(result);
+}
+
 export async function callAdminJob(
   app: CloudApp,
   action: "job.get" | "job.resume",

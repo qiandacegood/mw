@@ -33,7 +33,16 @@ export function parseApiRequest(input: unknown): { request?: ApiRequest; issues:
 export function hasForbiddenAnswerKeys(value: unknown): string[] {
   const found: string[] = [];
   walk(value, (key) => {
-    if (key === "answer" || key === "analysis" || key === "correctOptionIds") found.push(key);
+    if (
+      key === "answer" ||
+      key === "analysis" ||
+      key === "correctOptionIds" ||
+      key === "analysisAssetIds" ||
+      key === "analysisFileId" ||
+      key === "question_versions"
+    ) {
+      found.push(key);
+    }
   });
   return [...new Set(found)];
 }

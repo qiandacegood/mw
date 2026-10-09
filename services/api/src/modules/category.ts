@@ -639,7 +639,7 @@ export async function deleteCategory(input: {
   if (!parsed.ok) {
     return fail("INVALID_ARGUMENT", parsed.issues[0] || "INVALID_DELETE", { issues: parsed.issues });
   }
-  const refs = input.usage.refsFor(parsed.categoryId);
+  const refs = await Promise.resolve(input.usage.refsFor(parsed.categoryId));
   const payload = {
     categoryId: parsed.categoryId,
     expectedTreeVersion: parsed.expectedTreeVersion

@@ -8,6 +8,8 @@ import {
 } from "./modules/cloud-stores.js";
 import { cloudMemberWorkStore, cloudPolicyStore } from "./modules/cloud-member-stores.js";
 import { cloudCategoryUsageStore, cloudCategoryWorkStore } from "./modules/cloud-category-stores.js";
+import { cloudQuestionWorkStore } from "./modules/cloud-question-stores.js";
+import { cloudUploadWorkStore } from "./modules/cloud-upload-stores.js";
 import { handleOfficial, type AdminUserRecord, type AdminUserStore, type OfficialEntry } from "./official.js";
 
 function present(value: unknown): boolean {
@@ -113,7 +115,7 @@ function unwrapDoc(snap: unknown): Record<string, unknown> | undefined {
 export async function main(entry: OfficialEntry, event: unknown): Promise<unknown> {
   try {
     const wx = readWxContext();
-    const authUid = entry === "mw-admin" ? await readAuthUid() : undefined;
+    const authUid = entry === "mw-admin" || entry === "mw-upload" ? await readAuthUid() : undefined;
     return await handleOfficial({
       entry,
       event,
@@ -133,7 +135,9 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       policyStore: entry === "mw-public" || entry === "mw-member" ? cloudPolicyStore() : undefined,
       memberStore: entry === "mw-member" ? cloudMemberWorkStore() : undefined,
       categoryStore: entry === "mw-admin" || entry === "mw-public" ? cloudCategoryWorkStore() : undefined,
-      categoryUsage: entry === "mw-admin" ? cloudCategoryUsageStore() : undefined
+      categoryUsage: entry === "mw-admin" ? cloudCategoryUsageStore() : undefined,
+      questionStore: entry === "mw-admin" ? cloudQuestionWorkStore() : undefined,
+      uploadStore: entry === "mw-admin" || entry === "mw-upload" ? cloudUploadWorkStore() : undefined
     });
   } catch (error) {
     return {

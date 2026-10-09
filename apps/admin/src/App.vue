@@ -3,6 +3,8 @@ import { computed, ref } from "vue";
 import {
   callAdminCategory,
   callAdminJob,
+  callAdminQuestion,
+  completeAdminUpload,
   createAdminApp,
   loginAndReadAdmin,
   signOutAdmin,
@@ -38,6 +40,35 @@ const nodeName = ref("");
 const nodeSort = ref(10);
 const evidence = ref("");
 const lastError = ref("");
+const qType = ref<"single" | "multiple" | "trueFalse">("single");
+const qStem = ref("虚构题干：条件甲成立时应选哪一项？");
+const qOptions = ref("选项甲\n选项乙\n选项丙");
+const qAnswers = ref("A");
+const qAnalysis = ref("因为条件甲成立，所以选甲。多选可写漏选或误选说明。");
+const qPoints = ref(5);
+const qDifficulty = ref("beginner");
+const qCategoryId = ref("");
+const qRevision = ref(0);
+const qQuestionId = ref("");
+const qVersionId = ref("");
+const qStatus = ref("");
+const qComplete = ref(true);
+const qMissing = ref("");
+const promptAssetId = ref("");
+const analysisAssetId = ref("");
+const previewUrl = ref("");
+const previewKind = ref("");
+const previewOpen = ref(false);
+const previewFailed = ref(false);
+const qEvidence = ref("");
+const lastTicketOnce = ref(false);
+const knownQuestions = ref<string[]>([]);
+const knownVersions = ref<string[]>([]);
+const knownAssets = ref<string[]>([]);
+
+function rememberId(list: { value: string[] }, id: string): void {
+  if (id && !list.value.includes(id)) list.value = [...list.value, id];
+}
 
 const selected = computed(() => nodes.value.find((row) => (row.categoryId || row.id) === selectedId.value));
 
@@ -148,6 +179,7 @@ function pick(row: CategoryNode): void {
   parentId.value = nodeId(row);
   nodeName.value = row.name;
   nodeSort.value = row.sort;
+  qCategoryId.value = nodeId(row);
 }
 
 async function createNode(): Promise<void> {
@@ -330,6 +362,290 @@ async function runJob(action: "job.get" | "job.resume"): Promise<void> {
   }
 }
 
+function optionLetters(count: number): string[] {
+  return Array.from({ length: count }, (_, index) => String.fromCharCode(65 + index));
+}
+
+function parsedOptions(): Array<{ optionId: string; text: string; assetIds: string[] }> {
+  if (qType.value === "trueFalse") {
+    return [
+      { optionId: "TRUE", text: "正确", assetIds: [] },
+      { optionId: "FALSE", text: "错误", assetIds: [] }
+    ];
+  }
+  const lines = qOptions.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.map((text, index) => ({ optionId: optionLetters(lines.length)[index] || `O${index + 1}`, text, assetIds: [] }));
+}
+
+async function hashText(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((item) => item.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashFile(file: File): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return [...new Uint8Array(digest)].map((item) => item.toString(16).padStart(2, "0")).join("");
+}
+
+function recordQuestionEvidence(action: string, result: AdminCallResult, extra: Record<string, unknown> = {}): void {
+  const data = result.data || {};
+  const row = {
+    action,
+    ok: result.ok === true,
+    errorCode: result.error?.code || "",
+    errorReason: result.error?.details?.reason || "",
+    type: data.type || extra.type || "",
+    categoryId: extra.categoryId || data.categoryId || "",
+    revision: data.revision,
+    ticketOnce: extra.ticketOnce === true,
+    complete: data.complete
+  };
+  const parsed = qEvidence.value ? JSON.parse(qEvidence.value) : { writeConcurrency: "expectedRevision", steps: [] };
+  parsed.steps.push(row);
+  qEvidence.value = JSON.stringify(parsed, null, 2);
+}
+
+async function runQuestion(
+  action: "question.list" | "question.get" | "question.save" | "question.disable" | "upload.authorize" | "upload.status",
+  data: Record<string, unknown>
+): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  const result = await callAdminQuestion(app, action, data);
+  lastError.value = result.ok ? "" : result.error?.code || "CALL_FAILED";
+  recordQuestionEvidence(action, result, data);
+  return result;
+}
+
+async function saveQuestion(): Promise<void> {
+  if (!qCategoryId.value && selectedId.value) qCategoryId.value = selectedId.value;
+  if (!qCategoryId.value) {
+    status.value = "请先选择一个类目";
+    return;
+  }
+  busy.value = true;
+  try {
+    const options = parsedOptions();
+    const answerIds =
+      qType.value === "trueFalse"
+        ? [qAnswers.value === "FALSE" ? "FALSE" : "TRUE"]
+        : qAnswers.value
+            .split(/[|,，\s]+/)
+            .map((item) => item.trim())
+            .filter(Boolean);
+    const result = await runQuestion("question.save", {
+      ...(qQuestionId.value ? { questionId: qQuestionId.value } : {}),
+      expectedRevision: qRevision.value,
+      categoryId: qCategoryId.value,
+      type: qType.value,
+      stem: { text: qStem.value, assetIds: promptAssetId.value ? [promptAssetId.value] : [] },
+      options,
+      answer: { optionIds: answerIds },
+      analysis: { text: qAnalysis.value, assetIds: analysisAssetId.value ? [analysisAssetId.value] : [] },
+      defaultPoints: qPoints.value,
+      difficulty: qDifficulty.value
+    });
+    if (result.ok) {
+      qQuestionId.value = String(result.data?.questionId || "");
+      qVersionId.value = String(result.data?.versionId || "");
+      qRevision.value = Number(result.data?.revision || 1);
+      qStatus.value = String(result.data?.status || "active");
+      qComplete.value = result.data?.complete !== false;
+      rememberId(knownQuestions, qQuestionId.value);
+      rememberId(knownVersions, qVersionId.value);
+      status.value = `已保存 ${qType.value} revision=${qRevision.value}。三种题型请各点一次「新建下一题」再保存，不要覆盖同一题。`;
+    } else {
+      status.value = `保存失败：${result.error?.code}`;
+    }
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function loadQuestion(): Promise<void> {
+  if (!qQuestionId.value) {
+    status.value = "没有 questionId";
+    return;
+  }
+  busy.value = true;
+  previewFailed.value = false;
+  try {
+    const result = await runQuestion("question.get", { questionId: qQuestionId.value });
+    if (!result.ok) {
+      status.value = `读取失败：${result.error?.code}`;
+      return;
+    }
+    const question = (result.data?.question || {}) as Record<string, unknown>;
+    qRevision.value = Number(question.revision || 0);
+    qVersionId.value = String(question.versionId || result.data?.question && (result.data.question as { versionId?: string }).versionId || "");
+    qStatus.value = String(question.status || "");
+    qComplete.value = result.data?.complete === true;
+    const missing = Array.isArray((question as { missingAssets?: unknown[] }).missingAssets)
+      ? (question as { missingAssets: Array<{ assetId: string; kind: string }> }).missingAssets
+      : [];
+    qMissing.value = missing.map((item) => `${item.kind}:${item.assetId.slice(0, 8)}`).join(",");
+    const assets = Array.isArray(result.data?.assets) ? (result.data?.assets as Array<Record<string, unknown>>) : [];
+    const prompt = assets.find((item) => item.kind === "prompt");
+    const analysis = assets.find((item) => item.kind === "analysis");
+    previewUrl.value = typeof prompt?.readUrl === "string" ? prompt.readUrl : "";
+    previewKind.value = previewUrl.value ? "prompt" : "";
+    if (!qComplete.value || missing.length) {
+      previewFailed.value = true;
+      status.value = "缺图，题目未完整，可重载";
+    } else {
+      status.value = "已读取题目";
+    }
+    void analysis;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function disableCurrent(): Promise<void> {
+  if (!qQuestionId.value) {
+    status.value = "没有可停用的题";
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await runQuestion("question.disable", {
+      questionId: qQuestionId.value,
+      expectedRevision: qRevision.value,
+      reason: "mw10 unused fixture"
+    });
+    status.value = result.ok ? "已停用" : `停用失败：${result.error?.code}`;
+    if (result.ok) qStatus.value = "disabled";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function uploadPicked(file: File | undefined, purpose: "prompt" | "analysis"): Promise<void> {
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    status.value = "超过 2 MB";
+    lastError.value = "INVALID_ARGUMENT";
+    return;
+  }
+  busy.value = true;
+  lastTicketOnce.value = false;
+  try {
+    const sha256 = await hashFile(file);
+    const contentType = file.type === "image/jpeg" || file.type === "image/webp" ? file.type : "image/png";
+    const authorized = await runQuestion("upload.authorize", {
+      purpose,
+      contentType,
+      size: file.size,
+      sha256,
+      caption: purpose === "analysis" ? "虚构解析图" : "虚构题干图"
+    });
+    if (!authorized.ok || typeof authorized.data?.uploadTicket !== "string") {
+      status.value = `签发失败：${authorized.error?.code || authorized.error?.details?.reason}`;
+      return;
+    }
+    const ticket = authorized.data.uploadTicket as string;
+    const app = await createAdminApp();
+    const completed = await completeAdminUpload(app, {
+      uploadTicket: ticket,
+      sha256,
+      size: file.size,
+      fileBase64: await fileToBase64(file)
+    });
+    recordQuestionEvidence("mw-upload.complete", completed, { ticketOnce: true, type: purpose });
+    lastTicketOnce.value = completed.ok === true;
+    if (!completed.ok) {
+      status.value = `上传失败：${completed.error?.code || completed.error?.details?.reason}`;
+      return;
+    }
+    const replay = await completeAdminUpload(app, {
+      uploadTicket: ticket,
+      sha256,
+      size: file.size,
+      fileBase64: await fileToBase64(file)
+    });
+    recordQuestionEvidence("mw-upload.replay", replay, { ticketOnce: false });
+    const assetId = String(completed.data?.assetId || authorized.data?.assetId || "");
+    rememberId(knownAssets, assetId);
+    if (purpose === "prompt") promptAssetId.value = assetId;
+    else analysisAssetId.value = assetId;
+    previewUrl.value = URL.createObjectURL(file);
+    previewKind.value = purpose;
+    previewFailed.value = false;
+    status.value = replay.ok ? "重放不应成功" : `${purpose} 图已上传，重放已拒绝`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("read failed"));
+    reader.onload = () => {
+      const text = String(reader.result || "");
+      const comma = text.indexOf(",");
+      resolve(comma >= 0 ? text.slice(comma + 1) : text);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function openPreview(): void {
+  if (!previewUrl.value) {
+    previewFailed.value = true;
+    status.value = "缺图，不能当作完整题";
+    return;
+  }
+  previewOpen.value = true;
+}
+
+function startNewQuestion(): void {
+  qQuestionId.value = "";
+  qVersionId.value = "";
+  qRevision.value = 0;
+  qStatus.value = "";
+  qComplete.value = true;
+  qMissing.value = "";
+  promptAssetId.value = "";
+  analysisAssetId.value = "";
+  previewUrl.value = "";
+  previewKind.value = "";
+  previewOpen.value = false;
+  previewFailed.value = false;
+  lastTicketOnce.value = false;
+  status.value = "已清空当前题，下一题会新建，不会覆盖刚才那道。多选正确答案至少两项，例如 A|C。";
+}
+
+async function copyQuestionEvidence(): Promise<void> {
+  const parsed = qEvidence.value ? JSON.parse(qEvidence.value) : { steps: [] };
+  const questions = knownQuestions.value.length ? knownQuestions.value : qQuestionId.value ? [qQuestionId.value] : [];
+  const versions = knownVersions.value.length ? knownVersions.value : qVersionId.value ? [qVersionId.value] : [];
+  const assets = knownAssets.value.length
+    ? knownAssets.value
+    : [promptAssetId.value, analysisAssetId.value].filter(Boolean);
+  parsed.knownIds = {
+    questions: await Promise.all(questions.map((id) => hashText(id))),
+    versions: await Promise.all(versions.map((id) => hashText(id))),
+    assets: await Promise.all(assets.map((id) => hashText(id))),
+    tickets: [],
+    objects: [],
+    idempotency: [],
+    audits: []
+  };
+  parsed.summary = {
+    type: qType.value,
+    categoryId: qCategoryId.value,
+    revision: qRevision.value,
+    ticketOnce: lastTicketOnce.value,
+    status: qStatus.value,
+    complete: qComplete.value
+  };
+  const text = JSON.stringify(parsed, null, 2);
+  qEvidence.value = text;
+  void navigator.clipboard?.writeText(text);
+  status.value = "已复制题库脱敏证据。不要发送密码、明文票据或环境 ID。";
+}
+
 async function logout(): Promise<void> {
   try {
     const app = await createAdminApp();
@@ -397,6 +713,77 @@ async function logout(): Promise<void> {
       <button type="button" class="ghost" @click="copyEvidence">复制脱敏证据</button>
       <pre data-testid="category-evidence">{{ evidence }}</pre>
     </section>
+    <section v-if="session?.loggedIn" data-page="admin-questions">
+      <h1>题库</h1>
+      <p>单选 / 多选 / 判断。解析必填。图片 ≤2MB，JPG/PNG/WebP。解析图不进公开或会员接口。</p>
+      <p class="status">
+        同一票据重放不用手点：选图上传成功后，页面会立刻用同一张票再传一次。状态出现「重放已拒绝」、证据里
+        <code>mw-upload.replay</code> 的 <code>TICKET_REPLAY</code> 即算完成。
+      </p>
+      <label>
+        类目 ID
+        <input v-model="qCategoryId" autocomplete="off" />
+      </label>
+      <label>
+        题型
+        <select v-model="qType">
+          <option value="single">单选</option>
+          <option value="multiple">多选</option>
+          <option value="trueFalse">判断</option>
+        </select>
+      </label>
+      <label>
+        题干
+        <textarea v-model="qStem" rows="3"></textarea>
+      </label>
+      <label v-if="qType !== 'trueFalse'">
+        选项（每行一项）
+        <textarea v-model="qOptions" rows="4"></textarea>
+      </label>
+      <label>
+        正确答案（单选 A；多选 A|C；判断 TRUE/FALSE）
+        <input v-model="qAnswers" autocomplete="off" />
+      </label>
+      <label>
+        解析
+        <textarea v-model="qAnalysis" rows="3"></textarea>
+      </label>
+      <label>
+        默认分值
+        <input v-model.number="qPoints" type="number" min="1" />
+      </label>
+      <label>
+        难度
+        <select v-model="qDifficulty">
+          <option value="beginner">入门</option>
+          <option value="intermediate">进阶</option>
+          <option value="challenge">挑战</option>
+        </select>
+      </label>
+      <label>
+        题干图
+        <input type="file" accept="image/jpeg,image/png,image/webp" @change="uploadPicked(($event.target as HTMLInputElement).files?.[0], 'prompt')" />
+      </label>
+      <label>
+        解析图
+        <input type="file" accept="image/jpeg,image/png,image/webp" @change="uploadPicked(($event.target as HTMLInputElement).files?.[0], 'analysis')" />
+      </label>
+      <p v-if="!qComplete || previewFailed" class="status">缺图或加载失败，本题不能当作完整题显示。</p>
+      <div v-if="previewUrl" class="preview">
+        <button type="button" class="ghost" @click="openPreview">预览 / 放大 {{ previewKind }}</button>
+        <img :src="previewUrl" alt="题目图片预览" @error="previewFailed = true" />
+      </div>
+      <div v-if="previewOpen" class="zoom" @click="previewOpen = false">
+        <img :src="previewUrl" alt="放大预览" />
+      </div>
+      <button type="button" :disabled="busy" @click="saveQuestion">保存题目</button>
+      <button type="button" class="ghost" :disabled="busy" @click="startNewQuestion">新建下一题</button>
+      <button type="button" class="ghost" :disabled="busy" @click="loadQuestion">读取并重载</button>
+      <button type="button" class="ghost" :disabled="busy" @click="disableCurrent">停用当前题</button>
+      <button type="button" class="ghost" @click="copyQuestionEvidence">复制题库脱敏证据</button>
+      <p class="status">question revision={{ qRevision }} · status={{ qStatus }} · ticketOnce={{ lastTicketOnce }}</p>
+      <pre data-testid="question-evidence">{{ qEvidence }}</pre>
+    </section>
     <section v-if="session?.loggedIn">
       <h2>任务查询与恢复</h2>
       <label>
@@ -451,5 +838,27 @@ button.ghost {
 .tree {
   padding-left: 0;
   list-style: none;
+}
+select,
+textarea {
+  display: block;
+  margin: 12px 0;
+  width: 100%;
+}
+.preview img {
+  max-width: 240px;
+  border: 1px solid #e2e8f0;
+}
+.zoom {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.zoom img {
+  max-width: 92vw;
+  max-height: 92vh;
 }
 </style>

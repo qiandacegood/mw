@@ -17,6 +17,8 @@ import {
   toUtcIso,
   PARENT_CHANGE_NOTE,
   CATEGORY_TREE_FIELDS,
+  hasQuestionSecrets,
+  redactUploadSecrets,
   type AdminRole,
   type ApiFailure,
   type ApiResponse,
@@ -49,18 +51,32 @@ import {
 } from "./modules/category.js";
 import type { CategoryUsageStore, CategoryWorkStore } from "./modules/category-stores.js";
 import { emptyCategoryUsage } from "./modules/category-stores.js";
+import { disableQuestion, getQuestion, listQuestions, saveQuestion } from "./modules/question.js";
+import type { QuestionUsageStore, QuestionWorkStore } from "./modules/question-stores.js";
+import { authorizeUpload, completeUpload, readUploadStatus } from "./modules/upload.js";
+import type { UploadWorkStore } from "./modules/upload-stores.js";
 
 export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
 export const PUBLIC_ACTIONS = ["public.ping", "home.get", "policies.current", "category.tree"] as const;
 export const MEMBER_ACTIONS = ["member.session", "member.register", "member.me", "member.updateProfile"] as const;
-export const ADMIN_ACTIONS = ["admin.me", "job.get", "category.tree"] as const;
+export const ADMIN_ACTIONS = [
+  "admin.me",
+  "job.get",
+  "category.tree",
+  "question.list",
+  "question.get",
+  "upload.status"
+] as const;
 export const ADMIN_WRITE_ACTIONS = [
   "job.resume",
   "category.create",
   "category.update",
   "category.delete",
-  "category.seed"
+  "category.seed",
+  "question.save",
+  "question.disable",
+  "upload.authorize"
 ] as const;
 export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit"] as const;
 
@@ -106,6 +122,9 @@ export interface OfficialContext {
   memberStore?: MemberReadStore & MemberWorkStore;
   categoryStore?: CategoryWorkStore;
   categoryUsage?: CategoryUsageStore;
+  questionStore?: QuestionWorkStore;
+  questionUsage?: QuestionUsageStore;
+  uploadStore?: UploadWorkStore;
 }
 
 export interface MemoryAdminStore extends AdminUserStore {
@@ -143,6 +162,13 @@ function ok<T>(requestId: string, now: Date, data: T): ApiResponse<T> {
     serverTime: toUtcIso(now),
     data
   };
+}
+
+function publicSafe<T>(requestId: string, now: Date, data: T): ApiResponse<T> {
+  if (hasQuestionSecrets(data).length > 0) {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" }) as ApiResponse<T>;
+  }
+  return ok(requestId, now, data);
 }
 
 const BUSINESS_KEYS = ["apiVersion", "action", "requestId", "idempotencyKey", "data"] as const;
@@ -278,7 +304,7 @@ export async function handleOfficial(ctx: OfficialContext): Promise<unknown> {
   if (forged) return forged;
 
   if (ctx.entry === "mw-upload") {
-    return handleUpload(event, requestIdOf(event));
+    return handleUpload(ctx, ctx.event);
   }
   if (ctx.entry === "mw-pay-hook") {
     return handlePayHook(ctx, event);
@@ -324,11 +350,11 @@ async function handlePublic(
     return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-public" });
   }
   if (action === "public.ping") {
-    return ok(requestId, now, { entry: "mw-public", skeleton: true });
+    return publicSafe(requestId, now, { entry: "mw-public", skeleton: true });
   }
   if (action === "policies.current") {
     const policies = ctx.policyStore ? await readCurrentPolicies(ctx.policyStore, now) : defaultPolicyRecord(now);
-    return ok(requestId, now, {
+    return publicSafe(requestId, now, {
       agreementVersion: policies.agreementVersion,
       privacyVersion: policies.privacyVersion,
       agreementTitle: policies.agreementTitle,
@@ -346,9 +372,9 @@ async function handlePublic(
       return fail(requestId, "INVALID_ARGUMENT", { issues: [`unknown fields: ${extra.join(",")}`] });
     }
     const tree = await readCategoryTree(ctx.categoryStore, { knownVersion: data.knownVersion, publicView: true });
-    return ok(requestId, now, tree.data);
+    return publicSafe(requestId, now, tree.data);
   }
-  return ok(requestId, now, {
+  return publicSafe(requestId, now, {
     roots: [],
     recommended: [],
     catalogVersion: 0,
@@ -379,14 +405,14 @@ async function handleMember(
 
   if (request.action === "member.session") {
     const session = await readMemberSession(ctx.memberStore, fromAppId, fromOpenId);
-    return ok(request.requestId, now, session);
+    return publicSafe(request.requestId, now, session);
   }
   if (request.action === "member.me") {
     const result = await readMemberMe(ctx.memberStore, fromAppId, fromOpenId);
     if (!result.ok) {
       return fail(request.requestId, result.code as ErrorCode, { reason: result.reason });
     }
-    return ok(request.requestId, now, result.data);
+    return publicSafe(request.requestId, now, result.data);
   }
   if (!request.idempotencyKey) {
     return fail(request.requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
@@ -411,7 +437,7 @@ async function handleMember(
         ...(result.issues ? { issues: result.issues } : {})
       });
     }
-    return ok(request.requestId, now, {
+    return publicSafe(request.requestId, now, {
       ...result.data,
       created: result.created === true,
       replayed: result.replayed === true,
@@ -434,7 +460,7 @@ async function handleMember(
       ...(result.issues ? { issues: result.issues } : {})
     });
   }
-  return ok(request.requestId, now, {
+  return publicSafe(request.requestId, now, {
     ...result.data,
     replayed: result.replayed === true,
     nicknameContentSafety: NICKNAME_CONTENT_SAFETY.status,
@@ -467,6 +493,9 @@ async function handleAdmin(
   }
   if (action === "category.tree" || action.startsWith("category.")) {
     return handleAdminCategory(ctx, admin.record, action, requestId, now);
+  }
+  if (action.startsWith("question.") || action.startsWith("upload.")) {
+    return handleAdminQuestionBank(ctx, admin.record, action, requestId, now);
   }
   if (action === "admin.me") {
     return ok(requestId, now, {
@@ -611,9 +640,162 @@ async function handleAdminCategory(
   return ok(requestId, now, { ...result.data, replayed: result.replayed === true, writeConcurrency: "expectedTreeVersion" });
 }
 
-function handleUpload(event: unknown, requestId: string): ApiResponse<unknown> | Record<string, unknown> {
+function questionStoreWithAssets(
+  question?: QuestionWorkStore,
+  upload?: UploadWorkStore
+): QuestionWorkStore | undefined {
+  if (!question) return undefined;
+  if (!upload) return question;
+  return {
+    getQuestion: (id) => question.getQuestion(id),
+    getVersion: (id) => question.getVersion(id),
+    listQuestions: (input) => question.listQuestions(input),
+    getAsset: async (id) => (await question.getAsset(id)) || (await upload.getAsset(id)),
+    transactWrite: (input) => question.transactWrite(input)
+  };
+}
+
+async function handleAdminQuestionBank(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  if (!adminHasRole(admin.roles, "content")) {
+    return fail(requestId, "FORBIDDEN", { reason: "CONTENT_ROLE_REQUIRED" });
+  }
+  const event = unwrapFunctionEvent(ctx.event);
   const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
-  const ticket = rec.uploadTicket;
+  const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+  const write = action === "question.save" || action === "question.disable" || action === "upload.authorize";
+  if (write) {
+    if (typeof rec.idempotencyKey !== "string" || rec.idempotencyKey.length === 0) {
+      return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+    }
+    const blocked = contentWritesBlocked(ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined);
+    if (blocked) {
+      return fail(requestId, blocked.code as ErrorCode, { reason: blocked.reason, ...blocked.details });
+    }
+  }
+  const questionStore = questionStoreWithAssets(ctx.questionStore, ctx.uploadStore);
+  if (action === "question.list") {
+    const result = await listQuestions({ store: questionStore, data });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    if (hasQuestionSecrets(result.data).length > 0) {
+      return fail(requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" });
+    }
+    return ok(requestId, now, result.data);
+  }
+  if (action === "question.get") {
+    const result = await getQuestion({
+      store: questionStore,
+      storage: ctx.uploadStore?.storage,
+      data,
+      includeSecrets: true
+    });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return ok(requestId, now, result.data);
+  }
+  if (action === "question.save") {
+    if (!questionStore) return fail(requestId, "INTERNAL_ERROR", { reason: "QUESTION_STORE_UNAVAILABLE" });
+    const result = await saveQuestion({
+      store: questionStore,
+      categories: ctx.categoryStore,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: String(rec.idempotencyKey),
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+  }
+  if (action === "question.disable") {
+    if (!questionStore) return fail(requestId, "INTERNAL_ERROR", { reason: "QUESTION_STORE_UNAVAILABLE" });
+    const result = await disableQuestion({
+      store: questionStore,
+      usage: ctx.questionUsage,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: String(rec.idempotencyKey),
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+  }
+  if (action === "upload.authorize") {
+    if (!ctx.uploadStore) return fail(requestId, "INTERNAL_ERROR", { reason: "UPLOAD_STORE_UNAVAILABLE" });
+    const result = await authorizeUpload({
+      store: ctx.uploadStore,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: String(rec.idempotencyKey),
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return ok(requestId, now, result.data);
+  }
+  if (action === "upload.status") {
+    if (!ctx.uploadStore) return fail(requestId, "INTERNAL_ERROR", { reason: "UPLOAD_STORE_UNAVAILABLE" });
+    const result = await readUploadStatus({ store: ctx.uploadStore, data, actorId: admin.uid });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return ok(requestId, now, result.data);
+  }
+  return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
+}
+
+function uploadFieldsOf(event: unknown): Record<string, unknown> {
+  const layers: Record<string, unknown>[] = [];
+  const walk = (value: unknown, depth = 0): void => {
+    if (!value || typeof value !== "object" || Array.isArray(value) || depth > 3) return;
+    const rec = value as Record<string, unknown>;
+    layers.push(rec);
+    if (typeof rec.body === "string") {
+      try {
+        walk(JSON.parse(rec.body), depth + 1);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (rec.data && typeof rec.data === "object" && !Array.isArray(rec.data)) {
+      walk(rec.data, depth + 1);
+    }
+  };
+  walk(event);
+  const out: Record<string, unknown> = {};
+  for (const rec of layers) {
+    for (const key of ["uploadTicket", "sha256", "size", "fileBase64", "requestId"]) {
+      if (rec[key] !== undefined) out[key] = rec[key];
+    }
+  }
+  return out;
+}
+
+async function handleUpload(ctx: OfficialContext, event: unknown): Promise<ApiResponse<unknown> | Record<string, unknown>> {
+  const rec = uploadFieldsOf(event);
+  const requestId = typeof rec.requestId === "string" && rec.requestId ? rec.requestId : requestIdOf(event);
+  const ticket = typeof rec.uploadTicket === "string" ? rec.uploadTicket : "";
   const bytes = byteLength(event);
   if (!ticket) {
     return fail(requestId, "FORBIDDEN", { reason: "TICKET_REQUIRED", bytes });
@@ -625,16 +807,26 @@ function handleUpload(event: unknown, requestId: string): ApiResponse<unknown> |
       limit: UPLOAD_LIMIT_BYTES
     });
   }
-  return {
-    ok: false,
-    requestId,
-    error: {
-      code: "FORBIDDEN" as ErrorCode,
-      message: errorMessage("FORBIDDEN"),
-      retryable: false,
-      details: { reason: "UPLOAD_SKELETON_NO_STORE", bytes, limit: UPLOAD_LIMIT_BYTES }
-    }
-  };
+  if (!ctx.uploadStore) {
+    return fail(requestId, "FORBIDDEN", { reason: "UPLOAD_SKELETON_NO_STORE", bytes, limit: UPLOAD_LIMIT_BYTES });
+  }
+  let fileBytes: Uint8Array | undefined;
+  if (typeof rec.fileBase64 === "string" && rec.fileBase64.length > 0) {
+    fileBytes = Uint8Array.from(Buffer.from(rec.fileBase64, "base64"));
+  }
+  const result = await completeUpload({
+    store: ctx.uploadStore,
+    uploadTicket: ticket,
+    sha256: typeof rec.sha256 === "string" ? rec.sha256 : undefined,
+    size: typeof rec.size === "number" ? rec.size : undefined,
+    bytes: fileBytes,
+    adminUid: present(ctx.authUid) ? String(ctx.authUid) : undefined,
+    now: ctx.now ?? new Date()
+  });
+  if (!result.ok) {
+    return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.details || {}) });
+  }
+  return redactUploadSecrets(ok(requestId, ctx.now ?? new Date(), result.data));
 }
 
 async function handlePayHook(ctx: OfficialContext, event: unknown): Promise<Record<string, unknown>> {

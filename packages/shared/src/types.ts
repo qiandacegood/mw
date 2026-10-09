@@ -56,7 +56,14 @@ export interface PaperDetailData {
   categoryPath: string[];
 }
 
-export const UNANSWERED_FORBIDDEN_KEYS = ["answer", "analysis", "correctOptionIds"] as const;
+export const UNANSWERED_FORBIDDEN_KEYS = [
+  "answer",
+  "analysis",
+  "correctOptionIds",
+  "analysisAssetIds",
+  "analysisFileId",
+  "question_versions"
+] as const;
 export const PAPER_DETAIL_FORBIDDEN_KEYS = UNANSWERED_FORBIDDEN_KEYS;
 
 /** attempt.analysis 题目项：本人选择与正确答案分列，不用 optionIds 表示选择。 */

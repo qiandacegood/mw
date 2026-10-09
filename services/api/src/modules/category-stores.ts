@@ -13,7 +13,7 @@ export type CategoryUsageCounts = {
 };
 
 export interface CategoryUsageStore {
-  refsFor(categoryId: string): CategoryUsageCounts;
+  refsFor(categoryId: string): CategoryUsageCounts | Promise<CategoryUsageCounts>;
   setPaperRefs(categoryId: string, paperIds: string[]): void;
   setQuestionRefs(categoryId: string, questionIds: string[]): void;
 }

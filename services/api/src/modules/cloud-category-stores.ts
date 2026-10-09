@@ -229,14 +229,18 @@ async function listCollection(db: CloudDb, name: string): Promise<Record<string,
 
 export function cloudCategoryUsageStore(): CategoryUsageStore {
   return {
-    refsFor() {
-      return { questionRefs: 0, paperRefs: 0 };
+    async refsFor(categoryId) {
+      const rows = await listCollection(cloudApp().database(), "questions");
+      const questionRefs = rows.filter(
+        (row) => row.categoryId === categoryId && row.status !== "deleted"
+      ).length;
+      return { questionRefs, paperRefs: 0 };
     },
     setPaperRefs() {
-      /* MW09 does not persist papers */
+      /* papers are MW11 */
     },
     setQuestionRefs() {
-      /* MW09 does not persist questions */
+      /* question refs are counted from questions */
     }
   };
 }

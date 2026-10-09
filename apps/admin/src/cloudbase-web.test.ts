@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { callAdminCategory, callAdminJob, loginAndReadAdmin, type AdminSession } from "./cloudbase-web";
+import {
+  callAdminCategory,
+  callAdminJob,
+  callAdminQuestion,
+  completeAdminUpload,
+  loginAndReadAdmin,
+  type AdminSession
+} from "./cloudbase-web";
 
 function fakeApp(options: {
   uid?: string;
@@ -68,6 +75,27 @@ describe("admin job helpers", () => {
       name: "mw-admin",
       data: { action: "job.resume", idempotencyKey: "mw06/test/admin_resume" }
     });
+  });
+});
+
+describe("admin question helpers", () => {
+  it("calls question and upload actions through official entries", async () => {
+    const calls: unknown[] = [];
+    const app = {
+      auth: () => ({
+        signInWithPassword: async () => ({}),
+        getLoginState: async () => ({ user: { uid: "uid_super" } }),
+        signOut: async () => ({})
+      }),
+      callFunction: async (input: { name: string; data: unknown }) => {
+        calls.push(input);
+        return { result: { ok: true, data: { questionId: "q1" } } };
+      }
+    };
+    await callAdminQuestion(app, "question.save", { expectedRevision: 0 }, "mw10/admin/save");
+    await completeAdminUpload(app, { uploadTicket: "tkt_x", sha256: "ab".repeat(32), size: 12, fileBase64: "AA==" });
+    expect(calls[0]).toMatchObject({ name: "mw-admin", data: { action: "question.save", idempotencyKey: "mw10/admin/save" } });
+    expect(calls[1]).toMatchObject({ name: "mw-upload", data: { uploadTicket: "tkt_x" } });
   });
 });
 

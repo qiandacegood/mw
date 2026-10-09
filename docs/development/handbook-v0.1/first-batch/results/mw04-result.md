@@ -44,7 +44,7 @@
 | P05 | 正式入口 + 共享环境 | 必须用 FROM_APPID/FROM_OPENID | 身份来自共享调用上下文，伪造无效 | CLI 伪造字段已拒；开发者工具探针：`LOCAL_SHARED_CONFIG_PRESENT`，`mw-member` `ok=true` 且 `trustedFromContext=true` | 探针页截图（无 AppID/OpenID） | **PASS** | 未粘贴 FROM_* 原文；公开入口 `trustedFromContext=false` 符合设计 |
 | P06 | mw-admin + 预置 admin_users | 伪造 uid/role；真实登录 | 认证 uid + `admin_users` 两层 | CLI 伪造字段 `FORBIDDEN`；真实登录 `roles=["super"]` 且 `enabled=true` | mw-admin invoke、登录页 JSON | **PASS** | 未输出 uid 原文 |
 | P07 | probe 事务 | 60/100/101 次操作；双实例争用 | 记录上限、超时、冲突 | 60=2.918s、100≈4.15s、101=4.197s 均成功；双 invoke 恰好 slot_b 获胜，另一路 ALREADY_TAKEN，`remaining=0` | invoke_tx_ops / tx_claim_race / tx_read | **PASS** | 100 次约 4.15 秒，已超过设计目标 3 秒；MW06 仍按 ≤60 次设计预算。官方 100 次在 101 次未拒绝；30s 超时未做空转等待 |
-| P08 | 数据模型第 7 节索引 | 不为改状态提前建齐未来集合 | 按真实查询计划创建并解释 | MW06 已创建并核验 `jobs` 的 `state/nextRunAt/_id` 与 `audit_logs` 的 `target/createdAt/_id`。MW09 已建 `categories` 指定索引 `parentId/deletedAt/sort/_id`。**没有**创建 papers/attempts 等其余未来集合或第 7 节其他业务索引 | mw06-result；mw09-result | **PARTIAL** | 仅更新已落地索引；其余未来索引保持 PARTIAL |
+| P08 | 数据模型第 7 节索引 | 不为改状态提前建齐未来集合 | 按真实查询计划创建并解释 | MW06 已创建并核验 `jobs` 的 `state/nextRunAt/_id` 与 `audit_logs` 的 `target/createdAt/_id`。MW09 已建 `categories` 指定索引 `parentId/deletedAt/sort/_id`。MW10 已建 `questions` 指定索引 `categoryId/status/updatedAt/_id`。**没有**创建 papers/attempts 等其余未来集合或第 7 节其他业务索引 | mw06-result；mw09-result；mw10-result | **PARTIAL** | 仅更新已落地索引；其余未来索引保持 PARTIAL |
 | P09 | 存储 ACL + 临时链 | 默认私有，服务端短期读，不开放公桶 | ADMINONLY；未授权 403；属主才签发 | 默认曾为可读；已改为 ADMINONLY。属主签发 60s 临时链；非属主不签发。**PASS 依据是 ACL 修复后的 private-retest 403** | fixup + private-retest | **PASS** | 改 ACL 前 CDN 曾 200，属旧公开权限/传播，不以当时结果作为通过依据 |
 | P10 | 4.9 / 5.1 MB 虚构文件 | 临时 HTTP 函数 POST | 4.9 可接受，5.1 被拒或记录边界 | HTTP 网关对 **4.9 MB 与 5.1 MB 均返回 413**；随后精确删除 `mw-http-size-probe` 及 HTTP 通路 | tmp/mw05/mw05-http-evidence.json | **PARTIAL** | 网关上限低于 4.9 MB；应用层 5 MB 仍有效。未改正式入口为公网上传 |
 | P11 | 六类正式入口 | 伪造身份与越权 action | 公开只读、会员需可信上下文、后台两层、上传要票据、支付要签名、任务拒客户端 | 正式六入口 + `cloudbase_auth` 已部署；CLI 拒绝链见 mw05-result；小程序会员共享调用已取得可信 FROM；后台真实登录已闭合 | 正式函数 invoke、探针页、登录页 | **PARTIAL** | 控制台逐条函数规则点选仍未完成 |
@@ -108,4 +108,4 @@ MW04 仍为部分完成，真实剩余仅为：
 - 存储保持 ADMINONLY；读取必须服务端校验后再签发短期 URL。
 - 客户端身份字段不可信；后台必须 Auth uid + `admin_users`；共享环境必须用 FROM_*。
 - **MW05 已完成**（正式入口、真实 Web 登录、开发者工具可信 FROM 均已闭合）。
-- **MW04 仍为部分完成**，真实剩余仅为 P08 / P10 / P11。MW06 只把 P08 中已落地的 `jobs` / `audit_logs` 索引补记进去，不得把 P10/P11 改写成 PASS。
+- **MW04 仍为部分完成**，真实剩余仅为 P08 / P10 / P11。MW06 / MW09 / MW10 只把 P08 中已落地的 `jobs` / `audit_logs` / `categories` / `questions` 索引补记进去，不得把 P10/P11 改写成 PASS。
