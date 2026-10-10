@@ -7,14 +7,39 @@
     "es6": true,
     "minified": true,
     "enhance": true,
-    "coverView": true
+    "coverView": true,
+    "postcss": false,
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
   },
   "simulatorType": "wechat",
   "simulatorPluginLibVersion": {},
   "packOptions": {
     "ignore": [
-      { "type": "suffix", "value": ".test.ts" },
-      { "type": "file", "value": "package.json" }
-    ]
-  }
+      {
+        "value": ".test.ts",
+        "type": "suffix"
+      },
+      {
+        "value": "package.json",
+        "type": "file"
+      }
+    ],
+    "include": []
+  },
+  "editorSetting": {}
 }

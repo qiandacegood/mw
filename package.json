@@ -12,7 +12,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check:prototypes": "node scripts/check-prototype-scripts.mjs",
-    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && node scripts/mw04-record.test.mjs && node scripts/mw04-assert.test.mjs && node scripts/mw05-secret-scan.test.mjs && node scripts/mw06-assert.test.mjs && node scripts/mw08-assert.test.mjs && node scripts/mw09-assert.test.mjs && node scripts/mw10-assert.test.mjs && node scripts/mw11-assert.test.mjs && node scripts/mw12-assert.test.mjs && node scripts/mw13-assert.test.mjs && node scripts/mw07b-assert.test.mjs && npm run test --workspaces --if-present",
+    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && node scripts/mw04-record.test.mjs && node scripts/mw04-assert.test.mjs && node scripts/mw05-secret-scan.test.mjs && node scripts/mw06-assert.test.mjs && node scripts/mw08-assert.test.mjs && node scripts/mw09-assert.test.mjs && node scripts/mw10-assert.test.mjs && node scripts/mw11-assert.test.mjs && node scripts/mw12-assert.test.mjs && node scripts/mw13-assert.test.mjs && node scripts/mw14-assert.test.mjs && node scripts/mw07b-assert.test.mjs && npm run test --workspaces --if-present",
     "build": "node scripts/ensure-shared-js.mjs && node scripts/mw05-emit-runtime.mjs && npm run build --workspaces --if-present",
     "mw05:write-local": "node scripts/mw05-write-local.mjs",
     "mw05:emit": "node scripts/mw05-emit-runtime.mjs",
@@ -57,7 +57,14 @@
     "mw13:import-known-ids": "node scripts/mw13-import-known-ids.mjs",
     "mw13:resolve-known-ids": "node scripts/mw13-resolve-known-ids.mjs",
     "mw13:cleanup": "node scripts/mw13-cleanup.mjs",
-    "mw13:verify-leftovers": "node scripts/mw13-leftover-verify.mjs"
+    "mw13:verify-leftovers": "node scripts/mw13-leftover-verify.mjs",
+    "mw14:deploy": "node scripts/mw14-deploy.mjs",
+    "mw14:verify": "node scripts/mw14-verify.mjs",
+    "mw14:import-known-ids": "node scripts/mw14-import-known-ids.mjs",
+    "mw14:resolve-known-ids": "node scripts/mw14-resolve-known-ids.mjs",
+    "mw14:cleanup": "node scripts/mw14-cleanup.mjs",
+    "mw14:verify-leftovers": "node scripts/mw14-leftover-verify.mjs",
+    "mw14:assert": "node scripts/mw14-assert.test.mjs"
   },
   "engines": {
     "node": ">=20"

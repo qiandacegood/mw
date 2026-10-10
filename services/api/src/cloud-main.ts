@@ -12,6 +12,7 @@ import { cloudQuestionWorkStore } from "./modules/cloud-question-stores.js";
 import { cloudUploadWorkStore } from "./modules/cloud-upload-stores.js";
 import { cloudPaperWorkStore, cloudQuestionUsageStore } from "./modules/cloud-paper-stores.js";
 import { cloudImportWorkStore } from "./modules/cloud-import-stores.js";
+import { cloudAttemptWorkStore } from "./modules/cloud-attempt-stores.js";
 import { handleOfficial, type AdminUserRecord, type AdminUserStore, type OfficialEntry } from "./official.js";
 
 function present(value: unknown): boolean {
@@ -140,7 +141,10 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       idempotencyStore: entry === "mw-admin" || entry === "mw-jobs" ? cloudIdempotencyStore() : undefined,
       auditStore: entry === "mw-admin" ? cloudAuditStore() : undefined,
       workStore: entry === "mw-admin" || entry === "mw-jobs" ? cloudWorkStore() : undefined,
-      maintenanceStore: entry === "mw-pay-hook" || entry === "mw-admin" || entry === "mw-jobs" ? cloudMaintenanceStore() : undefined,
+      maintenanceStore:
+        entry === "mw-pay-hook" || entry === "mw-admin" || entry === "mw-jobs" || entry === "mw-member"
+          ? cloudMaintenanceStore()
+          : undefined,
       policyStore: entry === "mw-public" || entry === "mw-member" ? cloudPolicyStore() : undefined,
       memberStore: entry === "mw-member" ? cloudMemberWorkStore() : undefined,
       categoryStore: entry === "mw-admin" || entry === "mw-public" ? cloudCategoryWorkStore() : undefined,
@@ -150,6 +154,7 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       uploadStore: entry === "mw-admin" || entry === "mw-upload" ? cloudUploadWorkStore() : undefined,
       paperStore: entry === "mw-admin" || entry === "mw-public" ? cloudPaperWorkStore() : undefined,
       importStore: entry === "mw-admin" || entry === "mw-public" ? cloudImportWorkStore() : undefined,
+      attemptStore: entry === "mw-member" ? cloudAttemptWorkStore() : undefined,
       virtualPayNotify:
         entry === "mw-pay-hook"
           ? {

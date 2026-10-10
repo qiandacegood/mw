@@ -95,7 +95,8 @@ const scanned = [
 ];
 for (const rel of scanned) {
   const text = readFileSync(join(root, rel), "utf8");
-  assert.doesNotMatch(text, /["']attempt\.start["']/);
+  // MW14 起试卷详情与官方入口会合法接通 attempt.* 系列 action；此处不再拦截 attempt.start，
+  // 改由 scripts/mw14-assert.test.mjs 正向核验，MW13 的 leftover 门禁保持不回退。
   assert.doesNotMatch(text, /freeOnly|accessFilter/);
   assert.doesNotMatch(text, /标通过|已通过 A0|T03 通过|T15 通过/);
 }

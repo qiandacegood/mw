@@ -29,6 +29,7 @@ export interface ApiSuccess<T> {
   requestId: string;
   serverTime: string;
   data: T;
+  replayed?: boolean;
 }
 
 export interface ApiFailure {

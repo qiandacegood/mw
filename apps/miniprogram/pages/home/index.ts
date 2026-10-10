@@ -1,4 +1,5 @@
 import { asRecord, errorInfo, labelAccess, memberMe, publicAction } from "../../services/browse";
+import { homeDraftView } from "../../services/attempt";
 import { knownIdClipboardText } from "../../services/known-ids";
 
 type ShelfItem = {
@@ -34,7 +35,10 @@ Page({
     roots: [] as Array<{ id: string; name: string }>,
     recommended: [] as ShelfItem[],
     latest: [] as ShelfItem[],
-    lookupId: ""
+    lookupId: "",
+    hasDraft: false,
+    draftTitle: "",
+    draftAttemptId: ""
   },
   onShow() {
     void this.reload?.();
@@ -61,6 +65,7 @@ Page({
     const guest = !me.ok;
     const meData = asRecord(me.data);
     const stats = asRecord(meData.stats);
+    const draft = homeDraftView(guest, asRecord(meData.draft));
     this.setData({
       state: recommended.length || latest.length || roots.length ? "ok" : "empty",
       message: recommended.length || latest.length ? "" : "暂无推荐卷。可从分类浏览。",
@@ -69,7 +74,8 @@ Page({
       levelId: guest ? "" : String(stats.levelId || "L1"),
       roots,
       recommended,
-      latest
+      latest,
+      ...draft
     });
   },
   goCategory(event?: { currentTarget?: { dataset?: { id?: string } } }) {
@@ -96,12 +102,19 @@ Page({
     }
     wx.navigateTo({ url: `/pages/paper/index?paperId=${encodeURIComponent(id)}` });
   },
+  goDraft() {
+    const id = String(this.data.draftAttemptId || "");
+    if (!id) return;
+    wx.navigateTo({ url: `/pages/quiz/index?attemptId=${encodeURIComponent(id)}` });
+  },
   copyKnownIds() {
     const text = knownIdClipboardText();
     wx.setClipboardData({
       data: text,
       success() {
-        wx.showToast({ title: JSON.parse(text).papers.length ? "已复制本轮哈希" : "本轮 leftover 为空", icon: "none" });
+        const payload = JSON.parse(text) as { papers?: unknown[]; attempts?: unknown[] };
+        const count = (payload.papers || []).length + (payload.attempts || []).length;
+        wx.showToast({ title: count ? "已复制本轮哈希" : "本轮 leftover 为空", icon: "none" });
       }
     });
   }

@@ -27,6 +27,8 @@ import type {
   MemberReadStore
 } from "./member-stores.js";
 import type { TxBudget } from "./job-stores.js";
+import type { AttemptWorkStore } from "./attempt-stores.js";
+import { readDraftSummary } from "./attempt.js";
 
 export const MEMBER_WRITE_ACTIONS = ["member.register", "member.updateProfile"] as const;
 export const MEMBER_READ_ACTIONS = ["member.session", "member.me"] as const;
@@ -54,7 +56,14 @@ export type MemberPublicView = {
     expiresAt: null;
   };
   draft: {
-    attemptId: null;
+    attemptId: string | null;
+    paperId?: string;
+    paperTitle?: string;
+    paperVersion?: string;
+    revision?: number;
+    answeredCount?: number;
+    questionCount?: number;
+    updatedAt?: string;
   };
 };
 
@@ -143,7 +152,8 @@ async function existingPublicView(
 export function publicMemberView(
   member: MemberRecord,
   stats?: MemberStatsRecord,
-  identityId?: string
+  identityId?: string,
+  draft?: MemberPublicView["draft"]
 ): MemberPublicView {
   return {
     memberId: member.memberId,
@@ -160,7 +170,7 @@ export function publicMemberView(
       levelId: stats?.levelId ?? DEFAULT_LEVEL_ID
     },
     vip: { active: false, expiresAt: null },
-    draft: { attemptId: null }
+    draft: draft && draft.attemptId ? draft : { attemptId: null }
   };
 }
 
@@ -254,7 +264,8 @@ export async function readMemberSession(
 export async function readMemberMe(
   stores: MemberReadStore | undefined,
   fromAppId: string,
-  fromOpenId: string
+  fromOpenId: string,
+  attemptStore?: AttemptWorkStore
 ): Promise<MemberActionSuccess<MemberPublicView> | MemberActionFailure> {
   if (!stores) {
     return fail("INTERNAL_ERROR", "MEMBER_STORE_UNAVAILABLE");
@@ -269,7 +280,8 @@ export async function readMemberMe(
     return fail("INTERNAL_ERROR", "MEMBER_ROW_MISSING");
   }
   const stats = await stores.getStats(member.memberId);
-  return { ok: true, data: publicMemberView(member, stats, identity.identityId || identityId), budget: emptyBudget() };
+  const draft = await readDraftSummary(attemptStore, member.memberId);
+  return { ok: true, data: publicMemberView(member, stats, identity.identityId || identityId, draft), budget: emptyBudget() };
 }
 
 export async function registerMember(input: {

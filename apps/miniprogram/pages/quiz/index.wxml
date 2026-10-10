@@ -1,0 +1,48 @@
+<view class="page">
+  <view wx:if="{{state === 'loading'}}" class="card">加载中…</view>
+  <view wx:elif="{{state === 'error'}}" class="card err">
+    <text>{{message}}</text>
+    <button bindtap="reload">重试</button>
+  </view>
+  <block wx:else>
+    <view class="bar">
+      <text class="title">{{paperTitle}}</text>
+      <text class="save {{saveStatus}}" bindtap="retrySave">{{saveLabel}}</text>
+    </view>
+    <text class="muted">{{index + 1}} / {{questionCount}} · 已答 {{answeredCount}}</text>
+    <view wx:if="{{offline}}" class="card err">当前选择尚未同步。不支持离线完成或交卷。</view>
+    <view wx:if="{{item.questionId}}" class="card">
+      <text class="stem">{{item.stem.text}}</text>
+      <view
+        wx:for="{{item.options}}"
+        wx:for-item="opt"
+        wx:key="optionId"
+        class="option {{currentOn[opt.optionId] ? 'on' : ''}}"
+        data-id="{{opt.optionId}}"
+        bindtap="pick"
+      >{{opt.optionId}}. {{opt.text}}</view>
+    </view>
+    <button class="ghost" bindtap="prev" wx:if="{{index > 0}}">上一题</button>
+    <button bindtap="next" wx:if="{{index + 1 < questionCount}}">下一题</button>
+    <button class="ghost" bindtap="toggleCard">答题卡</button>
+    <view wx:if="{{showCard}}" class="card">
+      <text class="title">答题卡</text>
+      <view class="grid">
+        <view
+          wx:for="{{card}}"
+          wx:key="ord"
+          class="no {{item.done ? 'done' : ''}} {{item.ord === index + 1 ? 'cur' : ''}}"
+          data-ord="{{item.ord}}"
+          bindtap="jump"
+        >{{item.ord}}</view>
+      </view>
+    </view>
+    <button bindtap="submitHint">交卷</button>
+    <text class="muted">交卷、评分和解析是 MW15，本页不提交。</text>
+    <view class="card">
+      <text class="muted">只有本轮测试 attempt 才应点下面按钮。浏览或自动进页不会记入 leftover。</text>
+      <button class="ghost" bindtap="markLeftover">记入本轮 leftover</button>
+      <text wx:if="{{leftoverMarked}}" class="muted">已记入。回首页再复制本轮 leftover knownIds。</text>
+    </view>
+  </block>
+</view>

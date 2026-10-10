@@ -20,10 +20,12 @@ import {
   hasQuestionSecrets,
   hasPaperSecrets,
   redactUploadSecrets,
+  isolatedEntitlementReader,
   type AdminRole,
   type ApiFailure,
   type ApiResponse,
-  type ErrorCode
+  type ErrorCode,
+  type PracticeEntitlementReader
 } from "@mw/shared";
 import type { AuditStore, IdempotencyStore, JobStore, MaintenanceStore, WorkStore } from "./modules/job-stores.js";
 import type { MemberReadStore, MemberWorkStore, PolicyStore } from "./modules/member-stores.js";
@@ -68,6 +70,15 @@ import {
   withdrawPaper
 } from "./modules/paper.js";
 import type { PaperWorkStore } from "./modules/paper-stores.js";
+import type { AttemptWorkStore } from "./modules/attempt-stores.js";
+import {
+  abandonAttempt,
+  getAttempt,
+  readQuestionPage,
+  saveAttempt,
+  startAttempt,
+  startReplacingAttempt
+} from "./modules/attempt.js";
 import { commitImport, previewImport, readImportStatus, validateImport } from "./modules/import.js";
 import type { ImportWorkStore } from "./modules/import-stores.js";
 import {
@@ -79,7 +90,18 @@ import {
 export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
 export const PUBLIC_ACTIONS = ["public.ping", "home.get", "policies.current", "category.tree", "paper.list", "paper.detail"] as const;
-export const MEMBER_ACTIONS = ["member.session", "member.register", "member.me", "member.updateProfile"] as const;
+export const MEMBER_ACTIONS = [
+  "member.session",
+  "member.register",
+  "member.me",
+  "member.updateProfile",
+  "attempt.start",
+  "attempt.startReplacing",
+  "attempt.get",
+  "attempt.questionPage",
+  "attempt.save",
+  "attempt.abandon"
+] as const;
 export const ADMIN_ACTIONS = [
   "admin.me",
   "job.get",
@@ -158,6 +180,8 @@ export interface OfficialContext {
   uploadStore?: UploadWorkStore;
   paperStore?: PaperWorkStore;
   importStore?: ImportWorkStore;
+  attemptStore?: AttemptWorkStore;
+  entitlement?: PracticeEntitlementReader;
   virtualPayNotify?: VirtualPayNotifyConfig;
 }
 
@@ -458,6 +482,68 @@ async function handlePublic(
   return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-public" });
 }
 
+async function handleMemberAttempt(
+  ctx: OfficialContext,
+  request: { action: string; requestId: string; idempotencyKey?: string; data: Record<string, unknown> },
+  now: Date,
+  fromAppId: string,
+  fromOpenId: string
+): Promise<ApiResponse<unknown>> {
+  const session = await readMemberSession(ctx.memberStore, fromAppId, fromOpenId);
+  if (!session.registered || !session.memberId) {
+    return fail(request.requestId, "MEMBER_REQUIRED", { reason: "MEMBER_NOT_REGISTERED" });
+  }
+  if (!ctx.attemptStore) {
+    return fail(request.requestId, "INTERNAL_ERROR", { reason: "ATTEMPT_STORE_UNAVAILABLE" });
+  }
+  const write =
+    request.action === "attempt.start" ||
+    request.action === "attempt.startReplacing" ||
+    request.action === "attempt.save" ||
+    request.action === "attempt.abandon";
+  if (write && !request.idempotencyKey) {
+    return fail(request.requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  const maintenance = ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined;
+  const entitlement = ctx.entitlement || isolatedEntitlementReader();
+  const common = {
+    store: ctx.attemptStore,
+    memberId: session.memberId,
+    data: request.data,
+    requestId: request.requestId,
+    idempotencyKey: request.idempotencyKey || request.requestId,
+    now,
+    maintenance,
+    entitlement
+  };
+  const result =
+    request.action === "attempt.start"
+      ? await startAttempt(common)
+      : request.action === "attempt.startReplacing"
+        ? await startReplacingAttempt(common)
+        : request.action === "attempt.get"
+          ? await getAttempt({ store: ctx.attemptStore, memberId: session.memberId, data: request.data })
+          : request.action === "attempt.questionPage"
+            ? await readQuestionPage({ store: ctx.attemptStore, memberId: session.memberId, data: request.data })
+            : request.action === "attempt.save"
+              ? await saveAttempt(common)
+              : request.action === "attempt.abandon"
+                ? await abandonAttempt(common)
+                : { ok: false as const, code: "FORBIDDEN", reason: "ACTION_DENIED" };
+  if (!result.ok) {
+    return fail(request.requestId, result.code as ErrorCode, {
+      reason: result.reason,
+      ...("issues" in result && result.issues ? { issues: result.issues } : {}),
+      ...("details" in result && result.details ? result.details : {})
+    });
+  }
+  const response = publicSafe(request.requestId, now, result.data);
+  if (response.ok && "replayed" in result) {
+    return { ...response, replayed: result.replayed === true };
+  }
+  return response;
+}
+
 async function handleMember(
   ctx: OfficialContext,
   request: { action: string; requestId: string; idempotencyKey?: string; data: Record<string, unknown> },
@@ -484,11 +570,14 @@ async function handleMember(
     return publicSafe(request.requestId, now, session);
   }
   if (request.action === "member.me") {
-    const result = await readMemberMe(ctx.memberStore, fromAppId, fromOpenId);
+    const result = await readMemberMe(ctx.memberStore, fromAppId, fromOpenId, ctx.attemptStore);
     if (!result.ok) {
       return fail(request.requestId, result.code as ErrorCode, { reason: result.reason });
     }
     return publicSafe(request.requestId, now, result.data);
+  }
+  if (request.action.startsWith("attempt.")) {
+    return handleMemberAttempt(ctx, request, now, fromAppId, fromOpenId);
   }
   if (!request.idempotencyKey) {
     return fail(request.requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });

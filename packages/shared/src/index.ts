@@ -4,6 +4,8 @@ export * from "./validate.js";
 export * from "./scoring.js";
 export * from "./category.js";
 export * from "./vip.js";
+export * from "./entitlement.js";
+export * from "./attempt.js";
 export * from "./idempotency.js";
 export * from "./clock.js";
 export * from "./identity-guard.js";

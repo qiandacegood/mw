@@ -13,7 +13,12 @@
       <button bindtap="goRegister">注册后练习</button>
     </view>
     <view wx:else class="card">总分 {{totalScore}} · {{levelId}}（等级占位，MW16 未做）</view>
-    <view class="card muted">继续练习将在 MW14 接通。本页不开始答题。</view>
+    <view wx:if="{{!guest && hasDraft}}" class="card">
+      <text class="title">继续练习</text>
+      <text>{{draftTitle}}</text>
+      <button bindtap="goDraft">继续未完成的试卷</button>
+    </view>
+    <view wx:elif="{{!guest}}" class="card muted">登录后若有未完成草稿，这里会出现继续练习。</view>
 
     <text class="h2">类目</text>
     <view wx:if="{{!roots.length}}" class="card">暂无可用类目。</view>
@@ -45,5 +50,5 @@
     <button bindtap="openLookup">打开详情</button>
   </view>
   <button bindtap="copyKnownIds">复制本轮 leftover knownIds</button>
-  <text class="muted">默认空 papers。只含主动记入的本轮测试卷 SHA-256，不含明文 _id，也不含货架/列表浏览结果。</text>
+  <text class="muted">默认空 papers / attempts。只含主动记入的本轮测试 attempt（及如有的本轮测试卷）SHA-256，不含明文 _id，也不含货架/列表/自动进页结果。</text>
 </view>

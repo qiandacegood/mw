@@ -6,6 +6,7 @@
     "pages/me/index",
     "pages/papers/index",
     "pages/paper/index",
+    "pages/quiz/index",
     "pages/register/index",
     "pages/profile/index",
     "pages/mw08/index",
