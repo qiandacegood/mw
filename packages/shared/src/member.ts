@@ -1,4 +1,5 @@
 import { hashNamedFields } from "./canonical.js";
+import { DEFAULT_GROWTH_LEVELS, DEFAULT_LEVEL_ID, levelIdForScore, type GrowthLevel } from "./growth.js";
 import { rejectUnknownKeys } from "./validate.js";
 
 export const IDENTITY_PROVIDER_WECHAT_MINI = "wechat_mini";
@@ -8,11 +9,18 @@ export const MEMBER_ID_FIELDS = ["kind", "identityId"] as const;
 export const MEMBER_STATUSES = ["active", "disabled", "deleting", "deleted"] as const;
 export type MemberStatus = (typeof MEMBER_STATUSES)[number];
 
-export const DEFAULT_LEVEL_ID = "L1";
-
-export function levelIdFromTotalScore(_totalScore: number): string {
-  return DEFAULT_LEVEL_ID;
+/**
+ * 总分到成长等级的真实门槛映射（MW16）。
+ * 未显式传入门槛时使用产品说明书 V1.1 第 9.2 节的初始建议配置；
+ * 服务端结算与后台重算都需要传入当前生效配置，不使用占位实现。
+ */
+export function levelIdFromTotalScore(
+  totalScore: number,
+  levels: readonly GrowthLevel[] = DEFAULT_GROWTH_LEVELS
+): string {
+  return levelIdForScore(totalScore, levels);
 }
+
 export const DEFAULT_AVATAR_KEY = "avatar.builtin.01";
 export const BUILTIN_AVATAR_COUNT = 12;
 export const BUILTIN_AVATAR_KEYS = Array.from(

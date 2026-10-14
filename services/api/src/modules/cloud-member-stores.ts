@@ -7,6 +7,7 @@ import {
   type MemberStatus
 } from "@mw/shared";
 import type { TxBudget } from "./job-stores.js";
+import { grantWrite } from "./cloud-growth-stores.js";
 import type {
   IdentityRecord,
   MemberProfileMutation,
@@ -25,6 +26,7 @@ export const MW08_COLLECTIONS = {
   identities: "identities",
   members: "members",
   memberStats: "member_stats",
+  medalGrants: "medal_grants",
   appConfig: "app_config",
   idempotency: "idempotency",
   auditLogs: "audit_logs"
@@ -314,6 +316,10 @@ export function cloudMemberWorkStore(): MemberWorkStore & MemberReadStore {
         if (next.stats) {
           writeCount += 1;
           await tx.collection(MW08_COLLECTIONS.memberStats).doc(memberId).set(statsWrite(next.stats));
+        }
+        for (const grant of next.medalGrants || []) {
+          writeCount += 1;
+          await tx.collection(MW08_COLLECTIONS.medalGrants).doc(grant.grantId).set(grantWrite(grant));
         }
         if (next.idem) {
           writeCount += 1;

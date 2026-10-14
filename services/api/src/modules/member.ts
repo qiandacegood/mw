@@ -1,22 +1,29 @@
 import {
   DEFAULT_AVATAR_KEY,
   DEFAULT_LEVEL_ID,
+  MEDAL_GRANT_SOURCE_REGISTER,
   MEMBER_SCHEMA_VERSION,
   auditDocId,
   buildAuditEntry,
   buildIdempotencyRecord,
   defaultNickname,
+  growthMemberView,
   identityDocId,
+  levelIdForScore,
   matchPolicyVersions,
   memberDocId,
   parseProfileInput,
   parseRegisterInput,
   payloadHash,
+  planMedalGrants,
   replayOrConflict,
   type ConsentVersions,
-  type IdempotencyRecord
+  type GrowthConfigRecord,
+  type IdempotencyRecord,
+  type GrowthMemberView
 } from "@mw/shared";
 import { TX_BUDGET_LIMIT } from "./transaction-jobs.js";
+import { type GrowthReadStore } from "./growth-stores.js";
 import type {
   IdentityRecord,
   MemberRecord,
@@ -31,7 +38,7 @@ import type { AttemptWorkStore } from "./attempt-stores.js";
 import { readDraftSummary } from "./attempt.js";
 
 export const MEMBER_WRITE_ACTIONS = ["member.register", "member.updateProfile"] as const;
-export const MEMBER_READ_ACTIONS = ["member.session", "member.me"] as const;
+export const MEMBER_READ_ACTIONS = ["member.session", "member.me", "member.growth"] as const;
 export const MEMBER_TX_MAX_ATTEMPTS = 3;
 
 const RETRYABLE_TX =
@@ -210,19 +217,35 @@ function newMember(memberId: string, consent: ConsentVersions, now: Date): Membe
   };
 }
 
-function newStats(memberId: string, now: Date): MemberStatsRecord {
+function newStats(memberId: string, now: Date, growth?: GrowthConfigRecord): MemberStatsRecord {
   const at = now.toISOString();
+  const levels = growth?.levels;
   return {
     memberId,
     totalScore: 0,
     scoreSeq: 0,
-    levelId: DEFAULT_LEVEL_ID,
-    growthVersion: 0,
+    levelId: levels && levels.length ? levelIdForScore(0, levels) : DEFAULT_LEVEL_ID,
+    growthVersion: growth?.configVersion ?? 0,
     revision: 1,
     schemaVersion: MEMBER_SCHEMA_VERSION,
     createdAt: at,
     updatedAt: at
   };
+}
+
+/** 注册时的首枚勋章：按当前生效门槛在 0 分处跨级补齐（通常只有第一级）。 */
+function registerMedalGrants(memberId: string, growth: GrowthConfigRecord | undefined, now: Date) {
+  if (!growth || !growth.levels.length) return [];
+  return planMedalGrants({
+    memberId,
+    totalScore: 0,
+    levels: growth.levels,
+    existingMedalIds: [],
+    sourceType: MEDAL_GRANT_SOURCE_REGISTER,
+    sourceId: "member.register",
+    configVersion: growth.configVersion,
+    nowIso: now.toISOString()
+  });
 }
 
 function budgetOk(budget: TxBudget): boolean {
@@ -284,9 +307,54 @@ export async function readMemberMe(
   return { ok: true, data: publicMemberView(member, stats, identity.identityId || identityId, draft), budget: emptyBudget() };
 }
 
+export type MemberGrowthView = GrowthMemberView & {
+  growthVersion: number;
+  placeholder: boolean;
+  note: string;
+};
+
+/**
+ * 个人成长展示：当前等级、总分、升级进度、已得勋章。
+ * 等级按当前生效门槛由总分决定；勋章来自 medal_grants，不因门槛变化删除。
+ */
+export async function readMemberGrowth(
+  stores: MemberReadStore | undefined,
+  growthStore: GrowthReadStore | undefined,
+  fromAppId: string,
+  fromOpenId: string,
+  growth: GrowthConfigRecord
+): Promise<MemberActionSuccess<MemberGrowthView> | MemberActionFailure> {
+  if (!stores) {
+    return fail("INTERNAL_ERROR", "MEMBER_STORE_UNAVAILABLE");
+  }
+  const { identityId, memberId } = trustedMemberIds(fromAppId, fromOpenId);
+  const identity = await stores.getIdentity(identityId);
+  if (!identity) {
+    return fail("MEMBER_REQUIRED", "MEMBER_NOT_REGISTERED");
+  }
+  const member = await stores.getMember(identity.memberId || memberId);
+  if (!member) {
+    return fail("INTERNAL_ERROR", "MEMBER_ROW_MISSING");
+  }
+  const stats = await stores.getStats(member.memberId);
+  const grants = growthStore ? await growthStore.listMemberGrants(member.memberId) : [];
+  const view = growthMemberView({
+    totalScore: stats?.totalScore ?? 0,
+    levels: growth.levels,
+    configVersion: growth.configVersion,
+    grants
+  });
+  return {
+    ok: true,
+    data: { ...view, growthVersion: stats?.growthVersion ?? 0, placeholder: growth.placeholder, note: growth.note },
+    budget: emptyBudget()
+  };
+}
+
 export async function registerMember(input: {
   stores: MemberWorkStore & MemberReadStore;
   policies?: PolicyStore;
+  growth?: GrowthConfigRecord;
   fromAppId: string;
   fromOpenId: string;
   data: Record<string, unknown>;
@@ -351,7 +419,8 @@ export async function registerMember(input: {
       };
       const identity = newIdentity(identityId, memberId, input.now);
       const member = newMember(memberId, consent, input.now);
-      const stats = newStats(memberId, input.now);
+      const stats = newStats(memberId, input.now, input.growth);
+      const medalGrants = registerMedalGrants(memberId, input.growth, input.now);
       const view = publicMemberView(member, stats, identityId);
       const succeeded: IdempotencyRecord = {
         ...idemRecord,
@@ -362,6 +431,7 @@ export async function registerMember(input: {
         identity,
         member,
         stats,
+        medalGrants,
         idem: succeeded,
         audit: buildAuditEntry({
           actorType: "member",

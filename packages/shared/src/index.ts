@@ -15,6 +15,7 @@ export * from "./jobs-invoke.js";
 export * from "./maintenance.js";
 export * from "./audit.js";
 export * from "./member.js";
+export * from "./growth.js";
 export * from "./media.js";
 export * from "./question.js";
 export * from "./paper.js";

@@ -1,4 +1,4 @@
-import { asRecord, errorInfo, labelAccess, memberMe, publicAction } from "../../services/browse";
+import { asRecord, errorInfo, labelAccess, memberGrowth, memberMe, publicAction } from "../../services/browse";
 import { homeDraftView } from "../../services/attempt";
 import { knownIdClipboardText } from "../../services/known-ids";
 
@@ -32,6 +32,8 @@ Page({
     guest: true,
     totalScore: "",
     levelId: "",
+    levelName: "",
+    growthHint: "",
     roots: [] as Array<{ id: string; name: string }>,
     recommended: [] as ShelfItem[],
     latest: [] as ShelfItem[],
@@ -66,12 +68,22 @@ Page({
     const meData = asRecord(me.data);
     const stats = asRecord(meData.stats);
     const draft = homeDraftView(guest, asRecord(meData.draft));
+    // 等级展示取成长接口（MW16 起为真实门槛映射）；失败时退回 member.me 的等级标识。
+    const growth = guest ? { ok: false } : await memberGrowth();
+    const growthData = asRecord(growth.data);
     this.setData({
       state: recommended.length || latest.length || roots.length ? "ok" : "empty",
       message: recommended.length || latest.length ? "" : "暂无推荐卷。可从分类浏览。",
       guest,
       totalScore: guest ? "" : String(stats.totalScore ?? 0),
-      levelId: guest ? "" : String(stats.levelId || "L1"),
+      levelId: guest ? "" : String(growth.ok ? growthData.levelId || stats.levelId || "L1" : stats.levelId || "L1"),
+      levelName: guest || !growth.ok ? "" : String(growthData.levelName || ""),
+      growthHint:
+        guest || !growth.ok
+          ? ""
+          : String(growthData.nextLevelName || "")
+            ? `距离「${String(growthData.nextLevelName)}」还差 ${Number(growthData.remaining || 0)} 分`
+            : "已是当前最高等级",
       roots,
       recommended,
       latest,
@@ -112,8 +124,9 @@ Page({
     wx.setClipboardData({
       data: text,
       success() {
-        const payload = JSON.parse(text) as { papers?: unknown[]; attempts?: unknown[] };
-        const count = (payload.papers || []).length + (payload.attempts || []).length;
+        const payload = JSON.parse(text) as { papers?: unknown[]; attempts?: unknown[]; members?: unknown[] };
+        const count =
+          (payload.papers || []).length + (payload.attempts || []).length + (payload.members || []).length;
         wx.showToast({ title: count ? "已复制本轮哈希" : "本轮 leftover 为空", icon: "none" });
       }
     });

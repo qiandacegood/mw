@@ -12,7 +12,10 @@
       <text>游客可浏览类目和试卷。答题需先注册。</text>
       <button bindtap="goRegister">注册后练习</button>
     </view>
-    <view wx:else class="card">总分 {{totalScore}} · {{levelId}}（等级占位，MW16 未做）</view>
+    <view wx:else class="card">
+      <text class="title">总分 {{totalScore}} · 等级 {{levelName}}{{levelName ? '' : ' ' + levelId}}</text>
+      <text wx:if="{{growthHint}}" class="muted">{{growthHint}}</text>
+    </view>
     <view wx:if="{{!guest && hasDraft}}" class="card">
       <text class="title">继续练习</text>
       <text>{{draftTitle}}</text>
@@ -50,5 +53,5 @@
     <button bindtap="openLookup">打开详情</button>
   </view>
   <button bindtap="copyKnownIds">复制本轮 leftover knownIds</button>
-  <text class="muted">默认空 papers / attempts。只含主动记入的本轮测试 attempt（及如有的本轮测试卷）SHA-256，不含明文 _id，也不含货架/列表/自动进页结果。</text>
+  <text class="muted">默认空 papers / attempts / members。只含主动记入的本轮测试 attempt、本轮测试卷与本人身份的 SHA-256，不含明文 _id，也不含货架/列表/自动进页结果。</text>
 </view>

@@ -1,47 +1,108 @@
-import { callOfficialAction } from "../../services/shared-cloud";
+import { asRecord, errorInfo, memberGrowth, memberMe } from "../../services/browse";
+import { markLeftoverMemberId } from "../../services/known-ids";
+
+type MedalRow = {
+  levelName: string;
+  medalName: string;
+  minScore: number;
+  earned: boolean;
+  awardedAt: string;
+};
+
+function toMedals(input: unknown): MedalRow[] {
+  if (!Array.isArray(input)) return [];
+  return input.map((item) => {
+    const rec = asRecord(item);
+    return {
+      levelName: String(rec.name || ""),
+      medalName: String(rec.medalName || ""),
+      minScore: Number(rec.minScore || 0),
+      earned: rec.earned === true,
+      awardedAt: String(rec.awardedAt || "")
+    };
+  });
+}
 
 Page({
   data: {
+    memberId: "",
     statusText: "未读取",
     nickname: "",
     avatarKey: "",
     totalScore: "",
     levelId: "",
+    levelName: "",
+    growthState: "idle",
+    growthMessage: "",
+    progressText: "",
+    progressPercent: 0,
+    nextLevelName: "",
+    remaining: "",
+    earnedCount: 0,
+    medalCount: 0,
+    medals: [] as MedalRow[],
+    growthNote: "",
     raw: ""
   },
   onShow() {
     void this.reload?.();
   },
   async reload() {
-    const res = await callOfficialAction("mw-member", "member.me", {}, { requestId: `req_mp_me_${Date.now()}` });
+    const res = await memberMe();
+    const growth = await memberGrowth();
     if (!res.ok) {
-      const error = (res.error && typeof res.error === "object" ? res.error : {}) as {
-        code?: string;
-        details?: { reason?: string };
-      };
+      const info = errorInfo(res);
       this.setData({
-        statusText: String(error.code || "ERROR"),
+        statusText: info.code,
         nickname: "",
         avatarKey: "",
         totalScore: "",
         levelId: "",
-        raw: JSON.stringify({ ok: false, code: error.code, reason: error.details?.reason })
+        levelName: "",
+        growthState: info.code === "MEMBER_REQUIRED" ? "guest" : "error",
+        growthMessage:
+          info.code === "MEMBER_REQUIRED" ? "注册后可查看成长等级与勋章。" : `${info.message}。可重试。`,
+        medals: [],
+        raw: JSON.stringify({ ok: false, code: info.code, reason: info.reason })
       });
       return;
     }
-    const data = (res.data && typeof res.data === "object" ? res.data : {}) as Record<string, unknown>;
-    const stats = (data.stats && typeof data.stats === "object" ? data.stats : {}) as Record<string, unknown>;
+    const data = asRecord(res.data);
+    const stats = asRecord(data.stats);
+    const growthData = asRecord(growth.data);
+    const medals = growth.ok ? toMedals(growthData.medals) : [];
+    const remaining = growth.ok ? Number(growthData.remaining || 0) : 0;
+    const nextLevelName = growth.ok ? String(growthData.nextLevelName || "") : "";
     this.setData({
       statusText: String(data.status || ""),
+      memberId: String(data.memberId || ""),
       nickname: String(data.nickname || ""),
       avatarKey: String(data.avatarKey || ""),
-      totalScore: String(stats.totalScore ?? ""),
-      levelId: String(stats.levelId || ""),
+      totalScore: String(stats.totalScore ?? 0),
+      levelId: String(growth.ok ? growthData.levelId || stats.levelId || "" : stats.levelId || ""),
+      levelName: growth.ok ? String(growthData.levelName || "") : "",
+      growthState: growth.ok ? "ok" : "error",
+      growthMessage: growth.ok
+        ? String(growthData.note || "")
+        : `${errorInfo(growth).message}。可重试。`,
+      progressText: growth.ok
+        ? nextLevelName
+          ? `距离「${nextLevelName}」还差 ${remaining} 分`
+          : "已是当前最高等级"
+        : "",
+      progressPercent: growth.ok ? Number(growthData.percent || 0) : 0,
+      nextLevelName,
+      remaining: growth.ok ? String(remaining) : "",
+      earnedCount: growth.ok ? Number(growthData.earnedCount || 0) : 0,
+      medalCount: medals.length,
+      medals,
+      growthNote: growth.ok ? `门槛版本 ${growthData.configVersion ?? 0}` : "",
       raw: JSON.stringify({
         ok: true,
         status: data.status,
         revision: data.revision,
-        rankingOptIn: data.rankingOptIn
+        rankingOptIn: data.rankingOptIn,
+        growthOk: growth.ok === true
       })
     });
   },
@@ -53,5 +114,10 @@ Page({
   },
   goHistory() {
     wx.navigateTo({ url: "/pages/history/index" });
+  },
+  /** 只有用户主动点击才把本人身份记入本轮 leftover，用于按 member 独立核查。 */
+  markLeftover() {
+    const ok = markLeftoverMemberId(String(this.data.memberId || ""));
+    wx.showToast({ title: ok ? "已记入本轮 leftover（本人）" : "暂无可记入的本人身份", icon: "none" });
   }
 });

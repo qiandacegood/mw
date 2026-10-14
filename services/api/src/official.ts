@@ -31,11 +31,21 @@ import type { AuditStore, IdempotencyStore, JobStore, MaintenanceStore, WorkStor
 import type { MemberReadStore, MemberWorkStore, PolicyStore } from "./modules/member-stores.js";
 import {
   readCurrentPolicies,
+  readMemberGrowth,
   readMemberMe,
   readMemberSession,
   registerMember,
   updateMemberProfile
 } from "./modules/member.js";
+import {
+  GROWTH_ADMIN_READ_ACTIONS,
+  GROWTH_ADMIN_WRITE_ACTIONS,
+  previewGrowthChange,
+  publishGrowthConfig,
+  readGrowthConfigForAdmin,
+  recomputeGrowth
+} from "./modules/growth.js";
+import { resolveGrowthConfig, type GrowthWorkStore } from "./modules/growth-stores.js";
 import {
   budgetsWithinLimit,
   jobsTrustFromEvent,
@@ -108,7 +118,8 @@ export const MEMBER_ACTIONS = [
   "attempt.submit",
   "attempt.result",
   "attempt.analysis",
-  "attempt.history"
+  "attempt.history",
+  "member.growth"
 ] as const;
 export const ADMIN_ACTIONS = [
   "admin.me",
@@ -121,7 +132,9 @@ export const ADMIN_ACTIONS = [
   "paper.get",
   "paper.preview",
   "import.preview",
-  "import.status"
+  "import.status",
+  "growth.config",
+  "growth.preview"
 ] as const;
 export const ADMIN_WRITE_ACTIONS = [
   "job.resume",
@@ -137,7 +150,9 @@ export const ADMIN_WRITE_ACTIONS = [
   "paper.unpublish",
   "paper.withdraw",
   "import.validate",
-  "import.commit"
+  "import.commit",
+  "growth.publish",
+  "growth.recompute"
 ] as const;
 export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit"] as const;
 
@@ -189,6 +204,7 @@ export interface OfficialContext {
   paperStore?: PaperWorkStore;
   importStore?: ImportWorkStore;
   attemptStore?: AttemptWorkStore;
+  growthStore?: GrowthWorkStore;
   entitlement?: PracticeEntitlementReader;
   virtualPayNotify?: VirtualPayNotifyConfig;
 }
@@ -535,7 +551,8 @@ async function handleMemberAttempt(
     now,
     maintenance,
     entitlement,
-    readMaintenance: async () => (ctx.maintenanceStore ? ctx.maintenanceStore.get() : undefined)
+    readMaintenance: async () => (ctx.maintenanceStore ? ctx.maintenanceStore.get() : undefined),
+    readGrowth: ctx.growthStore ? async () => resolveGrowthConfig(ctx.growthStore as GrowthWorkStore, now) : undefined
   };
   const result =
     request.action === "attempt.start"
@@ -608,6 +625,17 @@ async function handleMember(
     }
     return publicSafe(request.requestId, now, result.data);
   }
+  if (request.action === "member.growth") {
+    if (!ctx.growthStore) {
+      return fail(request.requestId, "INTERNAL_ERROR", { reason: "GROWTH_STORE_UNAVAILABLE" });
+    }
+    const growth = await resolveGrowthConfig(ctx.growthStore, now);
+    const result = await readMemberGrowth(ctx.memberStore, ctx.growthStore, fromAppId, fromOpenId, growth);
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, { reason: result.reason });
+    }
+    return publicSafe(request.requestId, now, result.data);
+  }
   if (request.action.startsWith("attempt.")) {
     return handleMemberAttempt(ctx, request, now, fromAppId, fromOpenId);
   }
@@ -618,9 +646,11 @@ async function handleMember(
     return fail(request.requestId, "INTERNAL_ERROR", { reason: "MEMBER_STORE_UNAVAILABLE" });
   }
   if (request.action === "member.register") {
+    const growth = ctx.growthStore ? await resolveGrowthConfig(ctx.growthStore, now) : undefined;
     const result = await registerMember({
       stores: ctx.memberStore,
       policies: ctx.policyStore,
+      growth,
       fromAppId,
       fromOpenId,
       data: request.data,
@@ -700,6 +730,9 @@ async function handleAdmin(
   if (action.startsWith("import.")) {
     return handleAdminImport(ctx, admin.record, action, requestId, now);
   }
+  if (action.startsWith("growth.")) {
+    return handleAdminGrowth(ctx, admin.record, action, requestId, now);
+  }
   if (action === "admin.me") {
     return ok(requestId, now, {
       roles: admin.record.roles,
@@ -765,6 +798,91 @@ async function handleAdmin(
     pending: false,
     tx: budget
   });
+}
+
+function adminRequestBody(ctx: OfficialContext): { rec: Record<string, unknown>; data: Record<string, unknown> } {
+  const event = unwrapFunctionEvent(ctx.event);
+  const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+  const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+  return { rec, data };
+}
+
+/**
+ * 后台等级配置：
+ * - growth.config / growth.preview 为只读（任意已启用后台角色）；
+ * - growth.publish 需要 super，且必须带 idempotencyKey 与 reason；
+ * - growth.recompute 需要 super；结果由现有总分与当前门槛唯一决定，重复执行不产生额外写入，故不要求幂等键。
+ */
+async function handleAdminGrowth(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  if (!(GROWTH_ADMIN_READ_ACTIONS as readonly string[]).includes(action) && !(GROWTH_ADMIN_WRITE_ACTIONS as readonly string[]).includes(action)) {
+    return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
+  }
+  if (!ctx.growthStore) {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "GROWTH_STORE_UNAVAILABLE" });
+  }
+  const { rec, data } = adminRequestBody(ctx);
+  if (action === "growth.config") {
+    const extra = rejectUnknownKeys(data, []);
+    if (extra.length) {
+      return fail(requestId, "INVALID_ARGUMENT", { issues: [`unknown fields: ${extra.join(",")}`] });
+    }
+    const read = await readGrowthConfigForAdmin(ctx.growthStore, now);
+    return ok(requestId, now, read.data);
+  }
+  if (action === "growth.preview") {
+    const preview = await previewGrowthChange(ctx.growthStore, data);
+    if (!preview.ok) {
+      return fail(requestId, preview.code as ErrorCode, {
+        reason: preview.reason,
+        ...(preview.issues ? { issues: preview.issues } : {}),
+        ...(preview.details || {})
+      });
+    }
+    return ok(requestId, now, { ...preview.data, wroteDocs: false });
+  }
+  if (!adminHasRole(admin.roles, "super")) {
+    return fail(requestId, "FORBIDDEN", { reason: "SUPER_REQUIRED" });
+  }
+  if (action === "growth.publish") {
+    if (typeof rec.idempotencyKey !== "string" || rec.idempotencyKey.length === 0) {
+      return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+    }
+    const published = await publishGrowthConfig({
+      store: ctx.growthStore,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: rec.idempotencyKey,
+      now
+    });
+    if (!published.ok) {
+      return fail(requestId, published.code as ErrorCode, {
+        reason: published.reason,
+        ...(published.issues ? { issues: published.issues } : {}),
+        ...(published.details || {})
+      });
+    }
+    return ok(requestId, now, {
+      ...published.data,
+      replayed: published.replayed === true,
+      tx: budgetsWithinLimit(published.budget)
+    });
+  }
+  const recomputed = await recomputeGrowth({ store: ctx.growthStore, data, now });
+  if (!recomputed.ok) {
+    return fail(requestId, recomputed.code as ErrorCode, {
+      reason: recomputed.reason,
+      ...(recomputed.issues ? { issues: recomputed.issues } : {}),
+      ...(recomputed.details || {})
+    });
+  }
+  return ok(requestId, now, recomputed.data);
 }
 
 async function handleAdminCategory(

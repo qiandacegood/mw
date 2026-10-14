@@ -161,6 +161,27 @@ export async function callAdminImport(
   return unwrapCallResult(result);
 }
 
+export type AdminGrowthAction = "growth.config" | "growth.preview" | "growth.publish" | "growth.recompute";
+
+export async function callAdminGrowth(
+  app: CloudApp,
+  action: AdminGrowthAction,
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action === "growth.publish") {
+    payload.idempotencyKey = idempotencyKey || `mw16/admin/${action}/${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
 export async function completeAdminUpload(
   app: CloudApp,
   input: { uploadTicket: string; sha256: string; size: number; fileBase64: string }

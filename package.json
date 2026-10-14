@@ -12,7 +12,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "check:prototypes": "node scripts/check-prototype-scripts.mjs",
-    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && node scripts/mw04-record.test.mjs && node scripts/mw04-assert.test.mjs && node scripts/mw05-secret-scan.test.mjs && node scripts/mw06-assert.test.mjs && node scripts/mw08-assert.test.mjs && node scripts/mw09-assert.test.mjs && node scripts/mw10-assert.test.mjs && node scripts/mw11-assert.test.mjs && node scripts/mw12-assert.test.mjs && node scripts/mw13-assert.test.mjs && node scripts/mw14-assert.test.mjs && node scripts/mw15-assert.test.mjs && node scripts/mw07b-assert.test.mjs && npm run test --workspaces --if-present",
+    "test": "node scripts/check-prototype-scripts.mjs && node scripts/ensure-shared-js.mjs && node scripts/mw04-record.test.mjs && node scripts/mw04-assert.test.mjs && node scripts/mw05-secret-scan.test.mjs && node scripts/mw06-assert.test.mjs && node scripts/mw08-assert.test.mjs && node scripts/mw09-assert.test.mjs && node scripts/mw10-assert.test.mjs && node scripts/mw11-assert.test.mjs && node scripts/mw12-assert.test.mjs && node scripts/mw13-assert.test.mjs && node scripts/mw14-assert.test.mjs && node scripts/mw15-assert.test.mjs && node scripts/mw16-assert.test.mjs && node scripts/mw07b-assert.test.mjs && npm run test --workspaces --if-present",
     "build": "node scripts/ensure-shared-js.mjs && node scripts/mw05-emit-runtime.mjs && npm run build --workspaces --if-present",
     "mw05:write-local": "node scripts/mw05-write-local.mjs",
     "mw05:emit": "node scripts/mw05-emit-runtime.mjs",
@@ -71,7 +71,16 @@
     "mw15:resolve-known-ids": "node scripts/mw15-resolve-known-ids.mjs",
     "mw15:cleanup": "node scripts/mw15-cleanup.mjs",
     "mw15:verify-leftovers": "node scripts/mw15-leftover-verify.mjs",
-    "mw15:assert": "node scripts/mw15-assert.test.mjs"
+    "mw15:assert": "node scripts/mw15-assert.test.mjs",
+    "mw16:deploy": "node scripts/mw16-deploy.mjs",
+    "mw16:verify": "node scripts/mw16-verify.mjs",
+    "mw16:import-known-ids": "node scripts/mw16-import-known-ids.mjs",
+    "mw16:resolve-known-ids": "node scripts/mw16-resolve-known-ids.mjs",
+    "mw16:cleanup": "node scripts/mw16-cleanup.mjs",
+    "mw16:verify-leftovers": "node scripts/mw16-verify-leftovers.mjs",
+    "mw16:independent-check": "node scripts/mw16-independent-check.mjs",
+    "mw16:temp-admin": "node scripts/mw16-temp-admin.mjs",
+    "mw16:assert": "node scripts/mw16-assert.test.mjs"
   },
   "engines": {
     "node": ">=20"

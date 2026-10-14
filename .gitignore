@@ -28,6 +28,8 @@ configs/mw14-state.json
 configs/mw14-verify-state.json
 configs/mw15-state.json
 configs/mw15-verify-state.json
+configs/mw16-state.json
+configs/mw16-verify-state.json
 configs/mw07-state.json
 configs/mw07-verify-state.json
 configs/mw07b-state.json

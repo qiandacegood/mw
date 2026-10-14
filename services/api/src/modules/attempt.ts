@@ -6,13 +6,15 @@ import {
   buildIdempotencyRecord,
   categoryMetricIdsOf,
   checkMaintenanceGate,
+  DEFAULT_GROWTH_LEVELS,
   DEFAULT_LEVEL_ID,
   defaultMaintenanceConfig,
   draftSummaryOf,
   emptyDraftSummary,
   encodeHistoryCursor,
   gradeSelectedAnswers,
-  levelIdFromTotalScore,
+  levelIdForScore,
+  MEDAL_GRANT_SOURCE_SUBMIT,
   METRIC_GENERATION_BASE,
   monthKeyShanghai,
   normalizeAttemptAnswers,
@@ -31,6 +33,7 @@ import {
   parseAttemptSubmitEnvelope,
   parseHistoryCursor,
   parseQuestionPageInput,
+  planMedalGrants,
   replayOrConflict,
   SCORE_EVENT_KIND_SUBMIT,
   scoreEventId,
@@ -42,6 +45,7 @@ import {
   type AttemptDraftSummary,
   type AttemptRecord,
   type GradeableQuestion,
+  type GrowthConfigRecord,
   type IdempotencyRecord,
   type MaintenanceConfig,
   type PaperAnswerRecord,
@@ -56,6 +60,7 @@ import {
 import type { TxBudget } from "./job-stores.js";
 import type { AttemptWorkStore, AttemptWriteMutation, SubmitWriteMutation } from "./attempt-stores.js";
 import type { MemberStatsRecord } from "./member-stores.js";
+import { growthGrantIdsFor } from "./growth-stores.js";
 
 export const ATTEMPT_TX_MAX_ATTEMPTS = 3;
 export const ATTEMPT_WRITE_ACTIONS = [
@@ -811,6 +816,8 @@ export async function submitAttempt(input: {
   maintenance?: MaintenanceConfig;
   entitlement?: PracticeEntitlementReader;
   readMaintenance?: () => Promise<MaintenanceConfig | undefined>;
+  growth?: GrowthConfigRecord;
+  readGrowth?: () => Promise<GrowthConfigRecord | undefined>;
 }): Promise<AttemptActionSuccess<SubmitResultData> | AttemptActionFailure> {
   const envelope = parseAttemptSubmitEnvelope(input.data);
   if (!envelope.ok) return fail("INVALID_ARGUMENT", "SUBMIT_INPUT_INVALID", { issues: envelope.issues });
@@ -857,6 +864,10 @@ export async function submitAttempt(input: {
   });
   const retried = await runWithTxRetry(async () => {
     const maintenance = input.readMaintenance ? await input.readMaintenance() : input.maintenance;
+    const growth = input.readGrowth ? await input.readGrowth() : input.growth;
+    const levels = growth && growth.levels.length ? growth.levels : DEFAULT_GROWTH_LEVELS;
+    const growthConfigVersion = growth?.configVersion ?? 0;
+    const medalGrantIds = growthGrantIdsFor(input.memberId, levels);
     const paper = await input.store.getPaper(attempt.paperId);
     const category = paper ? await input.store.getCategory(paper.categoryId) : undefined;
     const categoryIds = categoryMetricIdsOf(paper?.categoryId || "", category?.ancestorIds || []);
@@ -884,6 +895,7 @@ export async function submitAttempt(input: {
       idempotencyId: idemRecord.id,
       bestId: paperBestId(input.memberId, attempt.paperId),
       metricIds,
+      medalGrantIds,
       mutate: (snap) => {
         const replay = replayOrConflict(snap.idem, idemRecord.payloadHash, () => null);
         if (!replay.ok) return { error: { code: "IDEMPOTENCY_CONFLICT", reason: "IDEMPOTENCY_CONFLICT" }, result: dummy };
@@ -950,14 +962,27 @@ export async function submitAttempt(input: {
         };
         const stats = snap.stats ? { ...snap.stats } : emptyStats(input.memberId, input.now);
         const totalScore = stats.totalScore + delta;
+        const nextLevelId = levelIdForScore(totalScore, levels);
         const nextStats: MemberStatsRecord = {
           ...stats,
           totalScore,
           scoreSeq: stats.scoreSeq + 1,
-          levelId: levelIdFromTotalScore(totalScore),
+          levelId: nextLevelId,
+          growthVersion: growthConfigVersion,
           revision: stats.revision + 1,
           updatedAt: submittedAt
         };
+        // 跨级补齐：一次交卷跨过多级时补发经过等级的勋章；已授予的不重复写。
+        const backfilledGrants = planMedalGrants({
+          memberId: input.memberId,
+          totalScore,
+          levels,
+          existingMedalIds: snap.grants.map((grant) => grant.medalId),
+          sourceType: MEDAL_GRANT_SOURCE_SUBMIT,
+          sourceId: nextAttempt.attemptId,
+          configVersion: growthConfigVersion,
+          nowIso: submittedAt
+        });
         const nextBest: PaperBestRecord = {
           memberId: input.memberId,
           paperId: snap.attempt.paperId,
@@ -1017,6 +1042,7 @@ export async function submitAttempt(input: {
           best: nextBest,
           event,
           metrics: nextMetrics,
+          ...(backfilledGrants.length ? { grants: backfilledGrants } : {}),
           idem: { ...idemRecord, status: "succeeded", resultRef: view },
           result: view
         };

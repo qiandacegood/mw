@@ -8,6 +8,7 @@ import {
 } from "@mw/shared";
 import {
   callAdminCategory,
+  callAdminGrowth,
   callAdminJob,
   callAdminQuestion,
   callAdminPaper,
@@ -17,6 +18,7 @@ import {
   loginAndReadAdmin,
   signOutAdmin,
   type AdminCallResult,
+  type AdminGrowthAction,
   type AdminSession
 } from "./cloudbase-web";
 
@@ -105,6 +107,16 @@ const iSampleKeys = ref<string[]>([]);
 const knownBatches = ref<string[]>([]);
 const knownImportRows = ref<string[]>([]);
 const knownSourceKeys = ref<string[]>([]);
+const gLevelsText = ref("");
+const gConfigVersion = ref<number | null>(null);
+const gConfigSource = ref("");
+const gReason = ref("MW16 调整等级门槛");
+const gStatus = ref("先点「读取当前等级配置」，再改门槛 JSON，然后预览影响。预览不写库。");
+const gImpact = ref("");
+const gEvidence = ref("");
+const gMemberId = ref("");
+/** 与产品说明书一致的初始建议门槛：用于「填入提高门槛」时整体抬高且保持严格递增。 */
+const RECOMMENDED_MIN_SCORES = [0, 100, 300, 800, 1500, 3000];
 
 function rememberId(list: { value: string[] }, id: string): void {
   if (id && !list.value.includes(id)) list.value = [...list.value, id];
@@ -1163,6 +1175,255 @@ async function copyImportEvidence(): Promise<void> {
   iStatus.value = "已复制 SHA-256 knownIds。不要发送密码、环境 ID 或明文 _id。";
 }
 
+async function runGrowth(action: AdminGrowthAction, data: Record<string, unknown>): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  const result = await callAdminGrowth(app, action, data);
+  const parsed = gEvidence.value ? JSON.parse(gEvidence.value) : { steps: [] };
+  const body = result.data || {};
+  parsed.steps.push({
+    action,
+    ok: result.ok === true,
+    errorCode: result.error?.code || "",
+    errorReason: result.error?.details?.reason || "",
+    configVersion: body.configVersion ?? (body.config as { configVersion?: number } | undefined)?.configVersion ?? null,
+    wroteDocs: body.wroteDocs === undefined ? action !== "growth.preview" : body.wroteDocs,
+    affected: body.affected ?? null,
+    upgraded: body.upgraded ?? null,
+    downgraded: body.downgraded ?? null,
+    medalsToGrant: body.medalsToGrant ?? null,
+    truncated: body.truncated ?? null
+  });
+  gEvidence.value = JSON.stringify(parsed, null, 2);
+  return result;
+}
+
+function levelRows(input: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(input)) return [];
+  return input.filter((row) => row && typeof row === "object") as Record<string, unknown>[];
+}
+
+function issueText(details: unknown): string {
+  const issues = (details as { issues?: unknown } | undefined)?.issues;
+  return Array.isArray(issues) ? issues.map((item) => String(item)).join(" ") : "";
+}
+
+async function loadGrowthConfig(): Promise<void> {
+  busy.value = true;
+  gStatus.value = "正在读取等级配置…";
+  try {
+    const result = await runGrowth("growth.config", {});
+    if (!result.ok) {
+      gStatus.value = `读取失败：${result.error?.code || "CALL_FAILED"} ${result.error?.details?.reason || ""}`;
+      return;
+    }
+    const config = (result.data?.config || {}) as { configVersion?: number; levels?: unknown };
+    gConfigVersion.value = typeof config.configVersion === "number" ? config.configVersion : null;
+    gConfigSource.value = String(result.data?.source || "");
+    gLevelsText.value = JSON.stringify(levelRows(config.levels).map((row) => ({
+      levelId: row.levelId,
+      name: row.name,
+      minScore: row.minScore,
+      medalId: row.medalId,
+      medalName: row.medalName
+    })), null, 2);
+    gStatus.value = `已读取。configVersion=${gConfigVersion.value} · 来源=${gConfigSource.value}。预览不写库；发布需 super。`;
+  } catch {
+    gStatus.value = "读取等级配置失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+function parseLevelsText(): { ok: true; levels: unknown[] } | { ok: false; reason: string } {
+  try {
+    const parsed = JSON.parse(gLevelsText.value || "[]");
+    if (!Array.isArray(parsed)) return { ok: false, reason: "NOT_ARRAY" };
+    return { ok: true, levels: parsed };
+  } catch {
+    return { ok: false, reason: "NOT_JSON" };
+  }
+}
+
+/** 本地预检：与共享层同一套规则的友好提示，避免把明显非法的门槛发到服务端。 */
+function localLevelIssues(levels: unknown[]): string[] {
+  const rows = levelRows(levels);
+  const issues: string[] = [];
+  if (!rows.length) return ["门槛不能为空"];
+  const first = rows[0];
+  if (!first || Number(first.minScore) !== 0) issues.push("第一级门槛必须是 0");
+  const levelIds = new Set<string>();
+  const medalIds = new Set<string>();
+  rows.forEach((row, index) => {
+    const levelId = String(row.levelId || "");
+    const medalId = String(row.medalId || "");
+    if (levelId && levelIds.has(levelId)) issues.push(`levelId 重复：${levelId}`);
+    levelIds.add(levelId);
+    if (medalId && medalIds.has(medalId)) issues.push(`medalId 重复：${medalId}`);
+    medalIds.add(medalId);
+    if (!String(row.name || "").trim()) issues.push(`第 ${index + 1} 级缺名称`);
+    if (!String(row.medalName || "").trim()) issues.push(`第 ${index + 1} 级缺勋章名`);
+    const previous = index > 0 ? rows[index - 1] : undefined;
+    if (previous && Number(row.minScore) <= Number(previous.minScore)) {
+      issues.push(`门槛必须严格递增：第 ${index + 1} 级 ${Number(row.minScore)} 不大于上一级 ${Number(previous.minScore)}`);
+    }
+  });
+  return [...new Set(issues)];
+}
+
+/**
+ * 本地预检只做提示：默认不发送明显非法的门槛；
+ * 需要核对服务端拒绝路径（负向核验）时，点「确定」仍会发送，由服务端给出 INVALID_ARGUMENT。
+ */
+function confirmSendInvalid(issues: string[]): boolean {
+  if (!issues.length) return true;
+  const proceed = window.confirm(`本地预检发现问题：\n- ${issues.join("\n- ")}\n\n仍要发送给服务端验证拒绝路径吗？（确定=发送，取消=不发送）`);
+  if (!proceed) {
+    gImpact.value = "";
+    gStatus.value = `门槛不合法，未发送：${issues.join("；")}`;
+  }
+  return proceed;
+}
+
+/** 快速填充门槛，避免手改 JSON 出错。只改浏览器里的文本，不写库。 */
+function fillLevels(mode: "crossLevel" | "raise" | "invalidFirst" | "missingMedal"): void {
+  const parsed = parseLevelsText();
+  if (!parsed.ok) {
+    gStatus.value = "门槛 JSON 当前无法解析：先点「读取当前等级配置」再填充。";
+    return;
+  }
+  const rows = levelRows(parsed.levels).map((row) => ({ ...row }));
+  const first = rows[0];
+  const second = rows[1];
+  const third = rows[2];
+  if (!first || !second || !third) {
+    gStatus.value = "门槛行数不足，先点「读取当前等级配置」。";
+    return;
+  }
+  if (mode === "crossLevel") {
+    second.minScore = 5;
+    third.minScore = 8;
+    gStatus.value = "已填入跨级核对门槛（L2=5、L3=8）。先「预览影响（不写库）」，确认后再「发布门槛并重算」。";
+  } else if (mode === "raise") {
+    // 门槛必须严格递增：只抬 L2 会把 L3 压在下面，服务端会拒 LEVEL_MIN_NOT_INCREASING。
+    let previous = 0;
+    rows.forEach((row, index) => {
+      const recommended = RECOMMENDED_MIN_SCORES[index];
+      const next = index === 0 ? 0 : typeof recommended === "number" ? recommended : previous + 1000;
+      previous = next;
+      row.minScore = next;
+    });
+    gStatus.value = "已填入提高后的门槛（建议值 0/100/300/800/1500/3000，整体不低于上一级）。先预览应显示降级，再发布；发布后既得勋章不应消失。";
+  } else if (mode === "invalidFirst") {
+    first.minScore = 10;
+    gStatus.value = "已填入非法门槛（首级不是 0）。发布应被拒 INVALID_ARGUMENT，configVersion 不得变化。";
+  } else {
+    second.medalName = "";
+    gStatus.value = "已填入缺勋章名的门槛。发布应被拒 INVALID_ARGUMENT。";
+  }
+  gLevelsText.value = JSON.stringify(rows, null, 2);
+}
+
+async function previewGrowth(): Promise<void> {
+  const parsed = parseLevelsText();
+  if (!parsed.ok) {
+    gStatus.value = `门槛 JSON 无法解析：${parsed.reason}`;
+    return;
+  }
+  if (!confirmSendInvalid(localLevelIssues(parsed.levels))) return;
+  busy.value = true;
+  try {
+    const result = await runGrowth("growth.preview", { levels: parsed.levels });
+    if (!result.ok) {
+      gImpact.value = "";
+      gStatus.value = `预览被拒：${result.error?.code || "CALL_FAILED"} ${result.error?.details?.reason || ""} ${issueText(result.error?.details)}`;
+      return;
+    }
+    const data = (result.data || {}) as Record<string, unknown>;
+    gImpact.value = JSON.stringify(data, null, 2);
+    const transitions = Array.isArray(data.byTransition)
+      ? (data.byTransition as Array<{ fromLevelId?: string; toLevelId?: string; count?: number }>)
+          .map((row) => `${row.fromLevelId}→${row.toLevelId}:${row.count}`)
+          .join(" ")
+      : "";
+    gStatus.value = `预览完成（未写库，configVersion 仍是 ${gConfigVersion.value ?? "未读取"}）：扫描 ${data.scannedMembers ?? "?"} 人，影响 ${data.affected ?? "?"}，升级 ${data.upgraded ?? "?"}，降级 ${data.downgraded ?? "?"}，待补发勋章 ${data.medalsToGrant ?? "?"}。扫描上限 ${data.scanLimit ?? "?"}${data.truncated ? "（已截断，数字不是全集）" : ""}${transitions ? ` · 迁移 ${transitions}` : ""}`;
+  } catch {
+    gStatus.value = "预览失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function publishGrowth(): Promise<void> {
+  const parsed = parseLevelsText();
+  if (!parsed.ok) {
+    gStatus.value = `门槛 JSON 无法解析：${parsed.reason}`;
+    return;
+  }
+  if (!confirmSendInvalid(localLevelIssues(parsed.levels))) return;
+  busy.value = true;
+  try {
+    const result = await runGrowth("growth.publish", {
+      levels: parsed.levels,
+      reason: gReason.value,
+      expectedConfigVersion: gConfigVersion.value ?? 0
+    });
+    if (!result.ok) {
+      gStatus.value = `发布被拒：${result.error?.code || "CALL_FAILED"} ${result.error?.details?.reason || ""} ${issueText(result.error?.details)}`;
+      if (result.error?.code === "VERSION_CONFLICT") gStatus.value += "。请重新读取配置后再发。";
+      return;
+    }
+    const config = (result.data?.config || {}) as { configVersion?: number };
+    const recompute = (result.data?.recompute || {}) as Record<string, unknown>;
+    const responseVersion = typeof config.configVersion === "number" ? config.configVersion : null;
+    gConfigVersion.value = responseVersion ?? gConfigVersion.value;
+    // 以云端回读为准确认落库；发布响应版本与回读不一致时不得当作成功。
+    await loadGrowthConfig();
+    const cloudVersion = gConfigVersion.value;
+    const head =
+      responseVersion !== null && cloudVersion === responseVersion
+        ? `已发布且云端回读一致：configVersion=${cloudVersion}`
+        : `发布响应版本 ${responseVersion ?? "?"} 与云端回读 ${cloudVersion ?? "?"} 不一致，请重新读取配置后再试`;
+    gStatus.value = `${head}（本次提交版本 ${responseVersion ?? "?"}）。按现有总分重算 ${recompute.recomputed ?? "?"} 人，等级变化 ${recompute.levelChanged ?? "?"}，补发勋章 ${recompute.medalsGranted ?? "?"}${recompute.truncated ? "（重算首批已截断，可再点按当前门槛重算）" : ""}。既得勋章不删除。`;
+  } catch {
+    gStatus.value = "发布失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function recomputeGrowthLevels(): Promise<void> {
+  busy.value = true;
+  try {
+    const data: Record<string, unknown> = { limit: 200 };
+    if (gMemberId.value.trim()) data.targetMemberId = gMemberId.value.trim();
+    const result = await runGrowth("growth.recompute", data);
+    if (!result.ok) {
+      gStatus.value = `重算被拒：${result.error?.code || "CALL_FAILED"} ${result.error?.details?.reason || ""}`;
+      return;
+    }
+    const recompute = (result.data?.recompute || {}) as Record<string, unknown>;
+    gStatus.value = `按当前门槛（configVersion=${result.data?.configVersion}）重算 ${recompute.recomputed ?? 0} 人，等级变化 ${recompute.levelChanged ?? 0}，补发勋章 ${recompute.medalsGranted ?? 0}。重复执行不会额外写入。`;
+  } catch {
+    gStatus.value = "重算失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+function copyGrowthEvidence(): void {
+  const parsed = gEvidence.value ? JSON.parse(gEvidence.value) : { steps: [] };
+  parsed.summary = {
+    configVersion: gConfigVersion.value,
+    configSource: gConfigSource.value,
+    wroteDocs: true,
+    exactIdSweepOnly: true
+  };
+  const text = JSON.stringify(parsed, null, 2);
+  gEvidence.value = text;
+  void navigator.clipboard?.writeText(text);
+  gStatus.value = "已复制等级配置证据。不要发送密码、环境 ID 或明文 _id。";
+}
+
 async function logout(): Promise<void> {
   try {
     const app = await createAdminApp();
@@ -1399,6 +1660,43 @@ async function logout(): Promise<void> {
       <button type="button" class="ghost" @click="copyImportEvidence">复制 knownIds</button>
       <pre data-testid="import-preview">{{ iPreview }}</pre>
       <pre data-testid="import-evidence">{{ iEvidence }}</pre>
+    </section>
+    <section v-if="session?.loggedIn" data-page="admin-growth">
+      <h1>成长等级与勋章配置</h1>
+      <p>
+        门槛必须从 0 起严格递增，名称与勋章不可缺失。发布前先预览影响人数；发布会产生新配置版本、按现有总分重算等级并补发新达到的勋章，
+        <strong>不删除既得勋章</strong>。上线门槛在 MW28 才冻结，本页只做可配置与预览发布。VIP 购买或到期不参与加减分。
+      </p>
+      <p class="status">
+        configVersion={{ gConfigVersion ?? "未读取" }} · 来源={{ gConfigSource || "未读取" }} · 发布需要 super 角色，预览任意后台角色可看
+      </p>
+      <button type="button" :disabled="busy" @click="loadGrowthConfig">读取当前等级配置</button>
+      <p class="status">
+        顺序：读取 →（可选）快速填充 → 预览影响（不写库）→ 发布门槛并重算。发布以云端回读版本为准，预览不改版本。
+      </p>
+      <button type="button" class="ghost" :disabled="busy" @click="fillLevels('crossLevel')">填入跨级门槛 L2=5/L3=8</button>
+      <button type="button" class="ghost" :disabled="busy" @click="fillLevels('raise')">填入提高门槛（建议 100 起）</button>
+      <button type="button" class="ghost" :disabled="busy" @click="fillLevels('invalidFirst')">填入非法门槛（首级非 0）</button>
+      <button type="button" class="ghost" :disabled="busy" @click="fillLevels('missingMedal')">填入缺勋章名</button>
+      <label>
+        等级门槛 JSON（levelId / name / minScore / medalId / medalName）
+        <textarea v-model="gLevelsText" data-testid="growth-levels" rows="12"></textarea>
+      </label>
+      <label>
+        发布原因（写审计）
+        <input v-model="gReason" autocomplete="off" />
+      </label>
+      <button type="button" class="ghost" :disabled="busy" @click="previewGrowth">预览影响（不写库）</button>
+      <button type="button" :disabled="busy" @click="publishGrowth">发布门槛并重算</button>
+      <label>
+        重算目标会员（可空；空=按扫描批量重算）
+        <input v-model="gMemberId" autocomplete="off" />
+      </label>
+      <button type="button" class="ghost" :disabled="busy" @click="recomputeGrowthLevels">按当前门槛重算等级</button>
+      <p class="status">{{ gStatus }}</p>
+      <pre data-testid="growth-impact">{{ gImpact }}</pre>
+      <button type="button" class="ghost" @click="copyGrowthEvidence">复制等级配置证据</button>
+      <pre data-testid="growth-evidence">{{ gEvidence }}</pre>
     </section>
     <section v-if="session?.loggedIn">
       <h2>任务查询与恢复</h2>

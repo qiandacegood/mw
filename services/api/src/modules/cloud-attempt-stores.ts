@@ -9,6 +9,7 @@ import {
   type CategoryRecord,
   type IdempotencyRecord,
   type MaintenanceConfig,
+  type MedalGrantRecord,
   type PaperBestRecord,
   type PaperChunkRecord,
   type PaperRecord,
@@ -23,6 +24,7 @@ import type { AttemptWorkStore, AttemptWriteSnapshot, SubmitWriteSnapshot } from
 import { cloudPaperWorkStore } from "./cloud-paper-stores.js";
 import { cloudMemberWorkStore } from "./cloud-member-stores.js";
 import { cloudCategoryWorkStore } from "./cloud-category-stores.js";
+import { asGrant, grantWrite } from "./cloud-growth-stores.js";
 
 export const MW14_COLLECTIONS = {
   attempts: "attempts",
@@ -41,6 +43,7 @@ export const MW15_COLLECTIONS = {
   paperBests: "paper_bests",
   scoreEvents: "score_events",
   scoreMetrics: "score_metrics",
+  medalGrants: "medal_grants",
   appConfig: "app_config"
 } as const;
 
@@ -564,6 +567,7 @@ export function cloudAttemptWorkStore(): AttemptWorkStore {
       idempotencyId: string;
       bestId: string;
       metricIds: string[];
+      medalGrantIds: string[];
       mutate: (snap: SubmitWriteSnapshot) => import("./attempt-stores.js").SubmitWriteMutation<T>;
     }) {
       const started = Date.now();
@@ -662,6 +666,12 @@ export function cloudAttemptWorkStore(): AttemptWorkStore {
           const metricData = await txGet(tx, MW15_COLLECTIONS.scoreMetrics, metricId);
           if (metricData) metricRows.push(asMetric(metricId, metricData));
         }
+        const grantRows: MedalGrantRecord[] = [];
+        for (const grantId of input.medalGrantIds) {
+          reads += 1;
+          const grantData = await txGet(tx, MW15_COLLECTIONS.medalGrants, grantId);
+          if (grantData) grantRows.push(asGrant(grantId, grantData));
+        }
         const next = input.mutate({
           member: memberData
             ? ({
@@ -694,7 +704,8 @@ export function cloudAttemptWorkStore(): AttemptWorkStore {
           maintenance: asMaintenance(maintData),
           stats: statsData ? asStats(input.memberId, statsData) : undefined,
           best: bestData ? asBest(bestData, input.memberId, paperId) : undefined,
-          metrics: metricRows
+          metrics: metricRows,
+          grants: grantRows
         });
         if (next.error) return next;
         if (next.attempt) {
@@ -728,6 +739,10 @@ export function cloudAttemptWorkStore(): AttemptWorkStore {
         for (const metric of next.metrics || []) {
           writes += 1;
           await tx.collection(MW15_COLLECTIONS.scoreMetrics).doc(metric.metricId).set({ ...metric });
+        }
+        for (const grant of next.grants || []) {
+          writes += 1;
+          await tx.collection(MW15_COLLECTIONS.medalGrants).doc(grant.grantId).set(grantWrite(grant));
         }
         if (next.idem) {
           writes += 1;

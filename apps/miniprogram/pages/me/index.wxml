@@ -4,10 +4,31 @@
   <text class="title">状态：{{statusText}}</text>
   <text class="title">昵称：{{nickname}}</text>
   <text class="title">头像：{{avatarKey}}</text>
-  <text class="title">总分 / 等级：{{totalScore}} / {{levelId}}</text>
+
+  <view class="card" data-block="growth">
+    <text class="h2">个人成长展示</text>
+    <text class="title">当前等级：{{levelName}}（{{levelId}}）</text>
+    <text class="title">总分：{{totalScore}}</text>
+    <view wx:if="{{growthState === 'ok'}}">
+      <text class="muted">升级进度：{{progressPercent}}% · {{progressText}}</text>
+      <text class="muted">已得勋章：{{earnedCount}} / {{medalCount}} · {{growthNote}}</text>
+      <view wx:for="{{medals}}" wx:key="medalName" class="card">
+        <text class="{{item.earned ? 'title' : 'muted'}}">
+          {{item.medalName}} · {{item.levelName}} · 门槛 {{item.minScore}} · {{item.earned ? '已获得' : '未获得'}}
+        </text>
+      </view>
+    </view>
+    <view wx:else>
+      <text class="muted">{{growthMessage}}</text>
+      <button wx:if="{{growthState === 'guest'}}" bindtap="goRegister">注册后查看成长</button>
+    </view>
+  </view>
+
   <button bindtap="reload">刷新</button>
   <button bindtap="goRegister">去注册</button>
   <button bindtap="goProfile">修改资料</button>
   <button bindtap="goHistory">历史成绩</button>
+  <button bindtap="markLeftover">记入本轮 leftover（本人）</button>
+  <text class="muted">只在主动点击时记入本人身份的 SHA-256，用于本轮按 member 独立核查；不含明文 _id。</text>
   <text class="title">{{raw}}</text>
 </view>

@@ -5,6 +5,7 @@ import {
   type CategoryRecord,
   type IdempotencyRecord,
   type MaintenanceConfig,
+  type MedalGrantRecord,
   type PaperAnswerRecord,
   type PaperBestRecord,
   type PaperChunkRecord,
@@ -42,6 +43,8 @@ export type SubmitWriteSnapshot = AttemptWriteSnapshot & {
   stats?: MemberStatsRecord;
   best?: PaperBestRecord;
   metrics: ScoreMetricRecord[];
+  /** 当前配置下该会员已读取的勋章授予记录（按确定 id 点读，用于跨级补齐与不重复授予）。 */
+  grants: MedalGrantRecord[];
 };
 
 export type SubmitWriteMutation<T> = AttemptWriteMutation<T> & {
@@ -49,6 +52,8 @@ export type SubmitWriteMutation<T> = AttemptWriteMutation<T> & {
   best?: PaperBestRecord;
   event?: ScoreEventRecord;
   metrics?: ScoreMetricRecord[];
+  /** 只写本次新增的勋章授予；已存在的授予不覆盖。 */
+  grants?: MedalGrantRecord[];
 };
 
 export interface AttemptReadStore {
@@ -86,6 +91,7 @@ export interface AttemptWorkStore extends AttemptReadStore {
     idempotencyId: string;
     bestId: string;
     metricIds: string[];
+    medalGrantIds: string[];
     mutate: (snap: SubmitWriteSnapshot) => SubmitWriteMutation<T>;
   }): Promise<{ mutation: SubmitWriteMutation<T>; budget: TxBudget }>;
 }
@@ -156,6 +162,10 @@ function cloneMetric(row: ScoreMetricRecord): ScoreMetricRecord {
   return { ...row };
 }
 
+function cloneGrant(row: MedalGrantRecord): MedalGrantRecord {
+  return { ...row };
+}
+
 function historyAfter(row: AttemptRecord, after?: { submittedAt: string; attemptId: string }): boolean {
   if (!after) return true;
   if (row.submittedAt < after.submittedAt) return true;
@@ -176,10 +186,13 @@ export type MemoryAttemptBundle = AttemptWorkStore & {
   bests: Map<string, PaperBestRecord>;
   events: Map<string, ScoreEventRecord>;
   metrics: Map<string, ScoreMetricRecord>;
+  grants: Map<string, MedalGrantRecord>;
   idem: Map<string, IdempotencyRecord>;
   maintenance?: MaintenanceConfig;
   seedSubmitted(row: AttemptRecord): void;
   linkMemberStats(stats: Map<string, MemberStatsRecord>): void;
+  /** 本地测试用：让结算写入的勋章授予与其它本地 bundle 共享同一份存储（云端为同一集合）。 */
+  linkMedalGrants(grants: Map<string, MedalGrantRecord>): void;
 };
 
 export function memoryAttemptStore(seed: {
@@ -192,6 +205,7 @@ export function memoryAttemptStore(seed: {
   attempts?: AttemptRecord[];
   actives?: ActiveAttemptRecord[];
   stats?: MemberStatsRecord[] | Map<string, MemberStatsRecord>;
+  grants?: MedalGrantRecord[] | Map<string, MedalGrantRecord>;
 } = {}): MemoryAttemptBundle {
   const attempts = new Map((seed.attempts || []).map((row) => [row.attemptId, cloneAttempt(row)]));
   const actives = new Map((seed.actives || []).map((row) => [row.memberId, cloneActive(row)]));
@@ -208,6 +222,10 @@ export function memoryAttemptStore(seed: {
   const bests = new Map<string, PaperBestRecord>();
   const events = new Map<string, ScoreEventRecord>();
   const metrics = new Map<string, ScoreMetricRecord>();
+  let grants: Map<string, MedalGrantRecord> =
+    seed.grants instanceof Map
+      ? seed.grants
+      : new Map((seed.grants || []).map((row) => [row.grantId, cloneGrant(row)]));
   const idem = new Map<string, IdempotencyRecord>();
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -224,12 +242,17 @@ export function memoryAttemptStore(seed: {
     bests,
     events,
     metrics,
+    grants,
     idem,
     seedSubmitted(row) {
       attempts.set(row.attemptId, cloneAttempt(row));
     },
     linkMemberStats(next) {
       store.stats = next;
+    },
+    linkMedalGrants(next) {
+      grants = next;
+      store.grants = next;
     },
     async getAttempt(attemptId) {
       const row = attempts.get(attemptId);
@@ -368,7 +391,11 @@ export function memoryAttemptStore(seed: {
           maintenance: store.maintenance,
           stats: store.stats.get(input.memberId) ? cloneStats(store.stats.get(input.memberId)!) : undefined,
           best: bests.get(input.bestId) ? cloneBest(bests.get(input.bestId)!) : undefined,
-          metrics: input.metricIds.map((id) => metrics.get(id)).filter((row): row is ScoreMetricRecord => Boolean(row)).map(cloneMetric)
+          metrics: input.metricIds.map((id) => metrics.get(id)).filter((row): row is ScoreMetricRecord => Boolean(row)).map(cloneMetric),
+          grants: input.medalGrantIds
+            .map((id) => grants.get(id))
+            .filter((row): row is MedalGrantRecord => Boolean(row))
+            .map(cloneGrant)
         });
         let writes = 0;
         if (mutation.error) {
@@ -404,13 +431,17 @@ export function memoryAttemptStore(seed: {
           metrics.set(metric.metricId, cloneMetric(metric));
           writes += 1;
         }
+        for (const grant of mutation.grants || []) {
+          grants.set(grant.grantId, cloneGrant(grant));
+          writes += 1;
+        }
         if (mutation.idem) {
           idem.set(mutation.idem.id, { ...mutation.idem });
           writes += 1;
         }
         return {
           mutation,
-          budget: { reads: 16, writes, total: 16 + writes, elapsedMs: Date.now() - started }
+          budget: { reads: 16 + input.medalGrantIds.length, writes, total: 16 + input.medalGrantIds.length + writes, elapsedMs: Date.now() - started }
         };
       });
       queue = run.then(

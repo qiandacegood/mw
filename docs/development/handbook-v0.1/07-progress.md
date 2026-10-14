@@ -1,6 +1,6 @@
 # 07 思维工坊实际进度
 
-开发手册 v0.1｜更新日期：2026年10月10日
+开发手册 v0.1｜更新日期：2026年10月15日
 [任务总览](02-roadmap.md)｜[手册入口](README.md)
 
 本文件是开发执行状态入口。任务总览规定应做什么，本文件只记录实际做到哪里；证据和限制写入各任务结果，再由此处链接。
@@ -8,7 +8,7 @@
 ## 当前状态
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
-- **MW01、MW02、MW03、MW05、MW06、MW07、MW08、MW09、MW10、MW11、MW13、MW14 已完成**；**MW04 部分完成**；**MW12 部分完成**；**MW15 已完成**（2026-10-14 手点与 leftover 收口闭合）；MW16—MW30 未开始。MW07 仅为技术样例：未真实扣款、未 iOS 现网、未购买闭环，未标 A14/A20/T20/T26 通过。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
+- **MW01、MW02、MW03、MW05、MW06、MW07、MW08、MW09、MW10、MW11、MW13、MW14 已完成**；**MW04 部分完成**；**MW12 部分完成**；**MW15 已完成**（2026-10-14 手点与 leftover 收口闭合）；**MW16 已完成**（2026-10-15 用户手点 1–9 完成、leftover 收口闭合）；MW17—MW30 未开始。MW07 仅为技术样例：未真实扣款、未 iOS 现网、未购买闭环，未标 A14/A20/T20/T26 通过。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
 - mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；MW04 真实剩余仅为 **P08/P10/P11 PARTIAL**。P08 已补记 `jobs` / `audit_logs` 索引、MW09 的 `categories` 指定索引（`parentId/deletedAt/sort/_id`）、MW10 的 `questions` 指定索引（`categoryId/status/updatedAt/_id`），以及 MW11 的 `papers` 两条指定索引（`status/categoryId/publishedAt/_id` 与 `status/sort/_id`）；其余未来索引仍 PARTIAL。P10 仍 PARTIAL（网关 413）。已锁定 Nodejs20.19 与 SDK。正式六入口、`cloudbase_auth`、`admin_users` 与 MW06 四集合已部署；MW09 已部署 `categories` / `category_names` 与种子十类；MW10 已部署 `questions` / `question_versions` / `media_assets` / `upload_tickets`；MW11 已部署 `papers` / `paper_versions` / `paper_chunks` / `paper_answers`。**没有生产环境、没有真实支付**。
 - MW07-A 已于 2026-10-08 按官方现行页与思维工坊项目小程序后台完成资格核对。用户其后完成后台开通，并写入本地沙箱配置名。MW07-B 已落地签名/通知/发货隔离样例；`mw-pay-hook` 已覆盖带 `openid` 的 GET 握手、XML/JSON POST 与伪造/APIv3 拒绝。沙箱 `/xpay/query_order` 已对未知单号调用一次 `env=1`：`errcode=268490001`，`authPathReached=true`，`signatureAccepted=true`，`wroteDocs=false`。未把 A14/A20 或 T20/T26 标为通过。未真实扣款、未做 iOS 现网、未做购买闭环。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
@@ -34,7 +34,7 @@
 | MW13 | 首页与三级分类选卷 | [已完成](first-batch/results/mw13-result.md) |
 | MW14 | 答题草稿与继续练习 | [已完成](first-batch/results/mw14-result.md) |
 | MW15 | 交卷评分与成绩解析 | [已完成](first-batch/results/mw15-result.md)（2026-10-14 手点与 leftover 收口闭合） |
-| MW16 | 成长等级与勋章 | 未开始 |
+| MW16 | 成长等级与勋章 | [已完成](first-batch/results/mw16-result.md)（2026-10-15 用户手点 1–9 与 leftover 收口闭合；步骤 10 为 NOT_RUN） |
 | MW17 | 四维排行榜 | 未开始 |
 | MW18 | 类目迁移与安全删除 | 未开始 |
 | MW19 | 题目纠错与历史重评分 | 未开始 |
@@ -137,7 +137,7 @@
 
 ## 本轮执行记录（2026-10-14）
 
-只做 MW15-D 收口（用户手点与 leftover=0）。不改写 MW14、MW12，不重开 MW13，不启动 MW16。只操作 mw-test。没有把 A01—A31 或 T01—T30 标为已通过。
+先做 MW15-D 收口（用户手点与 leftover=0），同日续做 MW16。不改写 MW14、MW12，不重开 MW13，不启动 MW17。只操作 mw-test。没有把 A01—A31 或 T01—T30 标为已通过。
 
 | 任务 | 结果 |
 | --- | --- |
@@ -147,3 +147,28 @@
 | 本地五项检查 | 0（`check:prototypes` / `typecheck` / `test` 103 项 / `build` / `git diff --check`；跑前已停 4174 后台 Vite） |
 
 本轮发现（详见 [mw15-result.md](first-batch/results/mw15-result.md) 第 6 节）：`mw15:resolve-known-ids` 推导的事件 id 与云端真实 `_id` 不一致，且 DELETE 对不存在的 id 也返回成功，导致 `failed` 计数不能反映"是否真的删到了"；自 MW15 起 leftover 结论须附一条不依赖 knownIds 的独立核查。另有 `score_metrics` 4 条聚合文档随清理删除、`member_stats.totalScore` 仍为 9，榜侧指标需在 MW17 之前处理。MW15 状态由"部分完成"更正为"已完成"。
+
+同日续做 MW16，只做成长等级与勋章。不启动 MW17，不改写 MW12 / MW14 / MW15，不重开 MW13，不冻结上线门槛。没有把 A01—A31 或 T01—T30 标为已通过，尤其未标 A09 / T29。
+
+| 任务 | 结果 |
+| --- | --- |
+| MW16-A | [mw16-growth.md](first-batch/mw16-growth.md)（已接线：`@mw/shared` 门槛映射与跨级补齐勋章；`attempt.submit` 事务内定级并补授；`member.register` 授予首枚勋章；新增 `member.growth`） |
+| MW16-B | [mw16-growth.md](first-batch/mw16-growth.md)（已接线：`growth.config` / `growth.preview` / `growth.publish` / `growth.recompute`；读任意后台角色，发布与重算需 super） |
+| MW16-C | [mw16-growth.md](first-batch/mw16-growth.md)（已接线：「我的」个人成长展示＝等级 / 总分 / 升级进度 / 已得勋章；首页等级不再是占位） |
+| MW16-D | [mw16-result.md](first-batch/results/mw16-result.md)（已完成，仅 mw-test：`mw16:deploy` 新建 `medal_grants` 与 `idx_medal_grants_member_awarded`、种子 `app_config/growth`、只部署 `mw-member` / `mw-admin`；`mw16:verify` 负向 `ok:true`；本地五项检查 0） |
+| MW16-E | [mw16-result.md](first-batch/results/mw16-result.md)（当轮未闭合：手点 1–9 为 NOT_RUN；空清单下 `mw16:verify-leftovers` 退出码 1、`WROTE_DOCS_FALSE`，`mw16:independent-check` 退出码 1、`KNOWN_IDS_NOT_RESOLVED`，不得当 leftover=0。已于 2026-10-15 闭合，见下节） |
+
+MW16 内一并评估 MW15 遗留（[mw16-result.md](first-batch/results/mw16-result.md) 第 6 节）：只读核查确认 `score_metrics` 0 条、`member_stats` 1 条且 `totalScore=9` / `levelId=L1`、`medal_grants` 0 条。MW16 等级与勋章只依赖 `member_stats.totalScore` 与 `medal_grants`，故不依赖被删的指标；但榜侧指标仍缺失，须在 MW17 开工前重建。另按 MW15 教训，MW16 的 leftover=0 必须同时附一条不依赖 knownIds、只按 member/paper 关系精确查询的独立核查（已在脚本与门禁中实现）。
+
+## 收口记录（2026-10-15）
+
+只做 MW16 收口：用户手点 E 段 6–9 与 leftover=0。不改写 MW12 / MW14 / MW15，不重开 MW13，不启动 MW17。只操作 mw-test。没有把 A01—A31 或 T01—T30 标为已通过，尤其未标 A09 / T29。
+
+| 任务 | 结果 |
+| --- | --- |
+| MW16 手点 1–9（用户手点） | 通过。第 7 步有云端回读证据（`app_config/growth` `configVersion=3`、门槛 0/100/300/800/1500/3000、`publishedAt=2026-10-14T15:40:43.970Z`；9 分会员等级回落 L3→L1 且勋章一枚未减）；第 8 / 9 步为用户手点报告（第 9b 步新建的 VIP 卷「MW16VIP虚构练习卷」在免费会员下显示 `VIP_REQUIRED`、未真实扣款）；第 10 步为可选，记 NOT_RUN |
+| MW16 leftover 收口 | 用户手点入册 1 卷 + 1 会员（本轮新注册身份，`totalScore=0`）+ 0 attempt；`mw16:import-known-ids` / `mw16:resolve-known-ids` 退出码 0；`mw16:cleanup` `targetCount=5`、`deleted=5`、`failed=0`、`independentAfterTotal=0`；`mw16:verify-leftovers` **`ok:true`、退出码 0**（knownIds 路径与独立路径同时为 0） |
+| 第三条独立旁证（不依赖 knownIds） | 只看集合全集计数：`papers` 7→6、`medal_grants` 4→3、`score_metrics` 0→0、`categories` 11→11（MW13 遗留子类目「逻辑二」未删）；无 `orders` / `vip_*` |
+| 本地五项检查 | 0（`check:prototypes` / `typecheck` / `test` 226 项 / `build` / `git diff --check`）。跑前须先停 4174 后台 Vite：它占用 `packages/shared/dist`，会让 `ensure-shared-js.mjs` 删除失败 |
+
+遗留：`score_metrics` / `paper_bests` / `score_events` 三项均为 0 条——MW15 收口清理时连产生聚合的源头记录一并删除，9 分只剩 `member_stats.totalScore=9`（`scoreSeq=6`），故**无法忠实重建**四维指标；本轮不补写伪造聚合，口径留待 MW17 开工前由发起人确定（[mw16-result.md](first-batch/results/mw16-result.md) 第 6.1 节列了两个选项）。`member_stats` 为 2 条（9 分 / L1 与 0 分 / L1）；收口后 `medal_grants` 3 条均属历史 9 分会员（本次取"保留成长态"路径，只清了新注册身份的 `register` 授予）。A09 / T29 仍不标通过：可覆盖部分（跨级补齐、等级下降、重复不重复授予、正常既得勋章不删）已有手点与云端证据，不可覆盖部分依赖 MW20 权益账本与后续验收轮次。MW16 状态由"部分完成"更正为"已完成"。

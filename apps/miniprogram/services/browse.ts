@@ -45,6 +45,15 @@ export async function memberMe(): Promise<Record<string, unknown>> {
   }
 }
 
+/** 个人成长展示：当前等级、总分、升级进度、已得勋章（MW16）。 */
+export async function memberGrowth(): Promise<Record<string, unknown>> {
+  try {
+    return await callOfficialAction("mw-member", "member.growth", {}, { requestId: `req_mp_growth_${Date.now()}` });
+  } catch {
+    return { ok: false, error: { code: "SERVICE_BUSY", message: "网络失败或服务繁忙", retryable: true } };
+  }
+}
+
 export function paperPath(paper: Record<string, unknown>): string {
   const path = Array.isArray(paper.categoryPath) ? paper.categoryPath.filter((item) => typeof item === "string") : [];
   return path.join(" / ");

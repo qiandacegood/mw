@@ -4,6 +4,7 @@ import {
   type AuditEntry,
   type ConsentVersions,
   type IdempotencyRecord,
+  type MedalGrantRecord,
   type MemberStatus
 } from "@mw/shared";
 import type { TxBudget } from "./job-stores.js";
@@ -65,6 +66,8 @@ export interface MemberRegisterMutation<T> {
   identity?: IdentityRecord;
   member?: MemberRecord;
   stats?: MemberStatsRecord;
+  /** 注册即授予首个等级勋章；重放或既有身份不重复授予。 */
+  medalGrants?: MedalGrantRecord[];
   idem?: IdempotencyRecord;
   audit?: AuditEntry;
   result: T;
@@ -129,6 +132,7 @@ export type MemoryMemberBundle = MemberReadStore &
     identities: Map<string, IdentityRecord>;
     members: Map<string, MemberRecord>;
     stats: Map<string, MemberStatsRecord>;
+    medalGrants: Map<string, MedalGrantRecord>;
     idem: Map<string, IdempotencyRecord>;
     audits: AuditEntry[];
     disable(memberId: string): void;
@@ -155,6 +159,7 @@ export function memoryMemberBundle(): MemoryMemberBundle {
   const identities = new Map<string, IdentityRecord>();
   const members = new Map<string, MemberRecord>();
   const stats = new Map<string, MemberStatsRecord>();
+  const medalGrants = new Map<string, MedalGrantRecord>();
   const idem = new Map<string, IdempotencyRecord>();
   const audits: AuditEntry[] = [];
   let queue: Promise<unknown> = Promise.resolve();
@@ -164,6 +169,7 @@ export function memoryMemberBundle(): MemoryMemberBundle {
     if (mutation.identity) identities.set(mutation.identity.identityId, cloneIdentity(mutation.identity));
     if (mutation.member) members.set(mutation.member.memberId, cloneMember(mutation.member));
     if (mutation.stats) stats.set(mutation.stats.memberId, cloneStats(mutation.stats));
+    for (const grant of mutation.medalGrants || []) medalGrants.set(grant.grantId, { ...grant });
     if (mutation.idem) idem.set(mutation.idem.id, cloneIdem(mutation.idem));
     if (mutation.audit) audits.push({ ...mutation.audit });
   }
@@ -178,6 +184,7 @@ export function memoryMemberBundle(): MemoryMemberBundle {
     identities,
     members,
     stats,
+    medalGrants,
     idem,
     audits,
     get crashAfter() {
@@ -288,6 +295,7 @@ export function contendingMemberBundle(): MemoryMemberBundle {
   const identities = new Map<string, IdentityRecord>();
   const members = new Map<string, MemberRecord>();
   const stats = new Map<string, MemberStatsRecord>();
+  const medalGrants = new Map<string, MedalGrantRecord>();
   const idem = new Map<string, IdempotencyRecord>();
   const audits: AuditEntry[] = [];
   const emptyWaiters = new Map<string, Array<() => void>>();
@@ -299,6 +307,7 @@ export function contendingMemberBundle(): MemoryMemberBundle {
     if (mutation.identity) identities.set(mutation.identity.identityId, cloneIdentity(mutation.identity));
     if (mutation.member) members.set(mutation.member.memberId, cloneMember(mutation.member));
     if (mutation.stats) stats.set(mutation.stats.memberId, cloneStats(mutation.stats));
+    for (const grant of mutation.medalGrants || []) medalGrants.set(grant.grantId, { ...grant });
     if (mutation.idem) idem.set(mutation.idem.id, cloneIdem(mutation.idem));
     if (mutation.audit) audits.push({ ...mutation.audit });
   }
@@ -333,6 +342,7 @@ export function contendingMemberBundle(): MemoryMemberBundle {
     identities,
     members,
     stats,
+    medalGrants,
     idem,
     audits,
     get crashAfter() {
@@ -377,6 +387,7 @@ export function contendingMemberBundle(): MemoryMemberBundle {
         if (mutation.identity) writes += 1;
         if (mutation.member) writes += 1;
         if (mutation.stats) writes += 1;
+        if (mutation.medalGrants?.length) writes += mutation.medalGrants.length;
         if (mutation.idem) writes += 1;
         if (mutation.audit) writes += 1;
         if (crashAfter === "identity" && mutation.identity) throw new Error("CRASH_AFTER_IDENTITY");
