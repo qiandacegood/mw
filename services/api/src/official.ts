@@ -74,10 +74,14 @@ import type { AttemptWorkStore } from "./modules/attempt-stores.js";
 import {
   abandonAttempt,
   getAttempt,
+  listAttemptHistory,
+  readAttemptAnalysis,
+  readAttemptResult,
   readQuestionPage,
   saveAttempt,
   startAttempt,
-  startReplacingAttempt
+  startReplacingAttempt,
+  submitAttempt
 } from "./modules/attempt.js";
 import { commitImport, previewImport, readImportStatus, validateImport } from "./modules/import.js";
 import type { ImportWorkStore } from "./modules/import-stores.js";
@@ -100,7 +104,11 @@ export const MEMBER_ACTIONS = [
   "attempt.get",
   "attempt.questionPage",
   "attempt.save",
-  "attempt.abandon"
+  "attempt.abandon",
+  "attempt.submit",
+  "attempt.result",
+  "attempt.analysis",
+  "attempt.history"
 ] as const;
 export const ADMIN_ACTIONS = [
   "admin.me",
@@ -225,6 +233,17 @@ function ok<T>(requestId: string, now: Date, data: T): ApiResponse<T> {
 function publicSafe<T>(requestId: string, now: Date, data: T): ApiResponse<T> {
   if (hasQuestionSecrets(data).length > 0 || hasPaperSecrets(data).length > 0) {
     return fail(requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" }) as ApiResponse<T>;
+  }
+  return ok(requestId, now, data);
+}
+
+const ANALYSIS_ALLOWED_SECRET_KEYS = new Set(["analysis", "correctOptionIds"]);
+
+function analysisSafe<T>(requestId: string, now: Date, data: T): ApiResponse<T> {
+  const found = [...new Set([...hasQuestionSecrets(data), ...hasPaperSecrets(data)])];
+  const blocked = found.filter((key) => !ANALYSIS_ALLOWED_SECRET_KEYS.has(key));
+  if (blocked.length > 0) {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED", keys: blocked }) as ApiResponse<T>;
   }
   return ok(requestId, now, data);
 }
@@ -500,7 +519,8 @@ async function handleMemberAttempt(
     request.action === "attempt.start" ||
     request.action === "attempt.startReplacing" ||
     request.action === "attempt.save" ||
-    request.action === "attempt.abandon";
+    request.action === "attempt.abandon" ||
+    request.action === "attempt.submit";
   if (write && !request.idempotencyKey) {
     return fail(request.requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
   }
@@ -514,7 +534,8 @@ async function handleMemberAttempt(
     idempotencyKey: request.idempotencyKey || request.requestId,
     now,
     maintenance,
-    entitlement
+    entitlement,
+    readMaintenance: async () => (ctx.maintenanceStore ? ctx.maintenanceStore.get() : undefined)
   };
   const result =
     request.action === "attempt.start"
@@ -529,7 +550,15 @@ async function handleMemberAttempt(
               ? await saveAttempt(common)
               : request.action === "attempt.abandon"
                 ? await abandonAttempt(common)
-                : { ok: false as const, code: "FORBIDDEN", reason: "ACTION_DENIED" };
+                : request.action === "attempt.submit"
+                  ? await submitAttempt(common)
+                  : request.action === "attempt.result"
+                    ? await readAttemptResult({ store: ctx.attemptStore, memberId: session.memberId, data: request.data })
+                    : request.action === "attempt.analysis"
+                      ? await readAttemptAnalysis({ store: ctx.attemptStore, memberId: session.memberId, data: request.data })
+                      : request.action === "attempt.history"
+                        ? await listAttemptHistory({ store: ctx.attemptStore, memberId: session.memberId, data: request.data })
+                        : { ok: false as const, code: "FORBIDDEN", reason: "ACTION_DENIED" };
   if (!result.ok) {
     return fail(request.requestId, result.code as ErrorCode, {
       reason: result.reason,
@@ -537,7 +566,10 @@ async function handleMemberAttempt(
       ...("details" in result && result.details ? result.details : {})
     });
   }
-  const response = publicSafe(request.requestId, now, result.data);
+  const response =
+    request.action === "attempt.analysis"
+      ? analysisSafe(request.requestId, now, result.data)
+      : publicSafe(request.requestId, now, result.data);
   if (response.ok && "replayed" in result) {
     return { ...response, replayed: result.replayed === true };
   }

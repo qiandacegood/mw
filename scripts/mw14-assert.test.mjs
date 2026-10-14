@@ -184,9 +184,7 @@ assert.match(official, /["']attempt\.abandon["']/);
 
 assert.match(quiz, /attempt\.save/);
 assert.match(quiz, /attempt\.questionPage/);
-assert.doesNotMatch(quiz, /attempt\.submit/);
-assert.doesNotMatch(quiz, /correctOptionIds|paper_answers|analysis/);
-assert.match(quizWxml, /MW15/);
+assert.doesNotMatch(quiz, /correctOptionIds|paper_answers/);
 assert.match(quizWxml, /记入本轮 leftover/);
 
 assert.doesNotMatch(resolve, /findDocs\("papers", \{\}, 100\)/);

@@ -1,16 +1,25 @@
 import {
   ATTEMPT_SCHEMA_VERSION,
+  DEFAULT_LEVEL_ID,
+  defaultMaintenanceConfig,
+  emptyMaintenanceFlag,
+  paperBestId,
   type ActiveAttemptRecord,
   type AttemptRecord,
   type CategoryRecord,
   type IdempotencyRecord,
+  type MaintenanceConfig,
+  type PaperBestRecord,
   type PaperChunkRecord,
   type PaperRecord,
-  type PaperVersionRecord
+  type PaperVersionRecord,
+  type ScoreEventRecord,
+  type ScoreMetricRecord,
+  type ScoreMetricScope
 } from "@mw/shared";
 import type { TxBudget } from "./job-stores.js";
-import type { MemberRecord } from "./member-stores.js";
-import type { AttemptWorkStore, AttemptWriteSnapshot } from "./attempt-stores.js";
+import type { MemberRecord, MemberStatsRecord } from "./member-stores.js";
+import type { AttemptWorkStore, AttemptWriteSnapshot, SubmitWriteSnapshot } from "./attempt-stores.js";
 import { cloudPaperWorkStore } from "./cloud-paper-stores.js";
 import { cloudMemberWorkStore } from "./cloud-member-stores.js";
 import { cloudCategoryWorkStore } from "./cloud-category-stores.js";
@@ -26,6 +35,17 @@ export const MW14_COLLECTIONS = {
   idempotency: "idempotency"
 } as const;
 
+export const MW15_COLLECTIONS = {
+  ...MW14_COLLECTIONS,
+  memberStats: "member_stats",
+  paperBests: "paper_bests",
+  scoreEvents: "score_events",
+  scoreMetrics: "score_metrics",
+  appConfig: "app_config"
+} as const;
+
+const MAINTENANCE_DOC_ID = "maintenance";
+
 function cloudApp() {
   const cloudbase = require("@cloudbase/node-sdk") as {
     init: (opts: { env: unknown }) => { database: () => CloudDb };
@@ -39,6 +59,11 @@ type CloudColl = {
     get: () => Promise<unknown>;
     set: (data: Record<string, unknown>) => Promise<unknown>;
     update: (data: Record<string, unknown>) => Promise<unknown>;
+  };
+  where?: (query: Record<string, unknown>) => {
+    orderBy: (field: string, direction: "asc" | "desc") => {
+      limit: (n: number) => { get: () => Promise<unknown> };
+    };
   };
 };
 
@@ -120,6 +145,115 @@ function asActive(id: string, data: Record<string, unknown>): ActiveAttemptRecor
     updatedAt: asIso(data.updatedAt, now),
     schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : ATTEMPT_SCHEMA_VERSION
   };
+}
+
+function asStats(id: string, data: Record<string, unknown>): MemberStatsRecord {
+  const now = new Date().toISOString();
+  return {
+    memberId: typeof data.memberId === "string" ? data.memberId : id,
+    totalScore: typeof data.totalScore === "number" ? data.totalScore : 0,
+    scoreSeq: typeof data.scoreSeq === "number" ? data.scoreSeq : 0,
+    levelId: typeof data.levelId === "string" ? data.levelId : DEFAULT_LEVEL_ID,
+    growthVersion: typeof data.growthVersion === "number" ? data.growthVersion : 0,
+    revision: typeof data.revision === "number" ? data.revision : 1,
+    schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
+    createdAt: asIso(data.createdAt, now),
+    updatedAt: asIso(data.updatedAt, now)
+  };
+}
+
+function asBest(data: Record<string, unknown>, memberId: string, paperId: string): PaperBestRecord {
+  const now = new Date().toISOString();
+  return {
+    memberId: typeof data.memberId === "string" ? data.memberId : memberId,
+    paperId: typeof data.paperId === "string" ? data.paperId : paperId,
+    bestScore: typeof data.bestScore === "number" ? data.bestScore : 0,
+    bestAttemptId: typeof data.bestAttemptId === "string" ? data.bestAttemptId : "",
+    firstReachedAt: typeof data.firstReachedAt === "string" ? data.firstReachedAt : now,
+    revision: typeof data.revision === "number" ? data.revision : 1,
+    schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
+    createdAt: asIso(data.createdAt, now),
+    updatedAt: asIso(data.updatedAt, now)
+  };
+}
+
+function asEvent(id: string, data: Record<string, unknown>): ScoreEventRecord {
+  const now = new Date().toISOString();
+  return {
+    eventId: typeof data.eventId === "string" ? data.eventId : id,
+    attemptId: typeof data.attemptId === "string" ? data.attemptId : "",
+    gradeRevision: typeof data.gradeRevision === "number" ? data.gradeRevision : 1,
+    memberId: typeof data.memberId === "string" ? data.memberId : "",
+    paperId: typeof data.paperId === "string" ? data.paperId : "",
+    scoreSeq: typeof data.scoreSeq === "number" ? data.scoreSeq : 0,
+    score: typeof data.score === "number" ? data.score : 0,
+    delta: typeof data.delta === "number" ? data.delta : 0,
+    submittedAt: typeof data.submittedAt === "string" ? data.submittedAt : now,
+    weekKey: typeof data.weekKey === "string" ? data.weekKey : "",
+    monthKey: typeof data.monthKey === "string" ? data.monthKey : "",
+    kind: "submit",
+    schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
+    createdAt: asIso(data.createdAt, now)
+  };
+}
+
+function asMetric(id: string, data: Record<string, unknown>): ScoreMetricRecord {
+  const now = new Date().toISOString();
+  const scope = data.scope;
+  return {
+    metricId: id,
+    metricGeneration: typeof data.metricGeneration === "string" ? data.metricGeneration : "base",
+    scope:
+      scope === "total" || scope === "week" || scope === "month" || scope === "category" ? (scope as ScoreMetricScope) : "total",
+    periodKey: typeof data.periodKey === "string" ? data.periodKey : "all",
+    categoryId: typeof data.categoryId === "string" ? data.categoryId : "",
+    memberId: typeof data.memberId === "string" ? data.memberId : "",
+    value: typeof data.value === "number" ? data.value : 0,
+    reachedAt: typeof data.reachedAt === "string" ? data.reachedAt : now,
+    revision: typeof data.revision === "number" ? data.revision : 1,
+    schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
+    updatedAt: asIso(data.updatedAt, now)
+  };
+}
+
+function asMaintenance(data: Record<string, unknown> | undefined): MaintenanceConfig {
+  const now = new Date();
+  const base = defaultMaintenanceConfig(now);
+  if (!data) return base;
+  const flag = (value: unknown, fallback: typeof base.contentWrites) => {
+    const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+    return {
+      enabled: rec.enabled !== false,
+      reason: typeof rec.reason === "string" ? rec.reason : fallback.reason,
+      jobId: typeof rec.jobId === "string" ? rec.jobId : fallback.jobId,
+      revision: typeof rec.revision === "number" ? rec.revision : fallback.revision
+    };
+  };
+  return {
+    schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
+    revision: typeof data.revision === "number" ? data.revision : 1,
+    updatedAt: asIso(data.updatedAt, now.toISOString()),
+    contentWrites: flag(data.contentWrites, emptyMaintenanceFlag()),
+    attemptStart: flag(data.attemptStart, emptyMaintenanceFlag()),
+    attemptSubmit: flag(data.attemptSubmit, emptyMaintenanceFlag()),
+    purchaseCreate: flag(data.purchaseCreate, emptyMaintenanceFlag()),
+    entitlementApply: flag(data.entitlementApply, emptyMaintenanceFlag())
+  };
+}
+
+function docsFromGet(snap: unknown): Record<string, unknown>[] {
+  if (!snap || typeof snap !== "object") return [];
+  const rec = snap as Record<string, unknown>;
+  if (Array.isArray(rec.data)) {
+    return rec.data.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+  }
+  if (rec.data && typeof rec.data === "object") {
+    const inner = rec.data as Record<string, unknown>;
+    if (Array.isArray(inner.data)) {
+      return inner.data.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+    }
+  }
+  return [];
 }
 
 function asIdem(id: string, data: Record<string, unknown>): IdempotencyRecord {
@@ -219,8 +353,43 @@ export function cloudAttemptWorkStore(): AttemptWorkStore {
     getPaper: (paperId) => papers.getPaper(paperId),
     getVersion: (versionId) => papers.getVersion(versionId),
     getChunk: (chunkId) => papers.getChunk(chunkId),
+    getAnswer: (chunkId) => papers.getAnswer(chunkId),
     getMember: (memberId) => members.getMember(memberId),
     getCategory: (categoryId) => categories.getCategory(categoryId),
+    async getStats(memberId) {
+      const snap = await cloudApp().database().collection(MW15_COLLECTIONS.memberStats).doc(memberId).get();
+      const data = unwrapDoc(snap);
+      return data ? asStats(memberId, data) : undefined;
+    },
+    async getBest(memberId, paperId) {
+      const id = paperBestId(memberId, paperId);
+      const snap = await cloudApp().database().collection(MW15_COLLECTIONS.paperBests).doc(id).get();
+      const data = unwrapDoc(snap);
+      return data ? asBest(data, memberId, paperId) : undefined;
+    },
+    async listSubmittedAttempts(input) {
+      const db = cloudApp().database();
+      const query: Record<string, unknown> = { memberId: input.memberId, state: "submitted" };
+      if (input.paperId) query.paperId = input.paperId;
+      const where = db.collection(MW15_COLLECTIONS.attempts).where;
+      if (!where) return [];
+      const snap = await where.call(db.collection(MW15_COLLECTIONS.attempts), query).orderBy("submittedAt", "desc").limit(input.limit + 8).get();
+      return docsFromGet(snap)
+        .map((row) => asAttempt(String(row._id || row.attemptId || ""), row))
+        .filter((row) => row.memberId === input.memberId && row.state === "submitted")
+        .filter((row) => (input.paperId ? row.paperId === input.paperId : true))
+        .filter((row) => {
+          if (!input.after) return true;
+          if (row.submittedAt < input.after.submittedAt) return true;
+          if (row.submittedAt > input.after.submittedAt) return false;
+          return row.attemptId < input.after.attemptId;
+        })
+        .sort((left, right) => {
+          if (left.submittedAt === right.submittedAt) return right.attemptId.localeCompare(left.attemptId);
+          return right.submittedAt.localeCompare(left.submittedAt);
+        })
+        .slice(0, input.limit);
+    },
     async transactWrite<T>(input: {
       memberId: string;
       attemptId?: string;
@@ -381,6 +550,192 @@ export function cloudAttemptWorkStore(): AttemptWorkStore {
             await tx.collection(MW14_COLLECTIONS.idempotency).doc(input.idempotencyId).update(body);
           } else {
             await tx.collection(MW14_COLLECTIONS.idempotency).doc(input.idempotencyId).set(body);
+          }
+        }
+        return next;
+      });
+      const budget: TxBudget = { reads, writes, total: reads + writes, elapsedMs: Date.now() - started };
+      return { mutation, budget };
+    },
+    async transactSubmit<T>(input: {
+      memberId: string;
+      attemptId: string;
+      paperId?: string;
+      idempotencyId: string;
+      bestId: string;
+      metricIds: string[];
+      mutate: (snap: SubmitWriteSnapshot) => import("./attempt-stores.js").SubmitWriteMutation<T>;
+    }) {
+      const started = Date.now();
+      let reads = 0;
+      let writes = 0;
+      const db = cloudApp().database();
+      const mutation = await db.runTransaction(async (tx) => {
+        reads += 16;
+        const memberData = await txGet(tx, MW15_COLLECTIONS.members, input.memberId);
+        const attemptData = await txGet(tx, MW15_COLLECTIONS.attempts, input.attemptId);
+        const activeData = await txGet(tx, MW15_COLLECTIONS.activeAttempts, input.memberId);
+        const attempt = attemptData ? asAttempt(input.attemptId, attemptData) : undefined;
+        const paperId = input.paperId || attempt?.paperId || "";
+        const paperData = paperId ? await txGet(tx, MW15_COLLECTIONS.papers, paperId) : undefined;
+        const paper = paperData && paperId
+          ? ({
+              paperId,
+              title: typeof paperData.title === "string" ? paperData.title : "",
+              summary: typeof paperData.summary === "string" ? paperData.summary : "",
+              goal: typeof paperData.goal === "string" ? paperData.goal : "",
+              categoryId: typeof paperData.categoryId === "string" ? paperData.categoryId : "",
+              access: paperData.access === "vip" ? "vip" : "free",
+              difficulty:
+                paperData.difficulty === "intermediate" || paperData.difficulty === "challenge"
+                  ? paperData.difficulty
+                  : "beginner",
+              sort: typeof paperData.sort === "number" ? paperData.sort : 10,
+              suggestedMinutes: typeof paperData.suggestedMinutes === "number" ? paperData.suggestedMinutes : 20,
+              publishedAt: typeof paperData.publishedAt === "string" ? paperData.publishedAt : null,
+              status:
+                paperData.status === "published" ||
+                paperData.status === "unpublished" ||
+                paperData.status === "withdrawn"
+                  ? paperData.status
+                  : "draft",
+              activeVersionId: typeof paperData.activeVersionId === "string" ? paperData.activeVersionId : null,
+              revision: typeof paperData.revision === "number" ? paperData.revision : 0,
+              draftItems: [],
+              draftQuestionCount: 0,
+              draftMaxScore: 0,
+              accessLocked: paperData.accessLocked === true,
+              withdrawReason: typeof paperData.withdrawReason === "string" ? paperData.withdrawReason : null,
+              schemaVersion: 1,
+              createdAt: asIso(paperData.createdAt, new Date().toISOString()),
+              updatedAt: asIso(paperData.updatedAt, new Date().toISOString())
+            } as PaperRecord)
+          : undefined;
+        const versionId = attempt?.paperVersionId || paper?.activeVersionId || "";
+        const versionData = versionId ? await txGet(tx, MW15_COLLECTIONS.paperVersions, versionId) : undefined;
+        const strings = (value: unknown) =>
+          Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+        const version = versionData && versionId
+          ? ({
+              versionId,
+              paperId: typeof versionData.paperId === "string" ? versionData.paperId : paperId,
+              questionCount: typeof versionData.questionCount === "number" ? versionData.questionCount : 0,
+              maxScore: typeof versionData.maxScore === "number" ? versionData.maxScore : 0,
+              chunkIds: strings(versionData.chunkIds),
+              answerChunkIds: strings(versionData.answerChunkIds),
+              chunkDigests: strings(versionData.chunkDigests),
+              answerDigests: strings(versionData.answerDigests),
+              categoryPathSnapshot: strings(versionData.categoryPathSnapshot),
+              manifestHash: typeof versionData.manifestHash === "string" ? versionData.manifestHash : "",
+              questionIds: strings(versionData.questionIds),
+              questionVersionIds: strings(versionData.questionVersionIds),
+              schemaVersion: 1,
+              createdAt: asIso(versionData.createdAt, new Date().toISOString()),
+              createdBy: typeof versionData.createdBy === "string" ? versionData.createdBy : ""
+            } as PaperVersionRecord)
+          : undefined;
+        const categoryData = paper?.categoryId ? await txGet(tx, MW15_COLLECTIONS.categories, paper.categoryId) : undefined;
+        const category = categoryData && paper
+          ? ({
+              categoryId: paper.categoryId,
+              parentId: typeof categoryData.parentId === "string" ? categoryData.parentId : null,
+              depth: typeof categoryData.depth === "number" ? categoryData.depth : 1,
+              ancestorIds: strings(categoryData.ancestorIds),
+              name: typeof categoryData.name === "string" ? categoryData.name : "",
+              normalizedName: typeof categoryData.normalizedName === "string" ? categoryData.normalizedName : "",
+              sort: typeof categoryData.sort === "number" ? categoryData.sort : 0,
+              enabled: categoryData.enabled === true,
+              deletedAt: typeof categoryData.deletedAt === "string" ? categoryData.deletedAt : null,
+              revision: typeof categoryData.revision === "number" ? categoryData.revision : 1,
+              treeVersion: typeof categoryData.treeVersion === "number" ? categoryData.treeVersion : 1,
+              schemaVersion: 1,
+              createdAt: asIso(categoryData.createdAt, new Date().toISOString()),
+              updatedAt: asIso(categoryData.updatedAt, new Date().toISOString())
+            } as CategoryRecord)
+          : undefined;
+        const idemData = await txGet(tx, MW15_COLLECTIONS.idempotency, input.idempotencyId);
+        const maintData = await txGet(tx, MW15_COLLECTIONS.appConfig, MAINTENANCE_DOC_ID);
+        const statsData = await txGet(tx, MW15_COLLECTIONS.memberStats, input.memberId);
+        const bestData = await txGet(tx, MW15_COLLECTIONS.paperBests, input.bestId);
+        const metricRows: ScoreMetricRecord[] = [];
+        for (const metricId of input.metricIds) {
+          const metricData = await txGet(tx, MW15_COLLECTIONS.scoreMetrics, metricId);
+          if (metricData) metricRows.push(asMetric(metricId, metricData));
+        }
+        const next = input.mutate({
+          member: memberData
+            ? ({
+                memberId: input.memberId,
+                nickname: typeof memberData.nickname === "string" ? memberData.nickname : "",
+                avatarKey: typeof memberData.avatarKey === "string" ? memberData.avatarKey : "",
+                status:
+                  memberData.status === "disabled" ||
+                  memberData.status === "deleting" ||
+                  memberData.status === "deleted" ||
+                  memberData.status === "active"
+                    ? memberData.status
+                    : "active",
+                rankingOptIn: memberData.rankingOptIn === true,
+                consentVersions: { agreementVersion: "", privacyVersion: "", acceptedAt: "" },
+                revision: typeof memberData.revision === "number" ? memberData.revision : 1,
+                schemaVersion: 1,
+                createdAt: asIso(memberData.createdAt, new Date().toISOString()),
+                updatedAt: asIso(memberData.updatedAt, new Date().toISOString())
+              } as MemberRecord)
+            : undefined,
+          attempt,
+          active: activeData && typeof activeData.attemptId === "string" && activeData.attemptId
+            ? asActive(input.memberId, activeData)
+            : undefined,
+          paper: paper as PaperRecord | undefined,
+          version: version as PaperVersionRecord | undefined,
+          category: category as CategoryRecord | undefined,
+          idem: idemData ? asIdem(input.idempotencyId, idemData) : undefined,
+          maintenance: asMaintenance(maintData),
+          stats: statsData ? asStats(input.memberId, statsData) : undefined,
+          best: bestData ? asBest(bestData, input.memberId, paperId) : undefined,
+          metrics: metricRows
+        });
+        if (next.error) return next;
+        if (next.attempt) {
+          writes += 1;
+          await tx.collection(MW15_COLLECTIONS.attempts).doc(next.attempt.attemptId).set(attemptWrite(next.attempt));
+        }
+        if (next.active === null) {
+          writes += 1;
+          await tx.collection(MW15_COLLECTIONS.activeAttempts).doc(input.memberId).set({
+            memberId: input.memberId,
+            attemptId: "",
+            updatedAt: new Date().toISOString(),
+            schemaVersion: ATTEMPT_SCHEMA_VERSION
+          });
+        } else if (next.active) {
+          writes += 1;
+          await tx.collection(MW15_COLLECTIONS.activeAttempts).doc(next.active.memberId).set(activeWrite(next.active));
+        }
+        if (next.stats) {
+          writes += 1;
+          await tx.collection(MW15_COLLECTIONS.memberStats).doc(next.stats.memberId).set({ ...next.stats });
+        }
+        if (next.best) {
+          writes += 1;
+          await tx.collection(MW15_COLLECTIONS.paperBests).doc(input.bestId).set({ ...next.best });
+        }
+        if (next.event) {
+          writes += 1;
+          await tx.collection(MW15_COLLECTIONS.scoreEvents).doc(next.event.eventId).set({ ...next.event });
+        }
+        for (const metric of next.metrics || []) {
+          writes += 1;
+          await tx.collection(MW15_COLLECTIONS.scoreMetrics).doc(metric.metricId).set({ ...metric });
+        }
+        if (next.idem) {
+          writes += 1;
+          const body = idemWrite(next.idem, Boolean(idemData));
+          if (idemData) {
+            await tx.collection(MW15_COLLECTIONS.idempotency).doc(input.idempotencyId).update(body);
+          } else {
+            await tx.collection(MW15_COLLECTIONS.idempotency).doc(input.idempotencyId).set(body);
           }
         }
         return next;

@@ -75,6 +75,10 @@ Page({
   goRegister() {
     wx.navigateTo({ url: "/pages/register/index" });
   },
+  goHistory() {
+    const paperId = String(this.data.paperId || "");
+    wx.navigateTo({ url: `/pages/history/index?paperId=${encodeURIComponent(paperId)}` });
+  },
   markLeftover() {
     const paperId = String(this.data.paperId || "");
     if (!markLeftoverPaperId(paperId)) {

@@ -23,6 +23,7 @@
       <button bindtap="startFree">开始</button>
       <text class="muted">{{startHint}}</text>
     </block>
+    <button wx:if="{{!guest}}" class="ghost" bindtap="goHistory">历史成绩</button>
     <view class="card">
       <text class="muted">浏览不会自动记入 leftover。只有本轮新建测试卷才应点下面按钮。</text>
       <button bindtap="markLeftover">记入本轮 leftover</button>

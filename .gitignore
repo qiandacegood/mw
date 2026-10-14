@@ -26,6 +26,8 @@ configs/mw13-state.json
 configs/mw13-verify-state.json
 configs/mw14-state.json
 configs/mw14-verify-state.json
+configs/mw15-state.json
+configs/mw15-verify-state.json
 configs/mw07-state.json
 configs/mw07-verify-state.json
 configs/mw07b-state.json

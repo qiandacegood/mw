@@ -50,5 +50,8 @@ Page({
   },
   goProfile() {
     wx.navigateTo({ url: "/pages/profile/index" });
+  },
+  goHistory() {
+    wx.navigateTo({ url: "/pages/history/index" });
   }
 });

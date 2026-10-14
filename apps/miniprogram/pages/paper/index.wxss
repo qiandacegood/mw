@@ -5,3 +5,4 @@
 .err { color: #c53030; }
 .warn { background: #fffaf0; color: #7b341e; }
 button { margin-top: 16px; background: #2b6cb0; color: #fff; }
+.ghost { background: #edf2f7; color: #2d3748; }

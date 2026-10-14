@@ -8,5 +8,6 @@
   <button bindtap="reload">刷新</button>
   <button bindtap="goRegister">去注册</button>
   <button bindtap="goProfile">修改资料</button>
+  <button bindtap="goHistory">历史成绩</button>
   <text class="title">{{raw}}</text>
 </view>

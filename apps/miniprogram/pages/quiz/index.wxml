@@ -4,6 +4,18 @@
     <text>{{message}}</text>
     <button bindtap="reload">重试</button>
   </view>
+  <block wx:elif="{{attemptState === 'submitted'}}">
+    <view class="card">
+      <text class="title">{{paperTitle}}</text>
+      <text class="muted">已交卷。交卷入口改为查看结果。</text>
+    </view>
+    <button bindtap="goResult">查看结果</button>
+    <view class="card">
+      <text class="muted">只有本轮测试 attempt 才应点下面按钮。浏览或自动进页不会记入 leftover。</text>
+      <button class="ghost" bindtap="markLeftover">记入本轮 leftover</button>
+      <text wx:if="{{leftoverMarked}}" class="muted">已记入。回首页再复制本轮 leftover knownIds。</text>
+    </view>
+  </block>
   <block wx:else>
     <view class="bar">
       <text class="title">{{paperTitle}}</text>
@@ -37,8 +49,10 @@
         >{{item.ord}}</view>
       </view>
     </view>
-    <button bindtap="submitHint">交卷</button>
-    <text class="muted">交卷、评分和解析是 MW15，本页不提交。</text>
+    <button wx:if="{{submitMode === 'result'}}" bindtap="goResult">查看结果</button>
+    <button wx:else bindtap="submitPaper">交卷</button>
+    <text class="muted" wx:if="{{submitMode === 'result'}}">已交卷。可查看分数和解析。</text>
+    <text class="muted" wx:else>未答需确认后才交卷，不会静默丢掉。</text>
     <view class="card">
       <text class="muted">只有本轮测试 attempt 才应点下面按钮。浏览或自动进页不会记入 leftover。</text>
       <button class="ghost" bindtap="markLeftover">记入本轮 leftover</button>

@@ -15,8 +15,10 @@ import {
   markLocalChange,
   paperStartFlags,
   quizCard,
+  quizSubmitMode,
   replaceStartBody,
-  submitHint
+  unansweredConfirmCopy,
+  buildSubmitBody
 } from "./attempt-ui.js";
 
 describe("paper start flags", () => {
@@ -148,10 +150,15 @@ describe("restore, continue, and submit stay on the server path", () => {
     expect(homeDraftView(false, { attemptId: null }).hasDraft).toBe(false);
   });
 
-  it("explains MW15 and never names attempt.submit", () => {
-    const hint = submitHint();
-    expect(hint.action).toBe("none");
-    expect(hint.content).toContain("MW15 未接通");
-    expect(JSON.stringify(hint)).not.toContain("attempt.submit");
+  it("builds a submit body and switches to 查看结果 after submit", () => {
+    expect(quizSubmitMode("inProgress")).toBe("submit");
+    expect(quizSubmitMode("submitted")).toBe("result");
+    expect(unansweredConfirmCopy(2).content).toContain("2");
+    expect(buildSubmitBody("att_1", 3, { q1: ["A"] }, true)).toEqual({
+      attemptId: "att_1",
+      expectedRevision: 3,
+      answers: [{ questionId: "q1", optionIds: ["A"] }],
+      confirmUnanswered: true
+    });
   });
 });

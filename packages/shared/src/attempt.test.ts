@@ -6,8 +6,12 @@ import {
   normalizeAttemptAnswers,
   parseAttemptAbandonInput,
   parseAttemptReplaceInput,
+  parseAttemptAnalysisInput,
+  parseAttemptHistoryInput,
   parseAttemptSaveInput,
-  parseAttemptStartInput
+  parseAttemptStartInput,
+  parseAttemptSubmitEnvelope,
+  validateSubmitAnswers
 } from "./attempt.js";
 
 describe("attempt parsers and full-set answers", () => {
@@ -63,5 +67,23 @@ describe("attempt parsers and full-set answers", () => {
         schemaVersion: 1
       })
     ).toMatchObject({ attemptId: "a1", paperId: "p1", revision: 2, answeredCount: 1 });
+  });
+
+  it("rejects extra question ids, duplicate options and off-paper options on submit", () => {
+    const questions = [
+      { questionId: "q1", optionIds: ["A", "B"] },
+      { questionId: "q2", optionIds: ["A", "B", "C"] }
+    ];
+    expect(parseAttemptSubmitEnvelope({ attemptId: "a1", expectedRevision: 1, answers: [], confirmUnanswered: false }).ok).toBe(
+      true
+    );
+    expect(parseAttemptSubmitEnvelope({ attemptId: "a1", expectedRevision: 1, answers: [] }).ok).toBe(false);
+    expect(validateSubmitAnswers([{ questionId: "q9", optionIds: ["A"] }], questions).ok).toBe(false);
+    expect(validateSubmitAnswers([{ questionId: "q1", optionIds: ["A", "A"] }], questions).ok).toBe(false);
+    expect(validateSubmitAnswers([{ questionId: "q1", optionIds: ["Z"] }], questions).ok).toBe(false);
+    const partial = validateSubmitAnswers([{ questionId: "q1", optionIds: ["A"] }], questions);
+    expect(partial).toMatchObject({ ok: true, unansweredIds: ["q2"] });
+    expect(parseAttemptAnalysisInput({ attemptId: "a1", chunkNo: 1 }).ok).toBe(true);
+    expect(parseAttemptHistoryInput({ paperId: "p1", limit: 20 }).ok).toBe(true);
   });
 });

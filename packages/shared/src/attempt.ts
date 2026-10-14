@@ -1,6 +1,7 @@
-import { hashNamedFields } from "./canonical.js";
+import { hashNamedFields, namedCanonicalJson, sha256Hex } from "./canonical.js";
 import { rejectUnknownKeys } from "./validate.js";
 import { PAPER_QUESTION_MAX } from "./paper.js";
+import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "./types.js";
 
 export const ATTEMPT_SCHEMA_VERSION = 1;
 export const ATTEMPT_ANSWER_MAX = PAPER_QUESTION_MAX;
@@ -13,6 +14,9 @@ export const ATTEMPT_GET_FIELDS = ["attemptId"] as const;
 export const ATTEMPT_PAGE_FIELDS = ["attemptId", "chunkNo"] as const;
 export const ATTEMPT_SAVE_FIELDS = ["attemptId", "expectedRevision", "answers"] as const;
 export const ATTEMPT_ABANDON_FIELDS = ["attemptId", "expectedRevision", "confirmed"] as const;
+export const ATTEMPT_SUBMIT_FIELDS = ["attemptId", "expectedRevision", "answers", "confirmUnanswered"] as const;
+export const ATTEMPT_ANALYSIS_FIELDS = ["attemptId", "chunkNo", "wrongOnly"] as const;
+export const ATTEMPT_HISTORY_FIELDS = ["paperId", "cursor", "limit"] as const;
 export const ATTEMPT_ANSWER_ITEM_FIELDS = ["questionId", "optionIds"] as const;
 export const ATTEMPT_ID_FIELDS = ["kind", "memberId", "idempotencyKey"] as const;
 
@@ -243,6 +247,122 @@ export function parseAttemptSaveInput(
     expectedRevision: envelope.expectedRevision,
     answers: answers.answers
   };
+}
+
+export function attemptSubmitHash(answers: AttemptAnswer[]): string {
+  return sha256Hex(namedCanonicalJson({ answers }, ["answers"]));
+}
+
+export function parseAttemptSubmitEnvelope(
+  data: Record<string, unknown>
+):
+  | { ok: true; attemptId: string; expectedRevision: number; rawAnswers: unknown; confirmUnanswered: boolean }
+  | { ok: false; issues: string[] } {
+  const issues = rejectUnknownKeys(data, [...ATTEMPT_SUBMIT_FIELDS]);
+  if (typeof data.attemptId !== "string" || !data.attemptId.trim()) issues.push("attemptId required");
+  if (!Number.isInteger(data.expectedRevision) || Number(data.expectedRevision) < 0) {
+    issues.push("expectedRevision must be a non-negative integer");
+  }
+  if (!Array.isArray(data.answers)) issues.push("answers must be an array");
+  if (typeof data.confirmUnanswered !== "boolean") issues.push("confirmUnanswered must be boolean");
+  if (issues.length) return { ok: false, issues };
+  return {
+    ok: true,
+    attemptId: String(data.attemptId).trim(),
+    expectedRevision: Number(data.expectedRevision),
+    rawAnswers: data.answers,
+    confirmUnanswered: data.confirmUnanswered === true
+  };
+}
+
+export function validateSubmitAnswers(
+  input: unknown,
+  questions: ReadonlyArray<{ questionId: string; optionIds: readonly string[] }>
+): { ok: true; answers: AttemptAnswer[]; unansweredIds: string[] } | { ok: false; issues: string[] } {
+  const allowedIds = questions.map((row) => row.questionId);
+  const optionMap = new Map(questions.map((row) => [row.questionId, new Set(row.optionIds)]));
+  if (!Array.isArray(input)) {
+    return { ok: false, issues: ["answers must be an array"] };
+  }
+  const rawIssues: string[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    if (!Array.isArray(rec.optionIds)) continue;
+    const raw = rec.optionIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim()));
+    if (raw.length !== new Set(raw).size) {
+      rawIssues.push("optionIds must be unique");
+    }
+    const questionId = typeof rec.questionId === "string" ? rec.questionId : "";
+    const allowed = optionMap.get(questionId);
+    if (questionId && allowed) {
+      for (const id of raw) {
+        if (!allowed.has(id)) rawIssues.push(`option not on paper: ${id}`);
+      }
+    }
+  }
+  if (rawIssues.length) return { ok: false, issues: [...new Set(rawIssues)] };
+  const normalized = normalizeAttemptAnswers(input, allowedIds);
+  if (!normalized.ok) return normalized;
+  const answered = new Set(normalized.answers.map((row) => row.questionId));
+  const unansweredIds = allowedIds.filter((id) => !answered.has(id));
+  return { ok: true, answers: normalized.answers, unansweredIds };
+}
+
+export function parseAttemptAnalysisInput(data: Record<string, unknown>):
+  | { ok: true; attemptId: string; chunkNo: number; wrongOnly: boolean }
+  | { ok: false; issues: string[] } {
+  const issues = rejectUnknownKeys(data, [...ATTEMPT_ANALYSIS_FIELDS]);
+  if (typeof data.attemptId !== "string" || !data.attemptId.trim()) issues.push("attemptId required");
+  if (!Number.isInteger(data.chunkNo) || Number(data.chunkNo) < 1) issues.push("chunkNo must be an integer >= 1");
+  if (data.wrongOnly !== undefined && typeof data.wrongOnly !== "boolean") issues.push("wrongOnly must be boolean");
+  if (issues.length) return { ok: false, issues };
+  return {
+    ok: true,
+    attemptId: String(data.attemptId).trim(),
+    chunkNo: Number(data.chunkNo),
+    wrongOnly: data.wrongOnly === true
+  };
+}
+
+export function parseAttemptHistoryInput(data: Record<string, unknown>):
+  | { ok: true; paperId?: string; cursor?: string; limit: number }
+  | { ok: false; issues: string[] } {
+  const issues = rejectUnknownKeys(data, [...ATTEMPT_HISTORY_FIELDS]);
+  if (data.paperId !== undefined && (typeof data.paperId !== "string" || !data.paperId.trim())) {
+    issues.push("paperId must be a non-empty string");
+  }
+  if (data.cursor !== undefined && (typeof data.cursor !== "string" || !data.cursor.trim())) {
+    issues.push("cursor must be a string");
+  }
+  let limit = DEFAULT_PAGE_LIMIT;
+  if (data.limit !== undefined) {
+    if (!Number.isInteger(data.limit) || Number(data.limit) < 1 || Number(data.limit) > MAX_PAGE_LIMIT) {
+      issues.push(`limit must be 1-${MAX_PAGE_LIMIT}`);
+    } else {
+      limit = Number(data.limit);
+    }
+  }
+  if (issues.length) return { ok: false, issues };
+  return {
+    ok: true,
+    ...(typeof data.paperId === "string" && data.paperId.trim() ? { paperId: data.paperId.trim() } : {}),
+    ...(typeof data.cursor === "string" && data.cursor.trim() ? { cursor: data.cursor.trim() } : {}),
+    limit
+  };
+}
+
+export function encodeHistoryCursor(submittedAt: string, attemptId: string): string {
+  return `${submittedAt}~${attemptId}`;
+}
+
+export function parseHistoryCursor(cursor: string): { submittedAt: string; attemptId: string } | undefined {
+  const at = cursor.lastIndexOf("~");
+  if (at <= 0 || at === cursor.length - 1) return undefined;
+  const submittedAt = cursor.slice(0, at);
+  const attemptId = cursor.slice(at + 1);
+  if (!submittedAt || !attemptId) return undefined;
+  return { submittedAt, attemptId };
 }
 
 export function parseAttemptAbandonInput(data: Record<string, unknown>):

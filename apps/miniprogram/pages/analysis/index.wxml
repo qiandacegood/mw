@@ -1,0 +1,18 @@
+<view class="page">
+  <view wx:if="{{state === 'loading'}}" class="card">加载中…</view>
+  <view wx:elif="{{state === 'error'}}" class="card err">
+    <text>{{message}}</text>
+    <button bindtap="reload">重试</button>
+  </view>
+  <block wx:else>
+    <text class="h1">解析</text>
+    <button class="ghost" bindtap="toggleWrong">{{wrongOnly ? '查看全部' : '只看错题及未答'}}</button>
+    <view wx:for="{{items}}" wx:key="questionId" class="card">
+      <text class="title">{{item.questionId}} · {{item.score}} 分</text>
+      <text class="muted">本人选择：{{item.selectedText}}</text>
+      <text class="{{item.score > 0 ? 'ok' : 'bad'}}">正确答案：{{item.correctText}}</text>
+      <text class="muted">{{item.analysis}}</text>
+    </view>
+    <button class="ghost" bindtap="goResult">返回结果</button>
+  </block>
+</view>

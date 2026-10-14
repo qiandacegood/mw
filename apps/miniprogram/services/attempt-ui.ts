@@ -220,11 +220,31 @@ export function quizCard(
   }));
 }
 
-export function submitHint(): { title: string; content: string; action: "none" } {
+export function unansweredConfirmCopy(unansweredCount: number): { title: string; content: string } {
   return {
-    title: "尚未接通交卷",
-    content: "MW15 未接通，不能交卷、评分或查看解析。",
-    action: "none"
+    title: "还有未答题",
+    content: `还有 ${unansweredCount} 题未答。未答计 0 分，确认后才交卷，不会静默丢掉。`
+  };
+}
+
+export function quizSubmitMode(state: string): "submit" | "result" {
+  return state === "submitted" ? "result" : "submit";
+}
+
+export function buildSubmitBody(
+  attemptId: string,
+  expectedRevision: number,
+  selected: Record<string, string[]>,
+  confirmUnanswered: boolean
+): {
+  attemptId: string;
+  expectedRevision: number;
+  answers: Array<{ questionId: string; optionIds: string[] }>;
+  confirmUnanswered: boolean;
+} {
+  return {
+    ...buildSaveBody(attemptId, expectedRevision, selected),
+    confirmUnanswered
   };
 }
 

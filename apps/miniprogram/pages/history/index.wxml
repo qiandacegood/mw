@@ -1,0 +1,16 @@
+<view class="page">
+  <text class="h1">历史成绩</text>
+  <view wx:if="{{state === 'loading'}}" class="card">加载中…</view>
+  <view wx:elif="{{state === 'error'}}" class="card err">
+    <text>{{message}}</text>
+    <button bindtap="reload">重试</button>
+  </view>
+  <block wx:else>
+    <view wx:if="{{!items.length}}" class="card">还没有已提交记录。</view>
+    <view wx:for="{{items}}" wx:key="attemptId" class="card" data-id="{{item.attemptId}}" bindtap="goResult">
+      <text class="title">{{item.paperTitle}}</text>
+      <text class="muted">{{item.score}} / {{item.maxScore}} · {{item.submittedAt}}</text>
+    </view>
+    <button wx:if="{{nextCursor}}" class="ghost" bindtap="more">更多</button>
+  </block>
+</view>

@@ -19,7 +19,9 @@ export {
   quizCard,
   replaceStartBody,
   saveLabelOf,
-  submitHint,
+  unansweredConfirmCopy,
+  quizSubmitMode,
+  buildSubmitBody,
   type QuizSaveSession,
   type QuizSaveStatus
 } from "./attempt-ui";

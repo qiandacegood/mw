@@ -8,13 +8,15 @@ import {
   attemptError,
   beginSave,
   buildSaveBody,
+  buildSubmitBody,
   conflictChoiceOf,
   displaySave,
   emptySaveSession,
   markLocalChange,
   memberAction,
   quizCard,
-  submitHint
+  quizSubmitMode,
+  unansweredConfirmCopy
 } from "../../services/attempt";
 import { markLeftoverAttemptId } from "../../services/known-ids";
 
@@ -45,7 +47,9 @@ Page({
     saveStatus: "idle",
     saveLabel: "未保存",
     offline: false,
-    leftoverMarked: false
+    leftoverMarked: false,
+    attemptState: "inProgress",
+    submitMode: "submit"
   },
   answers: {} as Record<string, string[]>,
   session: emptySaveSession(),
@@ -93,7 +97,20 @@ Page({
       return;
     }
     const draft = asRecord(got.data);
-    if (String(draft.state || "") !== "inProgress") {
+    const attemptState = String(draft.state || "inProgress");
+    if (attemptState === "submitted") {
+      this.setData({
+        state: "ok",
+        attemptState,
+        submitMode: quizSubmitMode(attemptState),
+        paperTitle: String(draft.paperTitle || "练习"),
+        questionCount: Number(draft.questionCount || 0),
+        items: [],
+        leftoverMarked: false
+      });
+      return;
+    }
+    if (attemptState !== "inProgress") {
       this.setData({ state: "error", message: "这份记录已结束，不能继续答题。" });
       return;
     }
@@ -141,7 +158,9 @@ Page({
       attemptId,
       paperTitle: String(draft.paperTitle || "练习"),
       questionCount: Number(draft.questionCount || items.length),
-      leftoverMarked: false
+      leftoverMarked: false,
+      attemptState,
+      submitMode: quizSubmitMode(attemptState)
     });
     this.syncSave(false);
   },
@@ -258,13 +277,50 @@ Page({
     if (ord < 1) return;
     this.showIndex(ord - 1, (this.data.items || []) as QuizItem[], this.answers, { showCard: false });
   },
-  submitHint() {
-    const hint = submitHint();
-    wx.showModal({
-      title: hint.title,
-      content: hint.content,
-      showCancel: false
-    });
+  goResult() {
+    const attemptId = String(this.data.attemptId || "");
+    if (!attemptId) return;
+    wx.navigateTo({ url: `/pages/result/index?attemptId=${encodeURIComponent(attemptId)}` });
+  },
+  async submitAttempt(confirmUnanswered?: boolean) {
+    const attemptId = String(this.data.attemptId || "");
+    if (!attemptId) return;
+    if (this.data.offline === true) {
+      wx.showToast({ title: "尚未同步，不能交卷", icon: "none" });
+      return;
+    }
+    const body = buildSubmitBody(attemptId, this.session.revision, this.answers || {}, confirmUnanswered === true);
+    const requestId = `req_mp_submit_${Date.now()}`;
+    const res = await memberAction("attempt.submit", body, { requestId, idempotencyKey: requestId });
+    if (!res.ok) {
+      const info = attemptError(res);
+      if (info.code === "UNANSWERED_CONFIRM_REQUIRED") {
+        const copy = unansweredConfirmCopy(Number(info.details.unansweredCount || 0));
+        const picked = await new Promise<{ confirm?: boolean }>((resolve) => {
+          wx.showModal({
+            title: copy.title,
+            content: copy.content,
+            confirmText: "仍要交卷",
+            cancelText: "回去改",
+            success: (modal) => resolve(modal),
+            fail: () => resolve({})
+          });
+        });
+        if (picked.confirm === true) await this.submitAttempt?.(true);
+        return;
+      }
+      wx.showModal({ title: info.code, content: info.message, showCancel: false });
+      return;
+    }
+    this.setData({ attemptState: "submitted", submitMode: "result" });
+    wx.navigateTo({ url: `/pages/result/index?attemptId=${encodeURIComponent(attemptId)}` });
+  },
+  submitPaper() {
+    if (this.data.submitMode === "result") {
+      this.goResult?.();
+      return;
+    }
+    void this.submitAttempt?.(false);
   },
   markLeftover() {
     if (!markLeftoverAttemptId(String(this.data.attemptId || ""))) {

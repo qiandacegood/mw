@@ -6,6 +6,7 @@ import {
   seedCategoryId,
   setMaintenanceGate,
   type CategoryRecord,
+  type PaperAnswerRecord,
   type PaperChunkRecord,
   type PaperRecord,
   type PaperVersionRecord
@@ -98,6 +99,32 @@ function version(paperId: string, extra: Partial<PaperVersionRecord> = {}): Pape
   };
 }
 
+function answer(paperId: string): PaperAnswerRecord {
+  return {
+    chunkId: `${paperId}_a1`,
+    versionId: `${paperId}_v`,
+    chunkNo: 1,
+    items: [
+      {
+        ord: 1,
+        questionId: "q1",
+        questionVersionId: "qv1",
+        answer: { optionIds: ["A"] },
+        analysis: { text: "虚构解析一", assetIds: [] }
+      },
+      {
+        ord: 2,
+        questionId: "q2",
+        questionVersionId: "qv2",
+        answer: { optionIds: ["B"] },
+        analysis: { text: "虚构解析二", assetIds: [] }
+      }
+    ],
+    digest: "d2",
+    schemaVersion: 1
+  };
+}
+
 function chunk(paperId: string): PaperChunkRecord {
   return {
     chunkId: `${paperId}_c1`,
@@ -145,10 +172,12 @@ function seededAttempts(extraPapers: PaperRecord[] = []) {
   ];
   const versions = papers.filter((row) => row.activeVersionId).map((row) => version(row.paperId));
   const chunks = papers.filter((row) => row.activeVersionId).map((row) => chunk(row.paperId));
+  const answers = papers.filter((row) => row.activeVersionId).map((row) => answer(row.paperId));
   return memoryAttemptStore({
     papers,
     versions,
     chunks,
+    answers,
     categories: [cat(rootId)]
   });
 }
@@ -178,6 +207,7 @@ async function register(
   const memberId = (res as { data?: { memberId?: string } }).data?.memberId || "";
   const member = stores.members.get(memberId);
   if (member) attempts.members.set(memberId, member);
+  attempts.linkMemberStats(stores.stats);
   return { res, memberId, stores, attempts };
 }
 
@@ -445,18 +475,13 @@ describe("MW14 attempt drafts", () => {
     expect(allowed).toMatchObject({ ok: true, data: { paperId: "p_vip" } });
   });
 
-  it("requires registration and refuses unknown member actions such as submit", async () => {
+  it("requires registration before starting an attempt", async () => {
     const stores = memoryMemberBundle();
     const attempts = seededAttempts();
     const guest = await handleOfficial(
       ctx(req("attempt.start", { paperId: "p_free" }, { idempotencyKey: "g1", requestId: "req_g1" }), stores, attempts)
     );
     expect(guest).toMatchObject({ ok: false, error: { code: "MEMBER_REQUIRED" } });
-    await register(stores, attempts);
-    const submit = await handleOfficial(
-      ctx(req("attempt.submit", { attemptId: "x" }, { idempotencyKey: "sub", requestId: "req_sub" }), stores, attempts)
-    );
-    expect(submit).toMatchObject({ ok: false, error: { code: "FORBIDDEN", details: { reason: "ACTION_DENIED" } } });
   });
 
   it("blocks start when the attemptStart maintenance gate is closed", async () => {
@@ -472,5 +497,389 @@ describe("MW14 attempt drafts", () => {
       })
     );
     expect(res).toMatchObject({ ok: false, error: { code: "CONTENT_UPDATING" } });
+  });
+});
+
+let startSeq = 0;
+
+async function startAndSave(
+  stores: ReturnType<typeof memoryMemberBundle>,
+  attempts: ReturnType<typeof seededAttempts>,
+  paperId: string,
+  answers: Array<{ questionId: string; optionIds: string[] }>,
+  extra: Record<string, unknown> = {}
+) {
+  startSeq += 1;
+  const started = (await handleOfficial(
+    ctx(
+      req("attempt.start", { paperId }, { idempotencyKey: `start_${paperId}_${startSeq}`, requestId: `req_start_${paperId}_${startSeq}` }),
+      stores,
+      attempts,
+      extra
+    )
+  )) as { ok: true; data: { attemptId: string; revision: number } };
+  if (!started.ok) return { started, saved: started, attemptId: "" };
+  const saved = await handleOfficial(
+    ctx(
+      req(
+        "attempt.save",
+        { attemptId: started.data.attemptId, expectedRevision: 0, answers },
+        { idempotencyKey: `save_${started.data.attemptId}`, requestId: `req_save_${started.data.attemptId}` }
+      ),
+      stores,
+      attempts,
+      extra
+    )
+  );
+  return { started, saved, attemptId: started.data.attemptId };
+}
+
+describe("MW15 submit scoring", () => {
+  it("grades a paper, records only the new best, and replays the same submit key", async () => {
+    const stores = memoryMemberBundle();
+    const attempts = seededAttempts();
+    await register(stores, attempts);
+    const first = await startAndSave(stores, attempts, "p_free", [{ questionId: "q1", optionIds: ["A"] }]);
+    const submit1 = (await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: first.attemptId,
+            expectedRevision: 1,
+            answers: [{ questionId: "q1", optionIds: ["A"] }],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-1", requestId: "req_sub_1" }
+        ),
+        stores,
+        attempts
+      )
+    )) as { ok: true; data: { score: number; bestScore: number; delta: number; totalScore: number } };
+    expect(submit1).toMatchObject({
+      ok: true,
+      data: { score: 5, maxScore: 10, correctCount: 1, bestScore: 5, delta: 5, totalScore: 5, levelId: "L1" }
+    });
+    const replay = await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: first.attemptId,
+            expectedRevision: 1,
+            answers: [{ questionId: "q1", optionIds: ["A"] }],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-1", requestId: "req_sub_1" }
+        ),
+        stores,
+        attempts
+      )
+    );
+    expect(replay).toMatchObject({ ok: true, data: { score: 5, delta: 5, totalScore: 5 }, replayed: true });
+    expect(attempts.actives.size).toBe(0);
+
+    const second = await startAndSave(stores, attempts, "p_free", [
+      { questionId: "q1", optionIds: ["A"] },
+      { questionId: "q2", optionIds: ["B"] }
+    ]);
+    const submit2 = await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: second.attemptId,
+            expectedRevision: 1,
+            answers: [
+              { questionId: "q1", optionIds: ["A"] },
+              { questionId: "q2", optionIds: ["B"] }
+            ],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-2", requestId: "req_sub_2" }
+        ),
+        stores,
+        attempts
+      )
+    );
+    expect(submit2).toMatchObject({ ok: true, data: { score: 10, bestScore: 10, delta: 5, totalScore: 10 } });
+
+    const third = await startAndSave(stores, attempts, "p_free", [{ questionId: "q1", optionIds: ["A"] }]);
+    const submit3 = await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: third.attemptId,
+            expectedRevision: 1,
+            answers: [{ questionId: "q1", optionIds: ["A"] }],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-3", requestId: "req_sub_3" }
+        ),
+        stores,
+        attempts
+      )
+    );
+    expect(submit3).toMatchObject({ ok: true, data: { score: 5, bestScore: 10, delta: 0, totalScore: 10 } });
+    expect([...attempts.events.values()].map((row) => row.delta)).toEqual([5, 5, 0]);
+    expect(stores.stats.values().next().value?.totalScore).toBe(10);
+    expect(stores.stats.values().next().value?.scoreSeq).toBe(3);
+  });
+
+  it("requires confirmUnanswered and rejects extra, duplicate or off-paper options", async () => {
+    const stores = memoryMemberBundle();
+    const attempts = seededAttempts();
+    await register(stores, attempts);
+    const started = await startAndSave(stores, attempts, "p_free", [{ questionId: "q1", optionIds: ["A"] }]);
+    const unanswered = await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: started.attemptId,
+            expectedRevision: 1,
+            answers: [{ questionId: "q1", optionIds: ["A"] }],
+            confirmUnanswered: false
+          },
+          { idempotencyKey: "sub-un", requestId: "req_sub_un" }
+        ),
+        stores,
+        attempts
+      )
+    );
+    expect(unanswered).toMatchObject({ ok: false, error: { code: "UNANSWERED_CONFIRM_REQUIRED" } });
+    const extra = await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: started.attemptId,
+            expectedRevision: 1,
+            answers: [{ questionId: "q9", optionIds: ["A"] }],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-ex", requestId: "req_sub_ex" }
+        ),
+        stores,
+        attempts
+      )
+    );
+    expect(extra).toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENT" } });
+    const dup = await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: started.attemptId,
+            expectedRevision: 1,
+            answers: [{ questionId: "q1", optionIds: ["A", "A"] }],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-dup", requestId: "req_sub_dup" }
+        ),
+        stores,
+        attempts
+      )
+    );
+    expect(dup).toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENT" } });
+  });
+
+  it("returns ALREADY_SUBMITTED for a different final answer set", async () => {
+    const stores = memoryMemberBundle();
+    const attempts = seededAttempts();
+    await register(stores, attempts);
+    const started = await startAndSave(stores, attempts, "p_free", [
+      { questionId: "q1", optionIds: ["A"] },
+      { questionId: "q2", optionIds: ["B"] }
+    ]);
+    await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: started.attemptId,
+            expectedRevision: 1,
+            answers: [
+              { questionId: "q1", optionIds: ["A"] },
+              { questionId: "q2", optionIds: ["B"] }
+            ],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-same", requestId: "req_sub_same" }
+        ),
+        stores,
+        attempts
+      )
+    );
+    const different = await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: started.attemptId,
+            expectedRevision: 1,
+            answers: [{ questionId: "q1", optionIds: ["A"] }],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-diff", requestId: "req_sub_diff" }
+        ),
+        stores,
+        attempts
+      )
+    );
+    expect(different).toMatchObject({ ok: false, error: { code: "ALREADY_SUBMITTED" } });
+  });
+
+  it("returns result, analysis and history for the owner and hides secrets before submit", async () => {
+    const stores = memoryMemberBundle();
+    const attempts = seededAttempts();
+    await register(stores, attempts);
+    const pending = await startAndSave(stores, attempts, "p_free", [{ questionId: "q1", optionIds: ["A"] }]);
+    const processing = await handleOfficial(ctx(req("attempt.result", { attemptId: pending.attemptId }), stores, attempts));
+    expect(processing).toMatchObject({ ok: true, data: { status: "inProgress" } });
+    const earlyAnalysis = await handleOfficial(
+      ctx(req("attempt.analysis", { attemptId: pending.attemptId, chunkNo: 1 }), stores, attempts)
+    );
+    expect(earlyAnalysis).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(JSON.stringify(earlyAnalysis)).not.toMatch(/correctOptionIds|paper_answers|"analysis":/);
+    const submitted = await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: pending.attemptId,
+            expectedRevision: 1,
+            answers: [
+              { questionId: "q1", optionIds: ["A"] },
+              { questionId: "q2", optionIds: ["B"] }
+            ],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-an", requestId: "req_sub_an" }
+        ),
+        stores,
+        attempts
+      )
+    );
+    expect(submitted).toMatchObject({ ok: true });
+    const result = await handleOfficial(ctx(req("attempt.result", { attemptId: pending.attemptId }), stores, attempts));
+    expect(result).toMatchObject({ ok: true, data: { status: "ready", score: 10, bestScore: 10 } });
+    const analysis = (await handleOfficial(
+      ctx(req("attempt.analysis", { attemptId: pending.attemptId, chunkNo: 1 }), stores, attempts)
+    )) as { ok: true; data: { items: Array<{ selectedOptionIds: string[]; correctOptionIds: string[] }> } };
+    expect(analysis.ok).toBe(true);
+    expect(analysis.data.items[0]).toMatchObject({
+      selectedOptionIds: ["A"],
+      correctOptionIds: ["A"],
+      analysis: "虚构解析一"
+    });
+    expect(JSON.stringify(analysis)).not.toContain("paper_answers");
+    const history = (await handleOfficial(ctx(req("attempt.history", { paperId: "p_free" }), stores, attempts))) as {
+      ok: true;
+      data: { items: Array<{ attemptId: string }> };
+    };
+    expect(history.data.items[0]?.attemptId).toBe(pending.attemptId);
+  });
+
+  it("still returns a past result after VIP entitlement is gone", async () => {
+    const stores = memoryMemberBundle();
+    const attempts = seededAttempts();
+    const { memberId } = await register(stores, attempts);
+    const started = await startAndSave(
+      stores,
+      attempts,
+      "p_vip",
+      [
+        { questionId: "q1", optionIds: ["A"] },
+        { questionId: "q2", optionIds: ["B"] }
+      ],
+      { entitlement: isolatedEntitlementReader([memberId]) }
+    );
+    await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: started.attemptId,
+            expectedRevision: 1,
+            answers: [
+              { questionId: "q1", optionIds: ["A"] },
+              { questionId: "q2", optionIds: ["B"] }
+            ],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-vip", requestId: "req_sub_vip" }
+        ),
+        stores,
+        attempts,
+        { entitlement: isolatedEntitlementReader([memberId]) }
+      )
+    );
+    const result = await handleOfficial(ctx(req("attempt.result", { attemptId: started.attemptId }), stores, attempts));
+    const analysis = await handleOfficial(
+      ctx(req("attempt.analysis", { attemptId: started.attemptId, chunkNo: 1 }), stores, attempts)
+    );
+    expect(result).toMatchObject({ ok: true, data: { status: "ready", score: 10 } });
+    expect(analysis).toMatchObject({ ok: true });
+  });
+
+  it("blocks a new submit when attemptSubmit is closed or the paper is withdrawn", async () => {
+    const stores = memoryMemberBundle();
+    const attempts = seededAttempts();
+    await register(stores, attempts);
+    const started = await startAndSave(stores, attempts, "p_free", [
+      { questionId: "q1", optionIds: ["A"] },
+      { questionId: "q2", optionIds: ["B"] }
+    ]);
+    const maintenance = memoryMaintenanceStore();
+    const closed = setMaintenanceGate(await maintenance.get(), "attemptSubmit", { enabled: false, reason: "freeze", jobId: "job2" }, now);
+    await maintenance.save(closed);
+    const frozen = await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: started.attemptId,
+            expectedRevision: 1,
+            answers: [
+              { questionId: "q1", optionIds: ["A"] },
+              { questionId: "q2", optionIds: ["B"] }
+            ],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-fr", requestId: "req_sub_fr" }
+        ),
+        stores,
+        attempts,
+        { maintenanceStore: maintenance }
+      )
+    );
+    expect(frozen).toMatchObject({ ok: false, error: { code: "CONTENT_UPDATING" } });
+    const withdrawn = attempts.attempts.get(started.attemptId);
+    if (withdrawn) {
+      const paper = attempts.papers.get("p_free");
+      if (paper) attempts.papers.set("p_free", { ...paper, status: "withdrawn" });
+    }
+    const afterOpen = await handleOfficial(
+      ctx(
+        req(
+          "attempt.submit",
+          {
+            attemptId: started.attemptId,
+            expectedRevision: 1,
+            answers: [
+              { questionId: "q1", optionIds: ["A"] },
+              { questionId: "q2", optionIds: ["B"] }
+            ],
+            confirmUnanswered: true
+          },
+          { idempotencyKey: "sub-wd", requestId: "req_sub_wd" }
+        ),
+        stores,
+        attempts
+      )
+    );
+    expect(afterOpen).toMatchObject({ ok: false, error: { code: "PAPER_WITHDRAWN" } });
   });
 });

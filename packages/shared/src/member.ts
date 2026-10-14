@@ -9,6 +9,10 @@ export const MEMBER_STATUSES = ["active", "disabled", "deleting", "deleted"] as 
 export type MemberStatus = (typeof MEMBER_STATUSES)[number];
 
 export const DEFAULT_LEVEL_ID = "L1";
+
+export function levelIdFromTotalScore(_totalScore: number): string {
+  return DEFAULT_LEVEL_ID;
+}
 export const DEFAULT_AVATAR_KEY = "avatar.builtin.01";
 export const BUILTIN_AVATAR_COUNT = 12;
 export const BUILTIN_AVATAR_KEYS = Array.from(

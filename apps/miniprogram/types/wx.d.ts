@@ -68,6 +68,13 @@ interface PageInstance {
   handleConflict: (details: Record<string, unknown>) => void | Promise<void>;
   replaceStart: (abandonAttemptId: string, expectedRevision?: number) => void | Promise<void>;
   goRegister: () => void;
+  goResult?: (event?: { currentTarget?: { dataset?: { id?: string } } }) => void;
+  goHistory?: () => void;
+  goAnalysis?: (event?: { currentTarget?: { dataset?: { id?: string } } }) => void;
+  submitAttempt?: (confirmUnanswered?: boolean) => void | Promise<void>;
+  submitPaper?: () => void | Promise<void>;
+  toggleWrong?: () => void;
+  fetchPage?: (cursor?: string) => void | Promise<void>;
 }
 
 interface PageOptions {
@@ -131,6 +138,13 @@ interface PageOptions {
   toggleCard?: (this: PageInstance) => void;
   jump?: (this: PageInstance, event?: { currentTarget?: { dataset?: { ord?: number } } }) => void;
   submitHint?: (this: PageInstance) => void;
+  goResult?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string } } }) => void;
+  goHistory?: (this: PageInstance) => void;
+  goAnalysis?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string } } }) => void;
+  submitAttempt?: (this: PageInstance, confirmUnanswered?: boolean) => void | Promise<void>;
+  submitPaper?: (this: PageInstance) => void | Promise<void>;
+  toggleWrong?: (this: PageInstance) => void;
+  fetchPage?: (this: PageInstance, cursor?: string) => void | Promise<void>;
 }
 
 declare function getApp<T = { globalData: Record<string, unknown> }>( ): T;

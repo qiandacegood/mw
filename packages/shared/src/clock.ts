@@ -16,3 +16,10 @@ export function weekKeyShanghai(utc: Date): string {
   const d = String(monday.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
+
+export function monthKeyShanghai(utc: Date): string {
+  const shifted = new Date(utc.getTime() + beijingOffsetMs());
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
