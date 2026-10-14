@@ -172,6 +172,6 @@ MW16 内一并评估 MW15 遗留（[mw16-result.md](first-batch/results/mw16-res
 | 本地五项检查 | 0（`check:prototypes` / `typecheck` / `test` 226 项 / `build` / `git diff --check`）。跑前须先停 4174 后台 Vite：它占用 `packages/shared/dist`，会让 `ensure-shared-js.mjs` 删除失败 |
 | 提交与推送 | `a7a4612`（42 个文件：源码 + 脚本 + 文档），已推送 `origin/main`；本节哈希回写在其后的文档提交 |
 
-A09 / T29 仍未标通过（可覆盖部分见 [mw16-result.md](first-batch/results/mw16-result.md) 第 4 节，不可覆盖部分依赖 MW20 权益账本与后续验收轮次）。`score_metrics` / `paper_bests` / `score_events` 均为 0 条，源头也已缺失，**不补写伪造聚合**，口径待 MW17 开工前由发起人确定（第 6.1 节两个选项）。
+A09 / T29 仍未标通过（可覆盖部分见 [mw16-result.md](first-batch/results/mw16-result.md) 第 4 节，不可覆盖部分依赖 MW20 权益账本与后续验收轮次）。`score_metrics` / `paper_bests` / `score_events` 均为 0 条，源头也已缺失，**不补写伪造聚合**；**发起人 2026-10-15 已定口径：不补记**，MW17 必须接受"历史轨迹缺失"并在榜侧显式处理 `member_stats.totalScore`（9）与 `score_metrics`（0 条）的不一致（第 6.1 节）。
 
 遗留：`score_metrics` / `paper_bests` / `score_events` 三项均为 0 条——MW15 收口清理时连产生聚合的源头记录一并删除，9 分只剩 `member_stats.totalScore=9`（`scoreSeq=6`），故**无法忠实重建**四维指标；本轮不补写伪造聚合，口径留待 MW17 开工前由发起人确定（[mw16-result.md](first-batch/results/mw16-result.md) 第 6.1 节列了两个选项）。`member_stats` 为 2 条（9 分 / L1 与 0 分 / L1）；收口后 `medal_grants` 3 条均属历史 9 分会员（本次取"保留成长态"路径，只清了新注册身份的 `register` 授予）。A09 / T29 仍不标通过：可覆盖部分（跨级补齐、等级下降、重复不重复授予、正常既得勋章不删）已有手点与云端证据，不可覆盖部分依赖 MW20 权益账本与后续验收轮次。MW16 状态由"部分完成"更正为"已完成"。
