@@ -13,12 +13,14 @@ import {
   callAdminQuestion,
   callAdminPaper,
   callAdminImport,
+  callAdminRanking,
   completeAdminUpload,
   createAdminApp,
   loginAndReadAdmin,
   signOutAdmin,
   type AdminCallResult,
   type AdminGrowthAction,
+  type AdminRankingAction,
   type AdminSession
 } from "./cloudbase-web";
 
@@ -115,6 +117,11 @@ const gStatus = ref("先点「读取当前等级配置」，再改门槛 JSON，
 const gImpact = ref("");
 const gEvidence = ref("");
 const gMemberId = ref("");
+/** MW17 榜单治理：快照状态、真实更新时间与更新延迟都由服务端返回，本页不伪造。 */
+const rReason = ref("MW17 重建四维榜单快照");
+const rStatus = ref("先点「读取榜单快照状态」，再按需「重建并发布榜单快照」。重建需要 super 角色。");
+const rView = ref("");
+const rEvidence = ref("");
 /** 与产品说明书一致的初始建议门槛：用于「填入提高门槛」时整体抬高且保持严格递增。 */
 const RECOMMENDED_MIN_SCORES = [0, 100, 300, 800, 1500, 3000];
 
@@ -1424,6 +1431,110 @@ function copyGrowthEvidence(): void {
   gStatus.value = "已复制等级配置证据。不要发送密码、环境 ID 或明文 _id。";
 }
 
+async function runRanking(action: AdminRankingAction, data: Record<string, unknown>): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  const result = await callAdminRanking(app, action, data);
+  const parsed = rEvidence.value ? JSON.parse(rEvidence.value) : { steps: [] };
+  const body = result.data || {};
+  parsed.steps.push({
+    action,
+    ok: result.ok === true,
+    errorCode: result.error?.code || "",
+    errorReason: result.error?.details?.reason || "",
+    publishedGeneration: body.publishedGeneration ?? body.generation ?? null,
+    publishedAt: body.publishedAt ?? null,
+    refreshStatus: (body.refresh as { status?: string } | undefined)?.status ?? null,
+    rowCount: body.rowCount ?? null,
+    rowCounts: body.rowCounts ?? null,
+    historyGapMembers: body.historyGapMembers ?? null,
+    historyGapScore: body.historyGapScore ?? null,
+    truncated: body.truncated ?? null,
+    replayed: body.replayed ?? null
+  });
+  rEvidence.value = JSON.stringify(parsed, null, 2);
+  return result;
+}
+
+function rankingStatusView(body: Record<string, unknown>): string {
+  const refresh = (body.refresh || {}) as Record<string, unknown>;
+  const rows = (body.rowCounts || {}) as Record<string, unknown>;
+  const gap = body.historyGapMembers === undefined ? "-" : String(body.historyGapMembers);
+  const gapScore = body.historyGapScore === undefined ? "-" : String(body.historyGapScore);
+  return [
+    `快照运行状态：${String(refresh.status || "unknown")}`,
+    `已发布代：${String(body.publishedGeneration || "（从未发布）")}`,
+    `更新时间（真实构建时间）：${String(body.publishedAt || "（无）")}`,
+    `待刷新请求时间：${String(body.requestedAt || "（无）")}`,
+    `重建进行中标记：${String(body.buildingSince || "（无）")}`,
+    `刷新目标：${String(refresh.targetMs || 60000)} ms · 已滞后：${String(refresh.lagMs ?? "-")} ms · 待刷新时长：${String(refresh.pendingMs ?? "-")} ms`,
+    `上次构建：${body.lastBuildOk === true ? "成功" : "未成功/未执行"} ${String(body.lastBuildError || "")}`.trim(),
+    `榜单数：${String(body.boardCount ?? 0)} · 名次行：${String(body.rowCount ?? 0)}`,
+    `各 scope 行数：total=${String(rows.total ?? 0)} category=${String(rows.category ?? 0)} week=${String(rows.week ?? 0)} month=${String(rows.month ?? 0)}`,
+    `历史缺口：${gap} 位会员 / ${gapScore} 分未纳入可追溯榜值（已确认不补记）`,
+    `采样是否截断：${body.truncated === true ? "是" : "否"}`
+  ].join("\n");
+}
+
+async function loadRankingStatus(): Promise<void> {
+  busy.value = true;
+  rStatus.value = "正在读取榜单快照状态…";
+  try {
+    const result = await runRanking("ranking.status", {});
+    if (!result.ok) {
+      rStatus.value = `读取失败：${result.error?.code || "CALL_FAILED"} ${result.error?.details?.reason || ""}`;
+      return;
+    }
+    rView.value = rankingStatusView(result.data || {});
+    rStatus.value = "已读取榜单快照状态。本页显示的时间都是服务端真实记录，不伪造刷新时间。";
+  } catch {
+    rStatus.value = "读取榜单快照状态失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function rebuildRankingSnapshot(): Promise<void> {
+  busy.value = true;
+  try {
+    const reason = rReason.value.trim();
+    if (!reason) {
+      rStatus.value = "重建被拒：请填写重建原因（写审计）。";
+      return;
+    }
+    const result = await runRanking("ranking.rebuild", { reason });
+    if (!result.ok) {
+      rStatus.value = `重建被拒：${result.error?.code || "CALL_FAILED"} ${result.error?.details?.reason || ""}`;
+      return;
+    }
+    const body = result.data || {};
+    const boards = Array.isArray((body as { boards?: unknown }).boards)
+      ? ((body as { boards: Record<string, unknown>[] }).boards || [])
+      : [];
+    rStatus.value = [
+      `已发布新快照：generation=${String(body.generation || "")}`,
+      `publishedAt=${String(body.publishedAt || "")}`,
+      `榜单数=${String(body.boardCount ?? 0)} 名次行=${String(body.rowCount ?? 0)}`,
+      `历史缺口=${String(body.historyGapMembers ?? 0)} 位 / ${String(body.historyGapScore ?? 0)} 分`,
+      `清理旧代行=${String(body.obsoleteRemoved ?? 0)}`,
+      `回放=${body.replayed === true ? "是（幂等命中，未重复发布）" : "否"}`,
+      `板块：${boards.map((row) => `${String(row.scope)}/${String(row.categoryId || "-")}=${String(row.participantCount)}人(展示${String(row.displayCount)})`).join(" · ") || "无"}`
+    ].join("｜");
+  } catch {
+    rStatus.value = "重建榜单快照失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+function copyRankingEvidence(): void {
+  const parsed = rEvidence.value ? JSON.parse(rEvidence.value) : { steps: [] };
+  parsed.summary = { view: rView.value, exactIdSweepOnly: true };
+  const text = JSON.stringify(parsed, null, 2);
+  rEvidence.value = text;
+  void navigator.clipboard?.writeText(text);
+  rStatus.value = "已复制榜单治理证据。不要发送密码、环境 ID 或明文 _id。";
+}
+
 async function logout(): Promise<void> {
   try {
     const app = await createAdminApp();
@@ -1697,6 +1808,25 @@ async function logout(): Promise<void> {
       <pre data-testid="growth-impact">{{ gImpact }}</pre>
       <button type="button" class="ghost" @click="copyGrowthEvidence">复制等级配置证据</button>
       <pre data-testid="growth-evidence">{{ gEvidence }}</pre>
+    </section>
+    <section v-if="session?.loggedIn" data-page="admin-ranking">
+      <h1>榜单治理（四维排行榜快照）</h1>
+      <p>
+        总分、分类、周进步、月进步四个榜单由服务端快照提供。重建会先写齐该代全部名次行，再切换板块头；
+        失败时继续提供上一完整代并显示「更新延迟」。免费卷与 VIP 卷统一计入，<strong>没有费用筛选</strong>。
+        历史累计总分与可追溯榜值的差异只做显式说明，<strong>不补记历史事件</strong>。
+      </p>
+      <p class="status">读取状态任意已启用后台角色可看；重建并发布需要 super 角色，且必须填写原因（写审计）。</p>
+      <label>
+        重建原因（写审计）
+        <input v-model="rReason" autocomplete="off" />
+      </label>
+      <button type="button" :disabled="busy" @click="loadRankingStatus">读取榜单快照状态</button>
+      <button type="button" :disabled="busy" @click="rebuildRankingSnapshot">重建并发布榜单快照</button>
+      <p class="status">{{ rStatus }}</p>
+      <pre data-testid="ranking-status">{{ rView }}</pre>
+      <button type="button" class="ghost" @click="copyRankingEvidence">复制榜单治理证据</button>
+      <pre data-testid="ranking-evidence">{{ rEvidence }}</pre>
     </section>
     <section v-if="session?.loggedIn">
       <h2>任务查询与恢复</h2>

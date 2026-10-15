@@ -14,6 +14,7 @@ import { cloudPaperWorkStore, cloudQuestionUsageStore } from "./modules/cloud-pa
 import { cloudImportWorkStore } from "./modules/cloud-import-stores.js";
 import { cloudAttemptWorkStore } from "./modules/cloud-attempt-stores.js";
 import { cloudGrowthStore } from "./modules/cloud-growth-stores.js";
+import { cloudRankingStore } from "./modules/cloud-ranking-stores.js";
 import { handleOfficial, type AdminUserRecord, type AdminUserStore, type OfficialEntry } from "./official.js";
 
 function present(value: unknown): boolean {
@@ -157,6 +158,8 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       importStore: entry === "mw-admin" || entry === "mw-public" ? cloudImportWorkStore() : undefined,
       attemptStore: entry === "mw-member" ? cloudAttemptWorkStore() : undefined,
       growthStore: entry === "mw-member" || entry === "mw-admin" ? cloudGrowthStore() : undefined,
+      rankingStore:
+        entry === "mw-public" || entry === "mw-member" || entry === "mw-admin" ? cloudRankingStore() : undefined,
       virtualPayNotify:
         entry === "mw-pay-hook"
           ? {

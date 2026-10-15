@@ -182,6 +182,31 @@ export async function callAdminGrowth(
   return unwrapCallResult(result);
 }
 
+export type AdminRankingAction = "ranking.status" | "ranking.rebuild";
+
+/**
+ * MW17 榜单治理：读取快照状态、重建并发布四维榜单快照。
+ * ranking.rebuild 需要 super 角色，且必须带 reason（幂等键由调用方或此处生成）。
+ */
+export async function callAdminRanking(
+  app: CloudApp,
+  action: AdminRankingAction,
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action === "ranking.rebuild") {
+    payload.idempotencyKey = idempotencyKey || `mw17/admin/${action}/${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
 export async function completeAdminUpload(
   app: CloudApp,
   input: { uploadTicket: string; sha256: string; size: number; fileBase64: string }

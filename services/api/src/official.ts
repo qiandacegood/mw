@@ -35,6 +35,7 @@ import {
   readMemberMe,
   readMemberSession,
   registerMember,
+  trustedMemberIds,
   updateMemberProfile
 } from "./modules/member.js";
 import {
@@ -46,6 +47,15 @@ import {
   recomputeGrowth
 } from "./modules/growth.js";
 import { resolveGrowthConfig, type GrowthWorkStore } from "./modules/growth-stores.js";
+import {
+  listRanking,
+  markRankingDirty,
+  readRankingMe,
+  readRankingStatus,
+  rebuildRanking,
+  setMemberRanking
+} from "./modules/ranking.js";
+import type { RankingWorkStore } from "./modules/ranking-stores.js";
 import {
   budgetsWithinLimit,
   jobsTrustFromEvent,
@@ -103,7 +113,15 @@ import {
 
 export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
-export const PUBLIC_ACTIONS = ["public.ping", "home.get", "policies.current", "category.tree", "paper.list", "paper.detail"] as const;
+export const PUBLIC_ACTIONS = [
+  "public.ping",
+  "home.get",
+  "policies.current",
+  "category.tree",
+  "paper.list",
+  "paper.detail",
+  "ranking.list"
+] as const;
 export const MEMBER_ACTIONS = [
   "member.session",
   "member.register",
@@ -119,7 +137,9 @@ export const MEMBER_ACTIONS = [
   "attempt.result",
   "attempt.analysis",
   "attempt.history",
-  "member.growth"
+  "member.growth",
+  "member.setRanking",
+  "ranking.me"
 ] as const;
 export const ADMIN_ACTIONS = [
   "admin.me",
@@ -134,7 +154,8 @@ export const ADMIN_ACTIONS = [
   "import.preview",
   "import.status",
   "growth.config",
-  "growth.preview"
+  "growth.preview",
+  "ranking.status"
 ] as const;
 export const ADMIN_WRITE_ACTIONS = [
   "job.resume",
@@ -152,7 +173,8 @@ export const ADMIN_WRITE_ACTIONS = [
   "import.validate",
   "import.commit",
   "growth.publish",
-  "growth.recompute"
+  "growth.recompute",
+  "ranking.rebuild"
 ] as const;
 export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit"] as const;
 
@@ -205,6 +227,7 @@ export interface OfficialContext {
   importStore?: ImportWorkStore;
   attemptStore?: AttemptWorkStore;
   growthStore?: GrowthWorkStore;
+  rankingStore?: RankingWorkStore;
   entitlement?: PracticeEntitlementReader;
   virtualPayNotify?: VirtualPayNotifyConfig;
 }
@@ -514,6 +537,17 @@ async function handlePublic(
     }
     return publicSafe(requestId, now, result.data);
   }
+  if (action === "ranking.list") {
+    // 公开只读：游客可看前百；无需注册。榜单值取自服务端即时维护的 score_metrics。
+    const event = unwrapFunctionEvent(ctx.event);
+    const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+    const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+    const result = await listRanking({ store: ctx.rankingStore, data, now });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.details || {}) });
+    }
+    return publicSafe(requestId, now, result.data);
+  }
   return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-public" });
 }
 
@@ -583,6 +617,11 @@ async function handleMemberAttempt(
       ...("details" in result && result.details ? result.details : {})
     });
   }
+  if (request.action === "attempt.submit" && !("replayed" in result && result.replayed === true)) {
+    // 一致性设计第 5 节：交卷成功后持久刷新标记，供榜单页显示"更新中/更新延迟"。
+    // 标记失败不影响交卷结果，也不伪造刷新时间。
+    await markRankingDirty(ctx.rankingStore, now);
+  }
   const response =
     request.action === "attempt.analysis"
       ? analysisSafe(request.requestId, now, result.data)
@@ -636,6 +675,23 @@ async function handleMember(
     }
     return publicSafe(request.requestId, now, result.data);
   }
+  if (request.action === "ranking.me") {
+    // 本人名次：与 ranking.list 同一代快照；未参与时只返回可追溯私人值与未参与状态。
+    const session = await readMemberSession(ctx.memberStore, fromAppId, fromOpenId);
+    if (!session.registered || !session.memberId) {
+      return fail(request.requestId, "MEMBER_REQUIRED", { reason: "MEMBER_NOT_REGISTERED" });
+    }
+    const result = await readRankingMe({
+      store: ctx.rankingStore,
+      memberId: session.memberId,
+      data: request.data,
+      now
+    });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, { reason: result.reason, ...(result.details || {}) });
+    }
+    return publicSafe(request.requestId, now, result.data);
+  }
   if (request.action.startsWith("attempt.")) {
     return handleMemberAttempt(ctx, request, now, fromAppId, fromOpenId);
   }
@@ -644,6 +700,30 @@ async function handleMember(
   }
   if (!ctx.memberStore) {
     return fail(request.requestId, "INTERNAL_ERROR", { reason: "MEMBER_STORE_UNAVAILABLE" });
+  }
+  if (request.action === "member.setRanking") {
+    const ids = trustedMemberIds(fromAppId, fromOpenId);
+    const result = await setMemberRanking({
+      stores: ctx.memberStore,
+      ranking: ctx.rankingStore,
+      identityId: ids.identityId,
+      memberId: ids.memberId,
+      data: request.data,
+      requestId: request.requestId,
+      idempotencyKey: request.idempotencyKey,
+      now
+    });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.details || {})
+      });
+    }
+    return publicSafe(request.requestId, now, {
+      ...result.data,
+      replayed: result.replayed === true,
+      tx: budgetsWithinLimit(result.budget)
+    });
   }
   if (request.action === "member.register") {
     const growth = ctx.growthStore ? await resolveGrowthConfig(ctx.growthStore, now) : undefined;
@@ -732,6 +812,9 @@ async function handleAdmin(
   }
   if (action.startsWith("growth.")) {
     return handleAdminGrowth(ctx, admin.record, action, requestId, now);
+  }
+  if (action.startsWith("ranking.")) {
+    return handleAdminRanking(ctx, admin.record, action, requestId, now);
   }
   if (action === "admin.me") {
     return ok(requestId, now, {
@@ -883,6 +966,51 @@ async function handleAdminGrowth(
     });
   }
   return ok(requestId, now, recomputed.data);
+}
+
+/**
+ * 后台榜单治理：
+ * - ranking.status 为只读（任意已启用后台角色）；
+ * - ranking.rebuild 需要 super，且必须带 idempotencyKey 与 reason；
+ *   写齐该代名次行后事务内切换板块头，失败保留上一完整代并标记更新延迟。
+ */
+async function handleAdminRanking(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  if (action === "ranking.status") {
+    const result = await readRankingStatus({ store: ctx.rankingStore, now });
+    return ok(requestId, now, result.data);
+  }
+  if (action !== "ranking.rebuild") {
+    return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
+  }
+  if (!adminHasRole(admin.roles, "super")) {
+    return fail(requestId, "FORBIDDEN", { reason: "SUPER_REQUIRED" });
+  }
+  const { rec, data } = adminRequestBody(ctx);
+  if (typeof rec.idempotencyKey !== "string" || rec.idempotencyKey.length === 0) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  const result = await rebuildRanking({
+    store: ctx.rankingStore,
+    actorId: admin.uid,
+    data,
+    requestId,
+    idempotencyKey: rec.idempotencyKey,
+    now
+  });
+  if (!result.ok) {
+    return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.details || {}) });
+  }
+  return ok(requestId, now, {
+    ...result.data,
+    replayed: result.replayed === true,
+    tx: budgetsWithinLimit(result.budget)
+  });
 }
 
 async function handleAdminCategory(

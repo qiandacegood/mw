@@ -1,4 +1,135 @@
-<view class="page">
-  <text class="h1">{{title}}</text>
-  <view class="card">{{message}}</view>
+<view class="mw-ranking">
+  <view class="mw-ranking__head">
+    <t-tabs value="{{scope}}" theme="line" swipeable="{{false}}" bind:change="onTabChange">
+      <t-tab-panel wx:for="{{tabs}}" wx:key="key" value="{{item.key}}" label="{{item.label}}" lazy="{{true}}" />
+    </t-tabs>
+    <view class="mw-ranking__rule">
+      <text class="mw-ranking__rule-text">{{rule}}</text>
+      <text class="mw-ranking__rule-text mw-ranking__rule-text--muted">{{currency}}</text>
+    </view>
+    <view class="mw-ranking__refresh mw-ranking__refresh--{{refresh.tone}}">
+      <view class="mw-ranking__refresh-row">
+        <t-icon name="{{refresh.tone === 'ok' ? 'check-circle' : 'time'}}" size="32rpx" />
+        <text class="mw-ranking__refresh-label">{{refresh.label}}</text>
+      </view>
+      <text wx:if="{{refresh.detail}}" class="mw-ranking__refresh-detail">{{refresh.detail}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{scope === 'category'}}" class="mw-ranking__category">
+    <t-button size="small" variant="outline" theme="primary" bind:tap="openCategoryPicker">
+      {{categoryName ? categoryName : '选择类目'}}
+    </t-button>
+    <text class="mw-ranking__category-hint">父级类目榜包含其全部后代类目，同一张卷不会重复计分。</text>
+  </view>
+
+  <view wx:if="{{state === 'loading'}}" class="mw-ranking__status">
+    <t-loading theme="circular" size="48rpx" text="加载中…" />
+  </view>
+
+  <view wx:elif="{{state === 'error'}}" class="mw-ranking__status">
+    <text class="mw-ranking__message">{{message}}</text>
+    <t-button size="small" theme="primary" bind:tap="retry">重试</t-button>
+  </view>
+
+  <view wx:elif="{{state === 'empty'}}" class="mw-ranking__status">
+    <t-empty description="{{message}}" />
+  </view>
+
+  <block wx:else>
+    <view wx:if="{{staleNotice}}" class="mw-ranking__notice">{{staleNotice}}</view>
+    <view class="mw-ranking__list">
+      <view
+        wx:for="{{rows}}"
+        wx:key="rankKey"
+        class="mw-ranking__row {{item.isMine ? 'mw-ranking__row--mine' : ''}}"
+      >
+        <view class="mw-ranking__rank {{item.isTop ? 'mw-ranking__rank--top' : ''}}">
+          <text>{{item.rankText}}</text>
+        </view>
+        <view class="mw-ranking__avatar">
+          <text>{{item.initial}}</text>
+        </view>
+        <view class="mw-ranking__who">
+          <view class="mw-ranking__name-row">
+            <text class="mw-ranking__name">{{item.nickname}}</text>
+            <t-tag wx:if="{{item.isMine}}" size="small" theme="primary" variant="light">本人</t-tag>
+          </view>
+          <text wx:if="{{item.levelText}}" class="mw-ranking__level">{{item.levelText}}</text>
+        </view>
+        <view class="mw-ranking__score">
+          <text class="mw-ranking__value">{{item.valueText}}</text>
+          <text wx:if="{{item.valueDiffText}}" class="mw-ranking__diff">{{item.valueDiffText}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{boundaryNotice}}" class="mw-ranking__notice">{{boundaryNotice}}</view>
+    <view wx:if="{{historyGapText}}" class="mw-ranking__notice mw-ranking__notice--gap">{{historyGapText}}</view>
+
+    <view wx:if="{{!complete}}" class="mw-ranking__more">
+      <t-button size="small" variant="outline" loading="{{loadingMore}}" bind:tap="loadMore">
+        加载更多
+      </t-button>
+    </view>
+  </block>
+
+  <view class="mw-ranking__footer">
+    <view class="mw-ranking__me">
+      <view class="mw-ranking__me-main">
+        <text class="mw-ranking__me-title">我的名次</text>
+        <text class="mw-ranking__me-rank">{{me.rankText}}</text>
+        <text class="mw-ranking__me-value">{{me.valueText}}{{me.valueDiffText ? ' · ' + me.valueDiffText : ''}}</text>
+      </view>
+      <text wx:if="{{me.hint}}" class="mw-ranking__me-hint">{{me.hint}}</text>
+      <text wx:if="{{me.historyGapNote}}" class="mw-ranking__me-hint mw-ranking__me-hint--gap">{{me.historyGapNote}}</text>
+    </view>
+    <t-button wx:if="{{loggedIn}}" size="small" theme="primary" variant="outline" bind:tap="openSettings">
+      {{me.participating ? '公开排行设置' : '参与公开排行'}}
+    </t-button>
+    <t-button wx:else size="small" theme="primary" bind:tap="goRegister">注册后参与排行</t-button>
+  </view>
+
+  <t-popup
+    visible="{{pickerOpen}}"
+    placement="bottom"
+    close-on-overlay-click="{{true}}"
+    bind:visible-change="onPickerVisibleChange"
+  >
+    <view class="mw-ranking__sheet">
+      <text class="mw-ranking__sheet-title">选择类目</text>
+      <scroll-view scroll-y class="mw-ranking__sheet-list">
+        <view
+          wx:for="{{categoryOptions}}"
+          wx:key="categoryId"
+          class="mw-ranking__sheet-item {{item.categoryId === categoryId ? 'mw-ranking__sheet-item--active' : ''}}"
+          data-id="{{item.categoryId}}"
+          data-name="{{item.name}}"
+          bind:tap="chooseCategory"
+        >
+          <text>{{item.label}}</text>
+        </view>
+        <view wx:if="{{!categoryOptions.length}}" class="mw-ranking__sheet-item">暂无可选类目</view>
+      </scroll-view>
+      <t-button size="small" variant="outline" bind:tap="closeCategoryPicker">关闭</t-button>
+    </view>
+  </t-popup>
+
+  <t-popup
+    visible="{{settingsOpen}}"
+    placement="bottom"
+    close-on-overlay-click="{{true}}"
+    bind:visible-change="onSettingsVisibleChange"
+  >
+    <view class="mw-ranking__sheet">
+      <text class="mw-ranking__sheet-title">公开排行</text>
+      <text class="mw-ranking__sheet-text">
+        参与后使用经审核昵称、内置头像与成长等级公开展示。退出后立即不再公开展示，个人成绩与成长总分不受影响。
+      </text>
+      <t-button size="small" theme="primary" loading="{{settingBusy}}" bind:tap="toggleRanking">
+        {{me.participating ? '退出公开排行' : '开启公开排行'}}
+      </t-button>
+      <t-button size="small" variant="outline" bind:tap="closeSettings">取消</t-button>
+    </view>
+  </t-popup>
 </view>

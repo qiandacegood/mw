@@ -309,12 +309,13 @@ describe("MW13 public home and paper browse", () => {
       event: req("paper.list", { freeOnly: true })
     });
     expect(fee).toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENT" } });
+    // MW17 已实现 ranking.list：费用筛选仍在公开层被拒（改为 INVALID_ARGUMENT 而非动作未开放）。
     const ranking = await ctx({
       paperStore,
       categoryStore,
       event: req("ranking.list", { scope: "total", access: "free" })
     });
-    expect(ranking).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    expect(ranking).toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENT" } });
   });
 
   it("returns public detail without answers and maps unpublished or withdrawn", async () => {
