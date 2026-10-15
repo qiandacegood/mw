@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import {
   paperIdForSourceKey,
   paperTemplateCsv,
@@ -8,6 +8,7 @@ import {
 } from "@mw/shared";
 import {
   callAdminCategory,
+  callAdminCategoryChange,
   callAdminGrowth,
   callAdminJob,
   callAdminQuestion,
@@ -52,6 +53,13 @@ const nodeName = ref("");
 const nodeSort = ref(10);
 const evidence = ref("");
 const lastError = ref("");
+const changeTargetParentId = ref("");
+const changeReason = ref("MW18 专用测试子树迁移");
+const changePreviewId = ref("");
+const changePlanHash = ref("");
+const changeJobId = ref("");
+const changeStatusText = ref("先预览再确认。commit 只绑定服务端预览，不信任本页自报计划。");
+const changeView = ref("");
 const qType = ref<"single" | "multiple" | "trueFalse">("single");
 const qStem = ref("虚构题干：条件甲成立时应选哪一项？");
 const qOptions = ref("选项甲\n选项乙\n选项丙");
@@ -122,6 +130,119 @@ const rReason = ref("MW17 重建四维榜单快照");
 const rStatus = ref("先点「读取榜单快照状态」，再按需「重建并发布榜单快照」。重建需要 super 角色。");
 const rView = ref("");
 const rEvidence = ref("");
+
+type PageKey =
+  | "admin-categories"
+  | "admin-questions"
+  | "admin-papers"
+  | "admin-import-questions"
+  | "admin-import-papers"
+  | "admin-import"
+  | "admin-growth"
+  | "admin-ranking"
+  | "admin-jobs";
+type NavGroup = "content" | "import" | "ops";
+
+const PAGES: Record<PageKey, { group: string; nav: NavGroup; title: string; desc: string }> = {
+  "admin-categories": {
+    group: "内容管理",
+    nav: "content",
+    title: "类目",
+    desc: "最多三级，一至三级都可挂卷。改父级仍禁止走 update；迁移与安全删除走本页预览确认。"
+  },
+  "admin-questions": {
+    group: "内容管理",
+    nav: "content",
+    title: "题库",
+    desc: "单选 / 多选 / 判断。解析必填。图片 ≤2MB，JPG/PNG/WebP。解析图不进公开或会员接口。"
+  },
+  "admin-papers": {
+    group: "内容管理",
+    nav: "content",
+    title: "试卷编排与发布",
+    desc: "组卷、整卷预览、发布、普通下架、紧急撤回。发布不等于公众上线，也不等于 MW13 首页选卷。"
+  },
+  "admin-import-questions": {
+    group: "内容导入",
+    nav: "import",
+    title: "题库导入",
+    desc: "UTF-8 CSV，单文件 ≤5 MB、最多 1000 个数据行。阻断错误整批拒绝。"
+  },
+  "admin-import-papers": {
+    group: "内容导入",
+    nav: "import",
+    title: "试卷导入",
+    desc: "同一卷一题一行。卷级字段必须一致，题序必须连续。未先导题库的试卷导入必须失败。"
+  },
+  "admin-import": {
+    group: "内容导入",
+    nav: "import",
+    title: "导入批次",
+    desc: "预览当前批次、确认提交，并按 ID 回读本批草稿。"
+  },
+  "admin-growth": {
+    group: "运营",
+    nav: "ops",
+    title: "成长等级与勋章配置",
+    desc: "门槛必须从 0 起严格递增。发布前先预览影响人数；不删除既得勋章。VIP 购买或到期不参与加减分。"
+  },
+  "admin-ranking": {
+    group: "运营",
+    nav: "ops",
+    title: "榜单治理",
+    desc: "总分、分类、周进步、月进步四个榜单由服务端快照提供。免费卷与 VIP 卷统一计入，没有费用筛选。"
+  },
+  "admin-jobs": {
+    group: "运营",
+    nav: "ops",
+    title: "任务查询与恢复",
+    desc: "按任务 ID 读取进度，或对失败任务填写原因后恢复。"
+  }
+};
+
+const currentPage = ref<PageKey>("admin-categories");
+const sidebarVisible = ref(true);
+const navExpanded = ref<Record<NavGroup, boolean>>({ content: true, import: true, ops: true });
+let mediaQuery: MediaQueryList | null = null;
+
+function isNarrowViewport(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches;
+}
+
+function syncSidebarToViewport(): void {
+  sidebarVisible.value = !isNarrowViewport();
+}
+
+onMounted(() => {
+  mediaQuery = window.matchMedia("(max-width: 900px)");
+  sidebarVisible.value = !mediaQuery.matches;
+  mediaQuery.addEventListener("change", syncSidebarToViewport);
+});
+onUnmounted(() => {
+  mediaQuery?.removeEventListener("change", syncSidebarToViewport);
+});
+
+function go(page: PageKey): void {
+  currentPage.value = page;
+  navExpanded.value = { ...navExpanded.value, [PAGES[page].nav]: true };
+  if (isNarrowViewport()) sidebarVisible.value = false;
+}
+
+function toggleGroup(key: NavGroup): void {
+  navExpanded.value = { ...navExpanded.value, [key]: !navExpanded.value[key] };
+}
+
+function toggleSidebar(): void {
+  sidebarVisible.value = !sidebarVisible.value;
+}
+
+const currentMeta = computed(() => PAGES[currentPage.value]);
+const identityLabel = computed(() => {
+  if (!session.value?.loggedIn) return "未登录";
+  return session.value.roles.length ? session.value.roles.join(" / ") : "已登录";
+});
+const loginFailed = computed(() => Boolean(session.value && !session.value.loggedIn));
+
 /** 与产品说明书一致的初始建议门槛：用于「填入提高门槛」时整体抬高且保持严格递增。 */
 const RECOMMENDED_MIN_SCORES = [0, 100, 300, 800, 1500, 3000];
 
@@ -269,7 +390,9 @@ async function updateNode(patch: Record<string, unknown>): Promise<void> {
       expectedTreeVersion: treeVersion.value,
       ...patch
     });
-    status.value = result.ok ? "已更新" : `更新失败：${result.error?.code}`;
+    const done =
+      patch.enabled === false ? `已停用 ${nodeName.value || selectedId.value}` : patch.enabled === true ? `已启用 ${nodeName.value || selectedId.value}` : "已更新";
+    status.value = result.ok ? done : `更新失败：${result.error?.code} ${result.error?.details?.reason || ""}`.trim();
     await runCategory("category.tree", {});
   } finally {
     busy.value = false;
@@ -345,6 +468,121 @@ async function tryMoveParent(): Promise<void> {
       name: nodeName.value
     });
     status.value = result.ok ? "改父级不应成功" : `改父级已拒绝：${result.error?.code}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function runCategoryChange(
+  action: "category.change.preview" | "category.change.commit" | "category.change.status",
+  data: Record<string, unknown>
+): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  const result = await callAdminCategoryChange(app, action, data);
+  lastError.value = result.ok ? "" : result.error?.code || "CALL_FAILED";
+  recordEvidence(action, result, data);
+  changeView.value = JSON.stringify(result, null, 2);
+  if (typeof result.data?.previewId === "string") changePreviewId.value = result.data.previewId;
+  if (typeof result.data?.planHash === "string") changePlanHash.value = result.data.planHash;
+  if (typeof result.data?.jobId === "string") changeJobId.value = result.data.jobId;
+  return result;
+}
+
+async function previewCategoryMove(): Promise<void> {
+  if (!selectedId.value) {
+    changeStatusText.value = "请先点选要移动的测试节点，不要用种子十类。";
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await runCategoryChange("category.change.preview", {
+      expectedTreeVersion: treeVersion.value,
+      operations: [
+        { type: "move", categoryId: selectedId.value, parentId: changeTargetParentId.value || null }
+      ]
+    });
+    changeStatusText.value = result.ok
+      ? `预览已生成。planHash=${String(result.data?.planHash || "").slice(0, 12)}… 请确认后再提交。`
+      : `预览失败：${result.error?.code} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function previewCategoryDelete(): Promise<void> {
+  if (!selectedId.value) {
+    changeStatusText.value = "请先点选专用测试节点。有引用必须先迁题迁卷。";
+    return;
+  }
+  busy.value = true;
+  try {
+    const ops: Array<Record<string, unknown>> = [];
+    if (changeTargetParentId.value) {
+      ops.push({ type: "relocatePapers", fromCategoryId: selectedId.value, toCategoryId: changeTargetParentId.value });
+      ops.push({ type: "relocateQuestions", fromCategoryId: selectedId.value, toCategoryId: changeTargetParentId.value });
+    }
+    ops.push({ type: "delete", categoryId: selectedId.value });
+    const result = await runCategoryChange("category.change.preview", {
+      expectedTreeVersion: treeVersion.value,
+      operations: ops
+    });
+    changeStatusText.value = result.ok
+      ? `删除预览已生成。迁卷 ${Array.isArray(result.data?.relocatedPapers) ? result.data.relocatedPapers.length : 0}，迁题 ${Array.isArray(result.data?.relocatedQuestions) ? result.data.relocatedQuestions.length : 0}。`
+      : `删除预览失败：${result.error?.code} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function commitCategoryChangeAction(): Promise<void> {
+  if (!changePreviewId.value || !changePlanHash.value) {
+    changeStatusText.value = "请先预览。commit 不接受本页手填计划。";
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await runCategoryChange("category.change.commit", {
+      previewId: changePreviewId.value,
+      planHash: changePlanHash.value,
+      reason: changeReason.value,
+      confirmed: true
+    });
+    changeStatusText.value = result.ok
+      ? `已提交维护任务 ${String(result.data?.jobId || "")}。notBefore=${String(result.data?.notBefore || "")}。35 秒内不会推进。`
+      : `确认失败：${result.error?.code} ${result.error?.details?.reason || ""} ${result.error?.details?.note || ""}`.trim();
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function refreshChangeStatus(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runCategoryChange("category.change.status", changeJobId.value ? { jobId: changeJobId.value } : {});
+    const catalog = (result.data?.catalog || {}) as Record<string, unknown>;
+    changeStatusText.value = result.ok
+      ? `维护=${catalog.structureUpdating === true ? "进行中" : "未占用"} · 分类榜=${String(catalog.categoryRankingStatus || "")} · ${String(catalog.categoryRankingError || "")}`
+      : `读取进度失败：${result.error?.code}`;
+    if (result.ok && (result.data as { updating?: boolean })?.updating) {
+      nodes.value = [];
+    }
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function resumeChangeJob(): Promise<void> {
+  if (!changeJobId.value) {
+    changeStatusText.value = "没有可恢复的 jobId。job.resume 只用于失败恢复，不能代替正常调度。";
+    return;
+  }
+  busy.value = true;
+  try {
+    const app = await createAdminApp();
+    const result = await callAdminJob(app, "job.resume", { jobId: changeJobId.value, reason: changeReason.value });
+    recordEvidence("job.resume", result, { jobId: changeJobId.value });
+    changeView.value = JSON.stringify(result, null, 2);
+    changeStatusText.value = result.ok ? "已请求恢复。请再读进度。" : `恢复失败：${result.error?.code}`;
   } finally {
     busy.value = false;
   }
@@ -1493,7 +1731,7 @@ async function loadRankingStatus(): Promise<void> {
   }
 }
 
-async function rebuildRankingSnapshot(): Promise<void> {
+async function rebuildRankingSnapshot(scopes?: string[]): Promise<void> {
   busy.value = true;
   try {
     const reason = rReason.value.trim();
@@ -1501,7 +1739,7 @@ async function rebuildRankingSnapshot(): Promise<void> {
       rStatus.value = "重建被拒：请填写重建原因（写审计）。";
       return;
     }
-    const result = await runRanking("ranking.rebuild", { reason });
+    const result = await runRanking("ranking.rebuild", scopes?.length ? { reason, scopes } : { reason });
     if (!result.ok) {
       rStatus.value = `重建被拒：${result.error?.code || "CALL_FAILED"} ${result.error?.details?.reason || ""}`;
       return;
@@ -1543,366 +1781,597 @@ async function logout(): Promise<void> {
     /* still clear local view */
   }
   session.value = null;
+  currentPage.value = "admin-categories";
   status.value = "已退出";
 }
 </script>
 
 <template>
-  <main>
-    <h1>思维工坊后台</h1>
-    <p>使用 CloudBase 用户名密码。密码只在浏览器本次提交，不要把密码发给对话。</p>
-    <label>
-      用户名
-      <input v-model="username" autocomplete="username" />
-    </label>
-    <label>
-      密码
-      <input v-model="password" type="password" autocomplete="current-password" />
-    </label>
-    <button type="button" :disabled="busy" @click="login">登录并读取 admin.me</button>
-    <button type="button" class="ghost" :disabled="busy" @click="logout">退出</button>
-    <p class="status">{{ status }}</p>
-    <pre v-if="session">{{ JSON.stringify(session, null, 2) }}</pre>
-    <section v-if="session?.loggedIn" data-page="admin-categories">
-      <h2>类目</h2>
-      <p>最多三级，一至三级都可挂卷。改父级必须走预览，本页不提交改父级成功路径。</p>
-      <p>treeVersion={{ treeVersion }} · 写并发字段 expectedTreeVersion</p>
-      <button type="button" :disabled="busy" @click="seedRoots">确保初始十类</button>
-      <button type="button" class="ghost" :disabled="busy" @click="refreshTree">刷新树</button>
-      <ul class="tree">
-        <li v-for="row in nodes" :key="nodeId(row)">
-          <button type="button" class="ghost" @click="pick(row)">
-            {{ indent(row.depth) }}{{ row.name }} · d{{ row.depth }} · sort {{ row.sort }} ·
-            {{ row.enabled ? "启用" : "停用" }}
-          </button>
-        </li>
-      </ul>
-      <label>
-        父级 ID（空=一级）
-        <input v-model="parentId" autocomplete="off" />
-      </label>
-      <label>
-        名称
-        <input v-model="nodeName" autocomplete="off" />
-      </label>
-      <label>
-        排序
-        <input v-model.number="nodeSort" type="number" />
-      </label>
-      <button type="button" :disabled="busy" @click="createNode">新增</button>
-      <button type="button" :disabled="busy" @click="updateNode({ name: nodeName })">改名</button>
-      <button type="button" :disabled="busy" @click="updateNode({ sort: nodeSort })">改排序</button>
-      <button type="button" :disabled="busy" @click="updateNode({ enabled: false })">停用</button>
-      <button type="button" :disabled="busy" @click="updateNode({ enabled: true })">启用</button>
-      <button type="button" :disabled="busy" @click="deleteNode">删除无占用</button>
-      <button type="button" class="ghost" :disabled="busy" @click="tryFourth">尝试第四级</button>
-      <button type="button" class="ghost" :disabled="busy" @click="tryDuplicate">尝试同级重名</button>
-      <button type="button" class="ghost" :disabled="busy" @click="tryMoveParent">尝试改父级（应被拒）</button>
-      <p v-if="lastError" class="status">最近错误码 {{ lastError }}</p>
-      <button type="button" class="ghost" @click="copyEvidence">复制脱敏证据</button>
-      <pre data-testid="category-evidence">{{ evidence }}</pre>
-    </section>
-    <section v-if="session?.loggedIn" data-page="admin-questions">
-      <h1>题库</h1>
-      <p>单选 / 多选 / 判断。解析必填。图片 ≤2MB，JPG/PNG/WebP。解析图不进公开或会员接口。</p>
-      <p class="status">
-        同一票据重放不用手点：选图上传成功后，页面会立刻用同一张票再传一次。状态出现「重放已拒绝」、证据里
-        <code>mw-upload.replay</code> 的 <code>TICKET_REPLAY</code> 即算完成。
-      </p>
-      <label>
-        类目 ID
-        <input v-model="qCategoryId" autocomplete="off" />
-      </label>
-      <label>
-        题型
-        <select v-model="qType">
-          <option value="single">单选</option>
-          <option value="multiple">多选</option>
-          <option value="trueFalse">判断</option>
-        </select>
-      </label>
-      <label>
-        题干
-        <textarea v-model="qStem" rows="3"></textarea>
-      </label>
-      <label v-if="qType !== 'trueFalse'">
-        选项（每行一项）
-        <textarea v-model="qOptions" rows="4"></textarea>
-      </label>
-      <label>
-        正确答案（单选 A；多选 A|C；判断 TRUE/FALSE）
-        <input v-model="qAnswers" autocomplete="off" />
-      </label>
-      <label>
-        解析
-        <textarea v-model="qAnalysis" rows="3"></textarea>
-      </label>
-      <label>
-        默认分值
-        <input v-model.number="qPoints" type="number" min="1" />
-      </label>
-      <label>
-        难度
-        <select v-model="qDifficulty">
-          <option value="beginner">入门</option>
-          <option value="intermediate">进阶</option>
-          <option value="challenge">挑战</option>
-        </select>
-      </label>
-      <label>
-        题干图
-        <input type="file" accept="image/jpeg,image/png,image/webp" @change="uploadPicked(($event.target as HTMLInputElement).files?.[0], 'prompt')" />
-      </label>
-      <label>
-        解析图
-        <input type="file" accept="image/jpeg,image/png,image/webp" @change="uploadPicked(($event.target as HTMLInputElement).files?.[0], 'analysis')" />
-      </label>
-      <p v-if="!qComplete || previewFailed" class="status">缺图或加载失败，本题不能当作完整题显示。</p>
-      <div v-if="previewUrl" class="preview">
-        <button type="button" class="ghost" @click="openPreview">预览 / 放大 {{ previewKind }}</button>
-        <img :src="previewUrl" alt="题目图片预览" @error="previewFailed = true" />
-      </div>
-      <div v-if="previewOpen" class="zoom" @click="previewOpen = false">
-        <img :src="previewUrl" alt="放大预览" />
-      </div>
-      <button type="button" :disabled="busy" @click="saveQuestion">保存题目</button>
-      <button type="button" class="ghost" :disabled="busy" @click="startNewQuestion">新建下一题</button>
-      <button type="button" class="ghost" :disabled="busy" @click="loadQuestion">读取并重载</button>
-      <button type="button" class="ghost" :disabled="busy" @click="disableCurrent">停用当前题</button>
-      <button type="button" class="ghost" @click="copyQuestionEvidence">复制题库脱敏证据</button>
-      <p class="status">question revision={{ qRevision }} · status={{ qStatus }} · ticketOnce={{ lastTicketOnce }}</p>
-      <pre data-testid="question-evidence">{{ qEvidence }}</pre>
-    </section>
-    <section v-if="session?.loggedIn" data-page="admin-papers">
-      <h1>试卷编排与发布</h1>
-      <p>
-        组卷、整卷预览、发布、普通下架、紧急撤回。发布不等于公众上线，也不等于 MW13 首页选卷。解析图不得进公开包。
-      </p>
-      <label>
-        标题
-        <input v-model="pTitle" autocomplete="off" />
-      </label>
-      <label>
-        简介
-        <input v-model="pSummary" autocomplete="off" />
-      </label>
-      <label>
-        练习目标
-        <input v-model="pGoal" autocomplete="off" />
-      </label>
-      <label>
-        权限
-        <select v-model="pAccess">
-          <option value="free">免费</option>
-          <option value="vip">VIP</option>
-        </select>
-      </label>
-      <label>
-        难度
-        <select v-model="pDifficulty">
-          <option value="beginner">入门</option>
-          <option value="intermediate">进阶</option>
-          <option value="challenge">挑战</option>
-        </select>
-      </label>
-      <label>
-        排序
-        <input v-model.number="pSort" type="number" />
-      </label>
-      <p class="status">
-        当前题库题：{{ qQuestionId || "还没有。请先在上方题库点「保存题目」" }} · 类目：{{ qCategoryId || selectedId || "未选" }}
-      </p>
-      <p class="status">{{ pLocalStatus }}</p>
-      <label>
-        题目（不要手填 111/222。用「加入上方当前题」带入真实 questionId）
-        <textarea v-model="pItemText" rows="6" placeholder="先保存题库题，再点加入"></textarea>
-      </label>
-      <button type="button" class="ghost" :disabled="busy" @click="addCurrentQuestion">加入上方当前题</button>
-      <button type="button" :disabled="busy" @click="savePaperDraft">保存草稿</button>
-      <button type="button" :disabled="busy" @click="previewPaper">整卷预览</button>
-      <button type="button" :disabled="busy" @click="publishPaper()">发布</button>
-      <button type="button" class="ghost" :disabled="busy" @click="publishPaper('missingChunk')">故意缺块发布（应拒绝）</button>
-      <button type="button" class="ghost" :disabled="busy" @click="publishPaper('badManifest')">故意坏摘要发布（应拒绝）</button>
-      <button type="button" class="ghost" :disabled="busy" @click="readPublishedSnapshot">读取已发布快照</button>
-      <button type="button" :disabled="busy" @click="unpublishPaper">普通下架</button>
-      <label>
-        紧急撤回原因
-        <input v-model="pWithdrawReason" autocomplete="off" />
-      </label>
-      <button type="button" :disabled="busy" @click="withdrawPaper">紧急撤回</button>
-      <button type="button" class="ghost" @click="copyPaperEvidence">复制试卷 knownIds</button>
-      <p class="status">
-        paper revision={{ pRevision }} · status={{ pStatus }} · 题数={{ pQuestionCount }} · 满分={{ pMaxScore }}
-      </p>
-      <pre data-testid="paper-preview">{{ pPreview }}</pre>
-      <pre data-testid="paper-evidence">{{ pEvidence }}</pre>
-    </section>
-    <section v-if="session?.loggedIn" data-page="admin-import-questions">
-      <h1>题库导入</h1>
-      <p>
-        UTF-8 CSV，单文件 ≤5 MB、最多 1000 个数据行。字段：导入来源键、类目标识、题型、题干、选项 A—H、正确答案、解析、默认分值、难度、可选图片素材标识。多选答案 A|C；判断 TRUE/FALSE。阻断错误整批拒绝。
-      </p>
-      <button type="button" class="ghost" @click="iKind = 'question'; downloadQuestionTemplate()">下载题库模板</button>
-      <button type="button" class="ghost" @click="downloadFilledSamples">用当前类目生成虚构样例</button>
-      <label>
-        上传虚构题库 CSV
-        <input type="file" accept=".csv,text/csv,text/plain" @change="iKind = 'question'; uploadImportFile(($event.target as HTMLInputElement).files?.[0])" />
-      </label>
-    </section>
-    <section v-if="session?.loggedIn" data-page="admin-import-papers">
-      <h1>试卷导入</h1>
-      <p>
-        同一卷一题一行。卷级字段必须一致，题序必须连续。只能引用已存在且可用的题目来源键。未先导题库的试卷导入必须失败。
-      </p>
-      <button type="button" class="ghost" @click="iKind = 'paper'; downloadPaperTemplate()">下载试卷模板</button>
-      <label>
-        上传虚构试卷 CSV
-        <input type="file" accept=".csv,text/csv,text/plain" @change="iKind = 'paper'; uploadImportFile(($event.target as HTMLInputElement).files?.[0])" />
-      </label>
-    </section>
-    <section v-if="session?.loggedIn" data-page="admin-import">
-      <h2>导入预览、提交与批次</h2>
-      <p class="status">{{ iStatus }}</p>
-      <p class="status">kind={{ iKind }} · batchState={{ iBatchState }} · 来源键 {{ iSampleKeys.length }}</p>
-      <button type="button" :disabled="busy" @click="previewImportBatch">预览当前批次</button>
-      <button type="button" :disabled="busy" @click="commitImportBatch">确认提交</button>
-      <button type="button" class="ghost" :disabled="busy" @click="readImportStatus">刷新批次状态</button>
-      <button type="button" class="ghost" :disabled="busy" @click="readImportedDrafts">按 ID 读本批草稿</button>
-      <button type="button" class="ghost" @click="copyImportEvidence">复制 knownIds</button>
-      <pre data-testid="import-preview">{{ iPreview }}</pre>
-      <pre data-testid="import-evidence">{{ iEvidence }}</pre>
-    </section>
-    <section v-if="session?.loggedIn" data-page="admin-growth">
-      <h1>成长等级与勋章配置</h1>
-      <p>
-        门槛必须从 0 起严格递增，名称与勋章不可缺失。发布前先预览影响人数；发布会产生新配置版本、按现有总分重算等级并补发新达到的勋章，
-        <strong>不删除既得勋章</strong>。上线门槛在 MW28 才冻结，本页只做可配置与预览发布。VIP 购买或到期不参与加减分。
-      </p>
-      <p class="status">
-        configVersion={{ gConfigVersion ?? "未读取" }} · 来源={{ gConfigSource || "未读取" }} · 发布需要 super 角色，预览任意后台角色可看
-      </p>
-      <button type="button" :disabled="busy" @click="loadGrowthConfig">读取当前等级配置</button>
-      <p class="status">
-        顺序：读取 →（可选）快速填充 → 预览影响（不写库）→ 发布门槛并重算。发布以云端回读版本为准，预览不改版本。
-      </p>
-      <button type="button" class="ghost" :disabled="busy" @click="fillLevels('crossLevel')">填入跨级门槛 L2=5/L3=8</button>
-      <button type="button" class="ghost" :disabled="busy" @click="fillLevels('raise')">填入提高门槛（建议 100 起）</button>
-      <button type="button" class="ghost" :disabled="busy" @click="fillLevels('invalidFirst')">填入非法门槛（首级非 0）</button>
-      <button type="button" class="ghost" :disabled="busy" @click="fillLevels('missingMedal')">填入缺勋章名</button>
-      <label>
-        等级门槛 JSON（levelId / name / minScore / medalId / medalName）
-        <textarea v-model="gLevelsText" data-testid="growth-levels" rows="12"></textarea>
-      </label>
-      <label>
-        发布原因（写审计）
-        <input v-model="gReason" autocomplete="off" />
-      </label>
-      <button type="button" class="ghost" :disabled="busy" @click="previewGrowth">预览影响（不写库）</button>
-      <button type="button" :disabled="busy" @click="publishGrowth">发布门槛并重算</button>
-      <label>
-        重算目标会员（可空；空=按扫描批量重算）
-        <input v-model="gMemberId" autocomplete="off" />
-      </label>
-      <button type="button" class="ghost" :disabled="busy" @click="recomputeGrowthLevels">按当前门槛重算等级</button>
-      <p class="status">{{ gStatus }}</p>
-      <pre data-testid="growth-impact">{{ gImpact }}</pre>
-      <button type="button" class="ghost" @click="copyGrowthEvidence">复制等级配置证据</button>
-      <pre data-testid="growth-evidence">{{ gEvidence }}</pre>
-    </section>
-    <section v-if="session?.loggedIn" data-page="admin-ranking">
-      <h1>榜单治理（四维排行榜快照）</h1>
-      <p>
-        总分、分类、周进步、月进步四个榜单由服务端快照提供。重建会先写齐该代全部名次行，再切换板块头；
-        失败时继续提供上一完整代并显示「更新延迟」。免费卷与 VIP 卷统一计入，<strong>没有费用筛选</strong>。
-        历史累计总分与可追溯榜值的差异只做显式说明，<strong>不补记历史事件</strong>。
-      </p>
-      <p class="status">读取状态任意已启用后台角色可看；重建并发布需要 super 角色，且必须填写原因（写审计）。</p>
-      <label>
-        重建原因（写审计）
-        <input v-model="rReason" autocomplete="off" />
-      </label>
-      <button type="button" :disabled="busy" @click="loadRankingStatus">读取榜单快照状态</button>
-      <button type="button" :disabled="busy" @click="rebuildRankingSnapshot">重建并发布榜单快照</button>
-      <p class="status">{{ rStatus }}</p>
-      <pre data-testid="ranking-status">{{ rView }}</pre>
-      <button type="button" class="ghost" @click="copyRankingEvidence">复制榜单治理证据</button>
-      <pre data-testid="ranking-evidence">{{ rEvidence }}</pre>
-    </section>
-    <section v-if="session?.loggedIn">
-      <h2>任务查询与恢复</h2>
-      <label>
-        任务 ID
-        <input v-model="jobId" autocomplete="off" />
-      </label>
-      <label>
-        恢复原因
-        <input v-model="resumeReason" autocomplete="off" />
-      </label>
-      <button type="button" :disabled="busy || !jobId" @click="runJob('job.get')">已登录 job.get</button>
-      <button type="button" :disabled="busy || !jobId" @click="runJob('job.resume')">已登录 job.resume</button>
-      <pre v-if="jobResult" data-testid="job-result">{{ jobResult }}</pre>
+  <main v-if="!session?.loggedIn" class="login-view">
+    <section class="login-card" aria-labelledby="login-title">
+      <p class="brand">思维工坊 · 管理后台</p>
+      <h1 id="login-title">管理员登录</h1>
+      <p class="muted">使用 CloudBase 用户名密码。密码只在浏览器本次提交，不要把密码发给对话。</p>
+      <form @submit.prevent="login">
+        <label>
+          账号
+          <input v-model="username" autocomplete="username" :disabled="busy" />
+        </label>
+        <label>
+          密码
+          <input v-model="password" type="password" autocomplete="current-password" :disabled="busy" />
+        </label>
+        <button type="submit" :disabled="busy">登录并读取 admin.me</button>
+        <p v-if="loginFailed" class="field-error" role="alert">{{ status }}</p>
+        <p v-else class="muted">{{ status }}</p>
+      </form>
     </section>
   </main>
+
+  <div v-else class="app-view">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button
+          class="icon-btn"
+          type="button"
+          aria-label="折叠导航"
+          :aria-expanded="sidebarVisible ? 'true' : 'false'"
+          aria-controls="sidebar"
+          @click="toggleSidebar"
+        >
+          ☰
+        </button>
+        <span class="brand">思维工坊</span>
+        <span class="brand-sep">/</span>
+        <span class="brand-sub">管理后台</span>
+      </div>
+      <div class="topbar-right">
+        <span class="identity-tag">{{ identityLabel }}</span>
+        <button class="ghost-btn" type="button" :disabled="busy" @click="logout">退出登录</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav id="sidebar" class="sidebar" aria-label="主导航" :hidden="!sidebarVisible">
+        <div class="nav-section">
+          <button
+            class="nav-group"
+            type="button"
+            :aria-expanded="navExpanded.content ? 'true' : 'false'"
+            aria-controls="nav-pages-content"
+            @click="toggleGroup('content')"
+          >
+            内容管理
+          </button>
+          <div id="nav-pages-content" class="nav-pages" :hidden="!navExpanded.content">
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-categories' }"
+              :aria-current="currentPage === 'admin-categories' ? 'page' : undefined"
+              @click="go('admin-categories')"
+            >
+              类目
+            </button>
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-questions' }"
+              :aria-current="currentPage === 'admin-questions' ? 'page' : undefined"
+              @click="go('admin-questions')"
+            >
+              题库
+            </button>
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-papers' }"
+              :aria-current="currentPage === 'admin-papers' ? 'page' : undefined"
+              @click="go('admin-papers')"
+            >
+              试卷编排
+            </button>
+          </div>
+        </div>
+        <div class="nav-section">
+          <button
+            class="nav-group"
+            type="button"
+            :aria-expanded="navExpanded.import ? 'true' : 'false'"
+            aria-controls="nav-pages-import"
+            @click="toggleGroup('import')"
+          >
+            内容导入
+          </button>
+          <div id="nav-pages-import" class="nav-pages" :hidden="!navExpanded.import">
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-import-questions' }"
+              :aria-current="currentPage === 'admin-import-questions' ? 'page' : undefined"
+              @click="go('admin-import-questions')"
+            >
+              题库导入
+            </button>
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-import-papers' }"
+              :aria-current="currentPage === 'admin-import-papers' ? 'page' : undefined"
+              @click="go('admin-import-papers')"
+            >
+              试卷导入
+            </button>
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-import' }"
+              :aria-current="currentPage === 'admin-import' ? 'page' : undefined"
+              @click="go('admin-import')"
+            >
+              导入批次
+            </button>
+          </div>
+        </div>
+        <div class="nav-section">
+          <button
+            class="nav-group"
+            type="button"
+            :aria-expanded="navExpanded.ops ? 'true' : 'false'"
+            aria-controls="nav-pages-ops"
+            @click="toggleGroup('ops')"
+          >
+            运营
+          </button>
+          <div id="nav-pages-ops" class="nav-pages" :hidden="!navExpanded.ops">
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-growth' }"
+              :aria-current="currentPage === 'admin-growth' ? 'page' : undefined"
+              @click="go('admin-growth')"
+            >
+              成长等级
+            </button>
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-ranking' }"
+              :aria-current="currentPage === 'admin-ranking' ? 'page' : undefined"
+              @click="go('admin-ranking')"
+            >
+              榜单治理
+            </button>
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-jobs' }"
+              :aria-current="currentPage === 'admin-jobs' ? 'page' : undefined"
+              @click="go('admin-jobs')"
+            >
+              任务查询
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <div class="main">
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-categories' }" data-page="admin-categories">
+          <p class="breadcrumb">{{ currentMeta.group }} / {{ currentMeta.title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ currentMeta.title }}</h1>
+              <p class="page-desc">{{ currentMeta.desc }}</p>
+            </div>
+            <div class="page-actions">
+              <button type="button" class="primary-btn" :disabled="busy" @click="seedRoots">确保初始十类</button>
+              <button type="button" class="ghost" :disabled="busy" @click="refreshTree">刷新树</button>
+            </div>
+          </div>
+          <p class="status">treeVersion={{ treeVersion }} · 写并发字段 expectedTreeVersion</p>
+          <p v-if="status" class="status">{{ status }}</p>
+          <div class="workspace">
+            <div class="tree-pane">
+              <ul class="tree">
+                <li v-for="row in nodes" :key="nodeId(row)" class="tree-node">
+                  <button
+                    type="button"
+                    class="tree-row"
+                    :class="{ selected: nodeId(row) === selectedId }"
+                    @click="pick(row)"
+                  >
+                    <span class="tree-label">{{ indent(row.depth) }}{{ row.name }}</span>
+                    <span class="tree-meta">d{{ row.depth }} · {{ row.sort }} · {{ row.enabled ? "启用" : "停用" }}</span>
+                  </button>
+                </li>
+              </ul>
+              <p v-if="!nodes.length" class="status">暂无类目。可先点「确保初始十类」。 </p>
+            </div>
+            <div class="detail-pane">
+              <h2 class="detail-title">{{ nodeName || "未选择类目" }}</h2>
+              <p class="detail-meta">当前 ID {{ selectedId || "—" }}</p>
+              <p class="detail-meta">当前父级 {{ selected?.parentId || "（一级）" }}</p>
+              <label>
+                新增用的父级 ID（默认=当前选中，空=一级）
+                <input v-model="parentId" autocomplete="off" />
+              </label>
+              <label>
+                名称
+                <input v-model="nodeName" autocomplete="off" />
+              </label>
+              <label>
+                排序
+                <input v-model.number="nodeSort" type="number" />
+              </label>
+              <div class="actions">
+                <button type="button" :disabled="busy" @click="createNode">新增</button>
+                <button type="button" :disabled="busy" @click="updateNode({ name: nodeName })">改名</button>
+                <button type="button" :disabled="busy" @click="updateNode({ sort: nodeSort })">改排序</button>
+                <button type="button" :disabled="busy" @click="updateNode({ enabled: true })">启用</button>
+                <button type="button" class="danger-btn" :disabled="busy" @click="updateNode({ enabled: false })">停用</button>
+                <button type="button" class="danger-btn" :disabled="busy" @click="deleteNode">删除无占用</button>
+              </div>
+              <div class="actions">
+                <button type="button" class="ghost" :disabled="busy" @click="tryFourth">尝试第四级</button>
+                <button type="button" class="ghost" :disabled="busy" @click="tryDuplicate">尝试同级重名</button>
+                <button type="button" class="ghost" :disabled="busy" @click="tryMoveParent">尝试改父级（应被拒）</button>
+                <button type="button" class="ghost" @click="copyEvidence">复制脱敏证据</button>
+              </div>
+              <p v-if="lastError" class="status error">最近错误码 {{ lastError }}</p>
+            </div>
+          </div>
+          <div class="card form-block">
+            <h2 class="panel-subtitle">MW18 类目迁移与安全删除</h2>
+            <p class="page-desc">仅 super。请只用本轮专用测试子树，不要把种子十类当可删除对象。过期预览需重新预览。</p>
+            <p class="status">{{ changeStatusText }}</p>
+            <label>
+              目标父级 ID（空=升到一级；删除时填迁题迁卷目标）
+              <input v-model="changeTargetParentId" autocomplete="off" />
+            </label>
+            <label>
+              原因
+              <input v-model="changeReason" autocomplete="off" />
+            </label>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="previewCategoryMove">预览移动选中节点</button>
+              <button type="button" :disabled="busy" @click="previewCategoryDelete">预览迁出后删除</button>
+              <button type="button" :disabled="busy" @click="commitCategoryChangeAction">确认提交维护任务</button>
+              <button type="button" class="ghost" :disabled="busy" @click="refreshChangeStatus">读取迁移进度</button>
+              <button type="button" class="ghost" :disabled="busy" @click="resumeChangeJob">恢复失败任务</button>
+            </div>
+            <pre data-testid="category-change-view">{{ changeView }}</pre>
+          </div>
+          <pre data-testid="category-evidence">{{ evidence }}</pre>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-questions' }" data-page="admin-questions">
+          <p class="breadcrumb">{{ PAGES["admin-questions"].group }} / {{ PAGES["admin-questions"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-questions"].title }}</h1>
+              <p class="page-desc">{{ PAGES["admin-questions"].desc }}</p>
+            </div>
+          </div>
+          <p class="message">
+            同一票据重放不用手点：选图上传成功后，页面会立刻用同一张票再传一次。状态出现「重放已拒绝」、证据里
+            <code>mw-upload.replay</code> 的 <code>TICKET_REPLAY</code> 即算完成。
+          </p>
+          <div class="card">
+            <label>
+              类目 ID
+              <input v-model="qCategoryId" autocomplete="off" />
+            </label>
+            <label>
+              题型
+              <select v-model="qType">
+                <option value="single">单选</option>
+                <option value="multiple">多选</option>
+                <option value="trueFalse">判断</option>
+              </select>
+            </label>
+            <label>
+              题干
+              <textarea v-model="qStem" rows="3"></textarea>
+            </label>
+            <label v-if="qType !== 'trueFalse'">
+              选项（每行一项）
+              <textarea v-model="qOptions" rows="4"></textarea>
+            </label>
+            <label>
+              正确答案（单选 A；多选 A|C；判断 TRUE/FALSE）
+              <input v-model="qAnswers" autocomplete="off" />
+            </label>
+            <label>
+              解析
+              <textarea v-model="qAnalysis" rows="3"></textarea>
+            </label>
+            <label>
+              默认分值
+              <input v-model.number="qPoints" type="number" min="1" />
+            </label>
+            <label>
+              难度
+              <select v-model="qDifficulty">
+                <option value="beginner">入门</option>
+                <option value="intermediate">进阶</option>
+                <option value="challenge">挑战</option>
+              </select>
+            </label>
+            <label>
+              题干图
+              <input type="file" accept="image/jpeg,image/png,image/webp" @change="uploadPicked(($event.target as HTMLInputElement).files?.[0], 'prompt')" />
+            </label>
+            <label>
+              解析图
+              <input type="file" accept="image/jpeg,image/png,image/webp" @change="uploadPicked(($event.target as HTMLInputElement).files?.[0], 'analysis')" />
+            </label>
+            <p v-if="!qComplete || previewFailed" class="status error">缺图或加载失败，本题不能当作完整题显示。</p>
+            <div v-if="previewUrl" class="preview">
+              <button type="button" class="ghost" @click="openPreview">预览 / 放大 {{ previewKind }}</button>
+              <img :src="previewUrl" alt="题目图片预览" @error="previewFailed = true" />
+            </div>
+            <div v-if="previewOpen" class="zoom" @click="previewOpen = false">
+              <img :src="previewUrl" alt="放大预览" />
+            </div>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="saveQuestion">保存题目</button>
+              <button type="button" class="ghost" :disabled="busy" @click="startNewQuestion">新建下一题</button>
+              <button type="button" class="ghost" :disabled="busy" @click="loadQuestion">读取并重载</button>
+              <button type="button" class="ghost" :disabled="busy" @click="disableCurrent">停用当前题</button>
+              <button type="button" class="ghost" @click="copyQuestionEvidence">复制题库脱敏证据</button>
+            </div>
+            <p class="status">question revision={{ qRevision }} · status={{ qStatus }} · ticketOnce={{ lastTicketOnce }}</p>
+          </div>
+          <pre data-testid="question-evidence">{{ qEvidence }}</pre>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-papers' }" data-page="admin-papers">
+          <p class="breadcrumb">{{ PAGES["admin-papers"].group }} / {{ PAGES["admin-papers"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-papers"].title }}</h1>
+              <p class="page-desc">{{ PAGES["admin-papers"].desc }} 解析图不得进公开包。</p>
+            </div>
+          </div>
+          <div class="card">
+            <label>
+              标题
+              <input v-model="pTitle" autocomplete="off" />
+            </label>
+            <label>
+              简介
+              <input v-model="pSummary" autocomplete="off" />
+            </label>
+            <label>
+              练习目标
+              <input v-model="pGoal" autocomplete="off" />
+            </label>
+            <label>
+              权限
+              <select v-model="pAccess">
+                <option value="free">免费</option>
+                <option value="vip">VIP</option>
+              </select>
+            </label>
+            <label>
+              难度
+              <select v-model="pDifficulty">
+                <option value="beginner">入门</option>
+                <option value="intermediate">进阶</option>
+                <option value="challenge">挑战</option>
+              </select>
+            </label>
+            <label>
+              排序
+              <input v-model.number="pSort" type="number" />
+            </label>
+            <p class="status">
+              当前题库题：{{ qQuestionId || "还没有。请先在题库页点「保存题目」" }} · 类目：{{ qCategoryId || selectedId || "未选" }}
+            </p>
+            <p class="status">{{ pLocalStatus }}</p>
+            <label>
+              题目（不要手填 111/222。用「加入上方当前题」带入真实 questionId）
+              <textarea v-model="pItemText" rows="6" placeholder="先保存题库题，再点加入"></textarea>
+            </label>
+            <div class="actions">
+              <button type="button" class="ghost" :disabled="busy" @click="addCurrentQuestion">加入上方当前题</button>
+              <button type="button" :disabled="busy" @click="savePaperDraft">保存草稿</button>
+              <button type="button" :disabled="busy" @click="previewPaper">整卷预览</button>
+              <button type="button" :disabled="busy" @click="publishPaper()">发布</button>
+              <button type="button" class="ghost" :disabled="busy" @click="publishPaper('missingChunk')">故意缺块发布（应拒绝）</button>
+              <button type="button" class="ghost" :disabled="busy" @click="publishPaper('badManifest')">故意坏摘要发布（应拒绝）</button>
+              <button type="button" class="ghost" :disabled="busy" @click="readPublishedSnapshot">读取已发布快照</button>
+              <button type="button" :disabled="busy" @click="unpublishPaper">普通下架</button>
+            </div>
+            <label>
+              紧急撤回原因
+              <input v-model="pWithdrawReason" autocomplete="off" />
+            </label>
+            <div class="actions">
+              <button type="button" class="danger-btn" :disabled="busy" @click="withdrawPaper">紧急撤回</button>
+              <button type="button" class="ghost" @click="copyPaperEvidence">复制试卷 knownIds</button>
+            </div>
+            <p class="status">
+              paper revision={{ pRevision }} · status={{ pStatus }} · 题数={{ pQuestionCount }} · 满分={{ pMaxScore }}
+            </p>
+          </div>
+          <pre data-testid="paper-preview">{{ pPreview }}</pre>
+          <pre data-testid="paper-evidence">{{ pEvidence }}</pre>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-import-questions' }" data-page="admin-import-questions">
+          <p class="breadcrumb">{{ PAGES["admin-import-questions"].group }} / {{ PAGES["admin-import-questions"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-import-questions"].title }}</h1>
+              <p class="page-desc">
+                UTF-8 CSV，单文件 ≤5 MB、最多 1000 个数据行。字段：导入来源键、类目标识、题型、题干、选项 A—H、正确答案、解析、默认分值、难度、可选图片素材标识。多选答案 A|C；判断 TRUE/FALSE。阻断错误整批拒绝。
+              </p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="actions">
+              <button type="button" class="ghost" @click="iKind = 'question'; downloadQuestionTemplate()">下载题库模板</button>
+              <button type="button" class="ghost" @click="downloadFilledSamples">用当前类目生成虚构样例</button>
+            </div>
+            <label>
+              上传虚构题库 CSV
+              <input type="file" accept=".csv,text/csv,text/plain" @change="iKind = 'question'; uploadImportFile(($event.target as HTMLInputElement).files?.[0])" />
+            </label>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-import-papers' }" data-page="admin-import-papers">
+          <p class="breadcrumb">{{ PAGES["admin-import-papers"].group }} / {{ PAGES["admin-import-papers"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-import-papers"].title }}</h1>
+              <p class="page-desc">{{ PAGES["admin-import-papers"].desc }} 只能引用已存在且可用的题目来源键。</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="actions">
+              <button type="button" class="ghost" @click="iKind = 'paper'; downloadPaperTemplate()">下载试卷模板</button>
+            </div>
+            <label>
+              上传虚构试卷 CSV
+              <input type="file" accept=".csv,text/csv,text/plain" @change="iKind = 'paper'; uploadImportFile(($event.target as HTMLInputElement).files?.[0])" />
+            </label>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-import' }" data-page="admin-import">
+          <p class="breadcrumb">{{ PAGES["admin-import"].group }} / {{ PAGES["admin-import"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">导入预览、提交与批次</h1>
+              <p class="page-desc">{{ PAGES["admin-import"].desc }}</p>
+            </div>
+          </div>
+          <div class="card">
+            <p class="status">{{ iStatus }}</p>
+            <p class="status">kind={{ iKind }} · batchState={{ iBatchState }} · 来源键 {{ iSampleKeys.length }}</p>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="previewImportBatch">预览当前批次</button>
+              <button type="button" :disabled="busy" @click="commitImportBatch">确认提交</button>
+              <button type="button" class="ghost" :disabled="busy" @click="readImportStatus">刷新批次状态</button>
+              <button type="button" class="ghost" :disabled="busy" @click="readImportedDrafts">按 ID 读本批草稿</button>
+              <button type="button" class="ghost" @click="copyImportEvidence">复制 knownIds</button>
+            </div>
+            <pre data-testid="import-preview">{{ iPreview }}</pre>
+            <pre data-testid="import-evidence">{{ iEvidence }}</pre>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-growth' }" data-page="admin-growth">
+          <p class="breadcrumb">{{ PAGES["admin-growth"].group }} / {{ PAGES["admin-growth"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-growth"].title }}</h1>
+              <p class="page-desc">
+                门槛必须从 0 起严格递增，名称与勋章不可缺失。发布会产生新配置版本、按现有总分重算等级并补发新达到的勋章，
+                <strong>不删除既得勋章</strong>。上线门槛在 MW28 才冻结，本页只做可配置与预览发布。
+              </p>
+            </div>
+          </div>
+          <div class="card">
+            <p class="status">
+              configVersion={{ gConfigVersion ?? "未读取" }} · 来源={{ gConfigSource || "未读取" }} · 发布需要 super 角色，预览任意后台角色可看
+            </p>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="loadGrowthConfig">读取当前等级配置</button>
+            </div>
+            <p class="status">
+              顺序：读取 →（可选）快速填充 → 预览影响（不写库）→ 发布门槛并重算。发布以云端回读版本为准，预览不改版本。
+            </p>
+            <div class="actions">
+              <button type="button" class="ghost" :disabled="busy" @click="fillLevels('crossLevel')">填入跨级门槛 L2=5/L3=8</button>
+              <button type="button" class="ghost" :disabled="busy" @click="fillLevels('raise')">填入提高门槛（建议 100 起）</button>
+              <button type="button" class="ghost" :disabled="busy" @click="fillLevels('invalidFirst')">填入非法门槛（首级非 0）</button>
+              <button type="button" class="ghost" :disabled="busy" @click="fillLevels('missingMedal')">填入缺勋章名</button>
+            </div>
+            <label>
+              等级门槛 JSON（levelId / name / minScore / medalId / medalName）
+              <textarea v-model="gLevelsText" data-testid="growth-levels" rows="12"></textarea>
+            </label>
+            <label>
+              发布原因（写审计）
+              <input v-model="gReason" autocomplete="off" />
+            </label>
+            <div class="actions">
+              <button type="button" class="ghost" :disabled="busy" @click="previewGrowth">预览影响（不写库）</button>
+              <button type="button" :disabled="busy" @click="publishGrowth">发布门槛并重算</button>
+            </div>
+            <label>
+              重算目标会员（可空；空=按扫描批量重算）
+              <input v-model="gMemberId" autocomplete="off" />
+            </label>
+            <div class="actions">
+              <button type="button" class="ghost" :disabled="busy" @click="recomputeGrowthLevels">按当前门槛重算等级</button>
+              <button type="button" class="ghost" @click="copyGrowthEvidence">复制等级配置证据</button>
+            </div>
+            <p class="status">{{ gStatus }}</p>
+            <pre data-testid="growth-impact">{{ gImpact }}</pre>
+            <pre data-testid="growth-evidence">{{ gEvidence }}</pre>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-ranking' }" data-page="admin-ranking">
+          <p class="breadcrumb">{{ PAGES["admin-ranking"].group }} / {{ PAGES["admin-ranking"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">榜单治理（四维排行榜快照）</h1>
+              <p class="page-desc">
+                总分、分类、周进步、月进步四个榜单由服务端快照提供。重建会先写齐该代全部名次行，再切换板块头；
+                失败时继续提供上一完整代并显示「更新延迟」。免费卷与 VIP 卷统一计入，<strong>没有费用筛选</strong>。
+                历史累计总分与可追溯榜值的差异只做显式说明，<strong>不补记历史事件</strong>。
+              </p>
+            </div>
+          </div>
+          <div class="card">
+            <p class="status">读取状态任意已启用后台角色可看；重建并发布需要 super 角色，且必须填写原因（写审计）。</p>
+            <label>
+              重建原因（写审计）
+              <input v-model="rReason" autocomplete="off" />
+            </label>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="loadRankingStatus">读取榜单快照状态</button>
+              <button type="button" :disabled="busy" @click="rebuildRankingSnapshot()">重建并发布榜单快照</button>
+              <button type="button" class="ghost" :disabled="busy" @click="rebuildRankingSnapshot(['category'])">只重建分类榜</button>
+              <button type="button" class="ghost" @click="copyRankingEvidence">复制榜单治理证据</button>
+            </div>
+            <p class="status">{{ rStatus }}</p>
+            <pre data-testid="ranking-status">{{ rView }}</pre>
+            <pre data-testid="ranking-evidence">{{ rEvidence }}</pre>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-jobs' }" data-page="admin-jobs">
+          <p class="breadcrumb">{{ PAGES["admin-jobs"].group }} / {{ PAGES["admin-jobs"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h2 class="page-title">任务查询与恢复</h2>
+              <p class="page-desc">{{ PAGES["admin-jobs"].desc }}</p>
+            </div>
+          </div>
+          <div class="card">
+            <label>
+              任务 ID
+              <input v-model="jobId" autocomplete="off" />
+            </label>
+            <label>
+              恢复原因
+              <input v-model="resumeReason" autocomplete="off" />
+            </label>
+            <div class="actions">
+              <button type="button" :disabled="busy || !jobId" @click="runJob('job.get')">已登录 job.get</button>
+              <button type="button" :disabled="busy || !jobId" @click="runJob('job.resume')">已登录 job.resume</button>
+            </div>
+            <pre v-if="jobResult" data-testid="job-result">{{ jobResult }}</pre>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
 </template>
 
-<style>
-main {
-  font-family: system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  max-width: 720px;
-  margin: 32px auto;
-  color: #1a202c;
-}
-input,
-button,
-pre {
-  display: block;
-  margin: 12px 0;
-  width: 100%;
-}
-pre {
-  background: #f7fafc;
-  border: 1px solid #e2e8f0;
-  padding: 12px;
-  white-space: pre-wrap;
-}
-button {
-  background: #2b6cb0;
-  color: #fff;
-  border: 0;
-  padding: 10px;
-  border-radius: 8px;
-}
-button.ghost {
-  background: #edf2f7;
-  color: #2d3748;
-}
-.status {
-  color: #4a5568;
-}
-.tree {
-  padding-left: 0;
-  list-style: none;
-}
-select,
-textarea {
-  display: block;
-  margin: 12px 0;
-  width: 100%;
-}
-.preview img {
-  max-width: 240px;
-  border: 1px solid #e2e8f0;
-}
-.zoom {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.72);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.zoom img {
-  max-width: 92vw;
-  max-height: 92vh;
-}
-</style>

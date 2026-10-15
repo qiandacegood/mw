@@ -20,8 +20,10 @@ import {
   rankingCursorMatches,
   rankingGenerationId,
   rankingMemberKey,
+  rankingRebuildIsCategoryOnly,
   rankingRefreshStateOf,
   rankingRowId,
+  categoryMetricGenerationKey,
   replayOrConflict,
   toPublicRankingRow,
   type ErrorCode,
@@ -169,20 +171,34 @@ export type RankingRebuildView = {
 };
 
 function refreshViewOf(input: {
-  head?: { generation: string; publishedAt: string };
+  head?: { generation: string; publishedAt: string; catalogVersion?: number };
   runtime?: RankingRuntimeRecord;
   now: Date;
   targetMs?: number;
+  scope?: RankingScope;
 }): RankingRefreshView {
+  const categoryScope = input.scope === "category";
+  const publishedAt = categoryScope
+    ? input.head?.publishedAt || ""
+    : input.head?.publishedAt || input.runtime?.publishedAt || "";
+  const buildingSince = categoryScope
+    ? input.runtime?.categoryBuildingSince || ""
+    : input.runtime?.buildingSince || "";
+  const staleCategory =
+    categoryScope &&
+    input.runtime?.categoryCatalogVersion != null &&
+    input.head?.catalogVersion != null &&
+    input.head.catalogVersion !== input.runtime.categoryCatalogVersion;
   const state = rankingRefreshStateOf({
     now: input.now,
-    publishedAt: input.head?.publishedAt || input.runtime?.publishedAt || "",
+    publishedAt: staleCategory ? "" : publishedAt,
     requestedAt: input.runtime?.requestedAt || "",
-    buildingSince: input.runtime?.buildingSince || "",
+    buildingSince: buildingSince || (staleCategory ? "category-stale" : ""),
     targetMs: input.targetMs
   });
   const boardPending = Boolean(
-    input.runtime?.publishedGeneration &&
+    !categoryScope &&
+      input.runtime?.publishedGeneration &&
       input.head?.generation &&
       input.head.generation !== input.runtime.publishedGeneration
   );
@@ -261,7 +277,7 @@ export async function listRanking(input: {
   const { ref, boardId } = resolved;
   const runtime = await store.getRuntime();
   const head = await store.getHead(boardId);
-  const refresh = refreshViewOf({ head, runtime, now: input.now });
+  const refresh = refreshViewOf({ head, runtime, now: input.now, scope: ref.scope });
   const board = { boardId, scope: ref.scope, periodKey: ref.periodKey, categoryId: ref.categoryId };
   const base = {
     board,
@@ -277,10 +293,14 @@ export async function listRanking(input: {
     truncated: runtime?.truncated === true,
     feeFilter: FEE_FILTER
   };
-  if (!head || !head.generation) {
+  if (
+    !head ||
+    !head.generation ||
+    (ref.scope === "category" && (refresh.status === "updating" || refresh.buildingSince === "category-stale"))
+  ) {
     return {
       ok: true,
-      data: { ...base, rows: [], nextCursor: null, complete: true, staleFiltered: 0 },
+      data: { ...base, generation: "", rows: [], nextCursor: null, complete: true, staleFiltered: 0 },
       budget: emptyBudget()
     };
   }
@@ -358,20 +378,25 @@ export async function readRankingMe(input: {
   const { ref, boardId } = resolved;
   const runtime = await store.getRuntime();
   const head = await store.getHead(boardId);
-  const refresh = refreshViewOf({ head, runtime, now: input.now });
+  const refresh = refreshViewOf({ head, runtime, now: input.now, scope: ref.scope });
   const member = await store.getMember(input.memberId);
   const stats = await store.getStats(input.memberId);
   const participating = Boolean(member && member.status === "active" && member.rankingOptIn === true);
   const metric = await store.getMetric({
-    metricGeneration: METRIC_GENERATION_BASE,
+    metricGeneration:
+      ref.scope === "category"
+        ? categoryMetricGenerationKey(runtime?.categoryMetricsGeneration ?? 0)
+        : METRIC_GENERATION_BASE,
     scope: ref.scope,
     periodKey: ref.periodKey,
     categoryId: ref.categoryId,
     memberId: input.memberId
   });
   const metricValue = metric && metric.value > 0 ? metric.value : 0;
+  const categoryPending =
+    ref.scope === "category" && (refresh.status === "updating" || refresh.buildingSince === "category-stale");
   const row =
-    head && head.generation
+    !categoryPending && head && head.generation
       ? await store.getRow({ boardId, generation: head.generation, memberId: input.memberId })
       : undefined;
   const onBoard = participating && Boolean(row);
@@ -556,6 +581,8 @@ export async function rebuildRanking(input: {
   requestId: string;
   idempotencyKey: string;
   now: Date;
+  pin?: { treeVersion: number; categoryMetricsGeneration: number };
+  readCatalog?: () => Promise<{ treeVersion: number; categoryMetricsGeneration: number } | undefined>;
 }): Promise<RankingSuccess<RankingRebuildView> | RankingFailure> {
   const parsed = parseRankingRebuildInput(input.data);
   if (!parsed.ok) return fail("INVALID_ARGUMENT", "RANKING_REBUILD_INPUT_INVALID", { issues: parsed.issues });
@@ -566,6 +593,8 @@ export async function rebuildRanking(input: {
   if (parsed.expectedRevision !== null && before.revision !== parsed.expectedRevision) {
     return fail("VERSION_CONFLICT", "RANKING_REVISION_MISMATCH", { serverRevision: before.revision });
   }
+  const categoryOnly = rankingRebuildIsCategoryOnly(parsed.scopes) || Boolean(input.pin);
+  const pin = input.pin;
   const idemRecord: IdempotencyRecord = buildIdempotencyRecord({
     actorId: input.actorId,
     action: "ranking.rebuild",
@@ -573,25 +602,34 @@ export async function rebuildRanking(input: {
     payload: { reason: parsed.reason, scopes: parsed.scopes },
     requestId: input.requestId
   });
-  const building: RankingRuntimeRecord = {
-    ...before,
-    buildingSince: nowIso,
-    lastBuildStartedAt: nowIso,
-    lastBuildOk: false,
-    lastBuildError: "",
-    revision: before.revision + 1
-  };
+  const building: RankingRuntimeRecord = categoryOnly
+    ? {
+        ...before,
+        categoryBuildingSince: nowIso,
+        revision: before.revision + 1
+      }
+    : {
+        ...before,
+        buildingSince: nowIso,
+        lastBuildStartedAt: nowIso,
+        lastBuildOk: false,
+        lastBuildError: "",
+        revision: before.revision + 1
+      };
   await store.saveRuntime(building);
 
   const finishFailed = async (reason: string): Promise<RankingFailure> => {
     const current = (await store.getRuntime()) ?? building;
     await store.saveRuntime({
       ...current,
-      buildingSince: "",
+      buildingSince: categoryOnly ? current.buildingSince : "",
+      categoryBuildingSince: categoryOnly ? "" : current.categoryBuildingSince,
+      categoryLastBuildOk: categoryOnly ? false : current.categoryLastBuildOk,
+      categoryLastBuildError: categoryOnly ? reason : current.categoryLastBuildError,
       requestedAt: current.requestedAt || nowIso,
-      lastBuildEndedAt: nowIso,
-      lastBuildOk: false,
-      lastBuildError: reason
+      lastBuildEndedAt: categoryOnly ? current.lastBuildEndedAt : nowIso,
+      lastBuildOk: categoryOnly ? current.lastBuildOk : false,
+      lastBuildError: categoryOnly ? current.lastBuildError : reason
     });
     return fail("INTERNAL_ERROR", reason);
   };
@@ -624,10 +662,15 @@ export async function rebuildRanking(input: {
       eligible: row.status === "active" && row.rankingOptIn === true
     };
   });
+  const categoryGenerationKey = categoryMetricGenerationKey(pin?.categoryMetricsGeneration ?? before.categoryMetricsGeneration ?? 0);
   const boards = buildRankingBoards({
-    metrics: metrics.rows.filter((row) => row.metricGeneration === METRIC_GENERATION_BASE),
+    metrics: metrics.rows.filter((row) => {
+      if (row.scope === "category") return row.metricGeneration === categoryGenerationKey;
+      return row.metricGeneration === METRIC_GENERATION_BASE;
+    }),
     members: eligible,
-    categoryIds: enabledCategories
+    categoryIds: enabledCategories,
+    scopes: parsed.scopes.length ? parsed.scopes : undefined
   }).filter((board) => (parsed.scopes.length ? parsed.scopes.includes(board.ref.scope) : true));
 
   const generation = rankingGenerationId({
@@ -644,7 +687,8 @@ export async function rebuildRanking(input: {
     publishedAt: nowIso,
     sampleStartedAt: nowIso,
     sampleEndedAt: nowIso,
-    catalogVersion: before.catalogVersion,
+    catalogVersion: pin?.treeVersion ?? before.catalogVersion,
+    categoryMetricsGeneration: pin?.categoryMetricsGeneration,
     participantCount: board.ranked.length,
     displayCount: board.displayCount,
     boundaryTruncated: board.boundaryTruncated,
@@ -652,16 +696,19 @@ export async function rebuildRanking(input: {
     revision: 1
   }));
   const headByBoard = new Map(heads.map((head) => [head.boardId, head]));
-  // 已存在但本轮不再发布的板块（例如类目停用）也切到"空的新代"，不留在旧快照上。
+  // 已存在但本轮不再发布的板块切到空的新代。category-only 只处理分类榜，不得清空 total/week/month。
   const previousHeads = await store.listHeads();
   for (const previous of previousHeads) {
     if (headByBoard.has(previous.boardId)) continue;
+    if (categoryOnly && previous.scope !== "category") continue;
     const empty: RankingHeadRecord = {
       ...previous,
       generation,
       publishedAt: nowIso,
       sampleStartedAt: nowIso,
       sampleEndedAt: nowIso,
+      catalogVersion: pin?.treeVersion ?? previous.catalogVersion,
+      categoryMetricsGeneration: pin?.categoryMetricsGeneration,
       participantCount: 0,
       displayCount: 0,
       boundaryTruncated: false,
@@ -693,6 +740,7 @@ export async function rebuildRanking(input: {
   });
   const obsolete: RankingObsolete[] = previousHeads
     .filter((head) => head.generation && head.generation !== generation)
+    .filter((head) => !categoryOnly || head.scope === "category")
     .map((head) => ({ boardId: head.boardId, generation: head.generation }));
 
   let written;
@@ -721,6 +769,25 @@ export async function rebuildRanking(input: {
   for (const board of boards) {
     rowCounts[board.ref.scope] = (rowCounts[board.ref.scope] || 0) + board.ranked.length;
   }
+  if (pin) {
+    const currentPin = input.readCatalog ? await input.readCatalog() : pin;
+    if (
+      !currentPin ||
+      currentPin.treeVersion !== pin.treeVersion ||
+      currentPin.categoryMetricsGeneration !== pin.categoryMetricsGeneration
+    ) {
+      return finishFailed("RANKING_PIN_MISMATCH");
+    }
+  }
+  const latestRuntime = (await store.getRuntime()) ?? building;
+  const keepRequested =
+    latestRuntime.requestedAt && latestRuntime.requestedAt !== before.requestedAt
+      ? latestRuntime.requestedAt
+      : categoryOnly
+        ? latestRuntime.requestedAt
+        : before.requestedAt === building.requestedAt
+          ? ""
+          : building.requestedAt;
   const chunkedHeads = heads.length > HEAD_SWITCH_CHUNK;
   if (chunkedHeads) {
     // 类目数很多时按块切换；每个板块自身仍指向完整代，读者不会看到半成品。
@@ -733,23 +800,39 @@ export async function rebuildRanking(input: {
       });
     }
   }
-  const finalRuntime: RankingRuntimeRecord = {
-    ...building,
-    publishedGeneration: generation,
-    publishedAt: nowIso,
-    requestedAt: before.requestedAt === building.requestedAt ? "" : building.requestedAt,
-    buildingSince: "",
-    lastBuildEndedAt: nowIso,
-    lastBuildOk: true,
-    lastBuildError: "",
-    boardCount: boards.length,
-    rowCount: rows.length,
-    rowCounts,
-    historyGapMembers: historyGapRows.length,
-    historyGapScore: historyGapRows.reduce((sum, row) => sum + (statsOf.get(row.memberId)?.totalScore ?? 0), 0),
-    truncated,
-    revision: building.revision
-  };
+  const finalRuntime: RankingRuntimeRecord = categoryOnly
+    ? {
+        ...latestRuntime,
+        requestedAt: keepRequested,
+        categoryBuildingSince: "",
+        categoryLastBuildOk: true,
+        categoryLastBuildError: "",
+        categoryPublishedGeneration: generation,
+        categoryCatalogVersion: pin?.treeVersion ?? latestRuntime.catalogVersion,
+        categoryMetricsGeneration: pin?.categoryMetricsGeneration ?? latestRuntime.categoryMetricsGeneration,
+        revision: building.revision
+      }
+    : {
+        ...building,
+        publishedGeneration: generation,
+        publishedAt: nowIso,
+        requestedAt: keepRequested,
+        buildingSince: "",
+        lastBuildEndedAt: nowIso,
+        lastBuildOk: true,
+        lastBuildError: "",
+        boardCount: boards.length,
+        rowCount: rows.length,
+        rowCounts,
+        historyGapMembers: historyGapRows.length,
+        historyGapScore: historyGapRows.reduce((sum, row) => sum + (statsOf.get(row.memberId)?.totalScore ?? 0), 0),
+        truncated,
+        categoryPublishedGeneration: generation,
+        categoryCatalogVersion: pin?.treeVersion ?? building.catalogVersion,
+        categoryMetricsGeneration: pin?.categoryMetricsGeneration ?? building.categoryMetricsGeneration,
+        categoryBuildingSince: "",
+        revision: building.revision
+      };
   const view: RankingRebuildView = {
     generation,
     publishedAt: nowIso,

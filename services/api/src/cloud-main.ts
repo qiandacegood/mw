@@ -8,6 +8,7 @@ import {
 } from "./modules/cloud-stores.js";
 import { cloudMemberWorkStore, cloudPolicyStore } from "./modules/cloud-member-stores.js";
 import { cloudCategoryUsageStore, cloudCategoryWorkStore } from "./modules/cloud-category-stores.js";
+import { cloudCatalogChangeStore } from "./modules/cloud-category-change-stores.js";
 import { cloudQuestionWorkStore } from "./modules/cloud-question-stores.js";
 import { cloudUploadWorkStore } from "./modules/cloud-upload-stores.js";
 import { cloudPaperWorkStore, cloudQuestionUsageStore } from "./modules/cloud-paper-stores.js";
@@ -149,8 +150,9 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
           : undefined,
       policyStore: entry === "mw-public" || entry === "mw-member" ? cloudPolicyStore() : undefined,
       memberStore: entry === "mw-member" ? cloudMemberWorkStore() : undefined,
-      categoryStore: entry === "mw-admin" || entry === "mw-public" ? cloudCategoryWorkStore() : undefined,
+      categoryStore: entry === "mw-admin" || entry === "mw-public" || entry === "mw-jobs" ? cloudCategoryWorkStore() : undefined,
       categoryUsage: entry === "mw-admin" ? cloudCategoryUsageStore() : undefined,
+      catalogChangeStore: entry === "mw-admin" || entry === "mw-jobs" ? cloudCatalogChangeStore() : undefined,
       questionStore: entry === "mw-admin" ? cloudQuestionWorkStore() : undefined,
       questionUsage: entry === "mw-admin" ? cloudQuestionUsageStore() : undefined,
       uploadStore: entry === "mw-admin" || entry === "mw-upload" ? cloudUploadWorkStore() : undefined,
@@ -159,7 +161,9 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       attemptStore: entry === "mw-member" ? cloudAttemptWorkStore() : undefined,
       growthStore: entry === "mw-member" || entry === "mw-admin" ? cloudGrowthStore() : undefined,
       rankingStore:
-        entry === "mw-public" || entry === "mw-member" || entry === "mw-admin" ? cloudRankingStore() : undefined,
+        entry === "mw-public" || entry === "mw-member" || entry === "mw-admin" || entry === "mw-jobs"
+          ? cloudRankingStore()
+          : undefined,
       virtualPayNotify:
         entry === "mw-pay-hook"
           ? {

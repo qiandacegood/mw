@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   callAdminCategory,
+  callAdminCategoryChange,
   callAdminJob,
   callAdminQuestion,
   callAdminPaper,
@@ -173,6 +174,17 @@ describe("admin category helpers", () => {
     expect(calls[1]).toMatchObject({
       name: "mw-admin",
       data: { action: "category.create", idempotencyKey: "mw09/admin/create" }
+    });
+    const preview = await callAdminCategoryChange(
+      app,
+      "category.change.preview",
+      { expectedTreeVersion: 1, operations: [{ type: "move", categoryId: "c1", parentId: "c2" }] },
+      "mw18/admin/preview"
+    );
+    expect(preview.ok).toBe(true);
+    expect(calls[2]).toMatchObject({
+      name: "mw-admin",
+      data: { action: "category.change.preview", idempotencyKey: "mw18/admin/preview" }
     });
   });
 });

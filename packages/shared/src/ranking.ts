@@ -69,6 +69,8 @@ export type RankingHeadRecord = {
   sampleStartedAt: string;
   sampleEndedAt: string;
   catalogVersion: number;
+  /** 分类榜采样时固定的分类指标代际；与排名快照 generation 不是同一概念。 */
+  categoryMetricsGeneration?: number;
   participantCount: number;
   displayCount: number;
   boundaryTruncated: boolean;
@@ -86,6 +88,13 @@ export type RankingRuntimeRecord = {
   lastBuildOk: boolean;
   lastBuildError: string;
   catalogVersion: number;
+  /** 分类榜单独的构建标记，避免 category-only 重建把总分/周月榜显示成更新中。 */
+  categoryBuildingSince?: string;
+  categoryLastBuildOk?: boolean;
+  categoryLastBuildError?: string;
+  categoryPublishedGeneration?: string;
+  categoryCatalogVersion?: number;
+  categoryMetricsGeneration?: number;
   boardCount: number;
   rowCount: number;
   rowCounts: Record<string, number>;
@@ -506,15 +515,23 @@ export type RankingBoardBuild = {
 /**
  * 由 sample 构建各榜的名次（纯函数，便于本地覆盖并列、边界与零分规则）。
  */
+export function rankingRebuildIsCategoryOnly(scopes: readonly string[]): boolean {
+  return scopes.length > 0 && scopes.every((scope) => scope === "category");
+}
+
 export function buildRankingBoards(input: {
   metrics: readonly { scope: string; periodKey: string; categoryId: string; memberId: string; value: number; reachedAt: string }[];
   members: readonly { memberId: string; nickname: string; avatarKey: string; levelId: string; eligible: boolean }[];
   /** 允许发布的类目榜（已过滤停用与逻辑删除路径）。 */
   categoryIds: readonly string[];
+  /** 限定重建范围；仅 category 时不生成 total/week/month 板块。 */
+  scopes?: readonly RankingScope[];
 }): RankingBoardBuild[] {
   const memberOf = new Map(input.members.map((row) => [row.memberId, row]));
   const boards = new Map<string, RankingBoardRef>();
+  const allow = (scope: RankingScope) => !input.scopes?.length || input.scopes.includes(scope);
   const collect = (ref: RankingBoardRef) => {
+    if (!allow(ref.scope)) return;
     boards.set(rankingBoardId(ref), ref);
   };
   collect({ scope: "total", periodKey: TOTAL_PERIOD_KEY, categoryId: "" });

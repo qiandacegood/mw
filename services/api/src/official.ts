@@ -8,6 +8,7 @@ import {
   defaultPolicyRecord,
   errorMessage,
   forgedClientFields,
+  looksLikeTimerEvent,
   memberWriteTooLarge,
   parseApiRequest,
   paymentNotifyBlockedByMaintenance,
@@ -15,7 +16,6 @@ import {
   rejectUnknownKeys,
   sharedMiniIdentity,
   toUtcIso,
-  PARENT_CHANGE_NOTE,
   CATEGORY_TREE_FIELDS,
   hasQuestionSecrets,
   hasPaperSecrets,
@@ -72,6 +72,9 @@ import {
   seedInitialCategories,
   updateCategory
 } from "./modules/category.js";
+import { commitCategoryChange, previewCategoryChange, readCategoryChangeStatus, treeHiddenForStructureUpdate } from "./modules/category-change.js";
+import { processDueCatalogJobs } from "./modules/category-change-job.js";
+import type { CatalogChangeStore } from "./modules/category-change-stores.js";
 import type { CategoryUsageStore, CategoryWorkStore } from "./modules/category-stores.js";
 import { emptyCategoryUsage } from "./modules/category-stores.js";
 import { disableQuestion, getQuestion, listQuestions, saveQuestion } from "./modules/question.js";
@@ -176,7 +179,7 @@ export const ADMIN_WRITE_ACTIONS = [
   "growth.recompute",
   "ranking.rebuild"
 ] as const;
-export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit"] as const;
+export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit", "category.change.status"] as const;
 
 export type OfficialEntry =
   | "mw-public"
@@ -228,6 +231,7 @@ export interface OfficialContext {
   attemptStore?: AttemptWorkStore;
   growthStore?: GrowthWorkStore;
   rankingStore?: RankingWorkStore;
+  catalogChangeStore?: CatalogChangeStore;
   entitlement?: PracticeEntitlementReader;
   virtualPayNotify?: VirtualPayNotifyConfig;
 }
@@ -490,6 +494,14 @@ async function handlePublic(
       return fail(requestId, "INVALID_ARGUMENT", { issues: [`unknown fields: ${extra.join(",")}`] });
     }
     const tree = await readCategoryTree(ctx.categoryStore, { knownVersion: data.knownVersion, publicView: true });
+    if (treeHiddenForStructureUpdate(await ctx.categoryStore?.getCatalog())) {
+      return publicSafe(requestId, now, {
+        ...tree.data,
+        nodes: [],
+        updating: true,
+        message: "类目结构更新中，请稍后重试。"
+      });
+    }
     return publicSafe(requestId, now, tree.data);
   }
   if (action === "home.get") {
@@ -506,6 +518,14 @@ async function handlePublic(
     });
     if (!result.ok) {
       return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    if (treeHiddenForStructureUpdate(await ctx.categoryStore?.getCatalog())) {
+      return publicSafe(requestId, now, {
+        ...result.data,
+        roots: [],
+        updating: true,
+        message: "类目结构更新中，请稍后重试。"
+      });
     }
     return publicSafe(requestId, now, result.data);
   }
@@ -793,10 +813,10 @@ async function handleAdmin(
   const admin = await requireAdmin(ctx, requestId);
   if ("failure" in admin) return admin.failure;
   if (isMw18) {
-    return fail(requestId, "INVALID_ARGUMENT", {
-      reason: "PARENT_CHANGE_REQUIRES_MW18",
-      note: PARENT_CHANGE_NOTE
-    });
+    if (!adminHasRole(admin.record.roles, "super")) {
+      return fail(requestId, "FORBIDDEN", { reason: "SUPER_ROLE_REQUIRED" });
+    }
+    return handleAdminCategoryChange(ctx, admin.record, action, requestId, now);
   }
   if (action === "category.tree" || action.startsWith("category.")) {
     return handleAdminCategory(ctx, admin.record, action, requestId, now);
@@ -1013,6 +1033,62 @@ async function handleAdminRanking(
   });
 }
 
+async function handleAdminCategoryChange(
+  ctx: OfficialContext,
+  admin: { uid: string; roles: string[] },
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  const event = unwrapFunctionEvent(ctx.event);
+  const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+  const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+  if (action === "category.change.status") {
+    const jobId = typeof data.jobId === "string" ? data.jobId : "";
+    const job = jobId && ctx.jobStore ? await ctx.jobStore.get(jobId) : undefined;
+    const status = await readCategoryChangeStatus({ store: ctx.categoryStore, change: ctx.catalogChangeStore, job });
+    return ok(requestId, now, status.data);
+  }
+  if (typeof rec.idempotencyKey !== "string" || !rec.idempotencyKey) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  if (!ctx.categoryStore || !ctx.catalogChangeStore) {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "CATALOG_CHANGE_STORE_UNAVAILABLE" });
+  }
+  const common = {
+    store: ctx.categoryStore,
+    change: ctx.catalogChangeStore,
+    actorId: admin.uid,
+    data,
+    requestId,
+    idempotencyKey: rec.idempotencyKey,
+    now
+  };
+  const result = action === "category.change.preview" ? await previewCategoryChange(common) : await commitCategoryChange(common);
+  if (!result.ok) {
+    return fail(requestId, result.code as ErrorCode, {
+      reason: result.reason,
+      ...(result.issues ? { issues: result.issues } : {}),
+      ...(result.details || {})
+    });
+  }
+  if (action === "category.change.commit") {
+    if (ctx.jobStore && "jobs" in ctx.catalogChangeStore) {
+      const jobs = (ctx.catalogChangeStore as { jobs?: Map<string, import("@mw/shared").JobRecord> }).jobs;
+      const jobId = (result.data as { jobId?: string }).jobId;
+      const stored = jobId && jobs ? jobs.get(jobId) : undefined;
+      if (stored && "put" in ctx.jobStore) {
+        await ctx.jobStore.put(stored);
+      }
+    }
+    const maint = (ctx.catalogChangeStore as { maintenance?: import("@mw/shared").MaintenanceConfig }).maintenance;
+    if (ctx.maintenanceStore && maint) {
+      await ctx.maintenanceStore.save(maint);
+    }
+  }
+  return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+}
+
 async function handleAdminCategory(
   ctx: OfficialContext,
   admin: AdminUserRecord,
@@ -1029,6 +1105,16 @@ async function handleAdminCategory(
       return fail(requestId, "INVALID_ARGUMENT", { issues: [`unknown fields: ${extra.join(",")}`] });
     }
     const tree = await readCategoryTree(ctx.categoryStore, { knownVersion: data.knownVersion, publicView: false });
+    const catalog = await ctx.categoryStore?.getCatalog();
+    if (treeHiddenForStructureUpdate(catalog)) {
+      return ok(requestId, now, {
+        ...tree.data,
+        nodes: [],
+        updating: true,
+        jobId: catalog?.structureJobId || "",
+        message: "类目结构更新中，不展示半棵树。请查看迁移进度。"
+      });
+    }
     return ok(requestId, now, tree.data);
   }
   if (!adminHasRole(admin.roles, "content")) {
@@ -1085,6 +1171,9 @@ async function handleAdminCategory(
       ...(result.issues ? { issues: result.issues } : {}),
       ...(result.details || {})
     });
+  }
+  if (action === "category.update" && data.enabled !== undefined) {
+    await markRankingDirty(ctx.rankingStore, now);
   }
   return ok(requestId, now, { ...result.data, replayed: result.replayed === true, writeConcurrency: "expectedTreeVersion" });
 }
@@ -1541,11 +1630,48 @@ async function handleJobs(ctx: OfficialContext): Promise<Record<string, unknown>
     secret: ctx.jobsSecret,
     now
   });
+  if (
+    !trust.trusted &&
+    looksLikeTimerEvent(event) &&
+    !clientLike &&
+    ctx.jobsSecret &&
+    process.env.MW_JOBS_PLATFORM_TICK === "1" &&
+    ctx.jobStore &&
+    ctx.catalogChangeStore &&
+    ctx.categoryStore &&
+    ctx.maintenanceStore
+  ) {
+    const ticked = await processDueCatalogJobs({
+      jobStore: ctx.jobStore,
+      change: ctx.catalogChangeStore,
+      category: ctx.categoryStore,
+      maintenance: ctx.maintenanceStore,
+      ranking: ctx.rankingStore,
+      now,
+      requestId: requestIdOf(event)
+    });
+    return { ok: true, entry: "mw-jobs", reason: "PLATFORM_TIMER_TICK", processed: ticked.processed };
+  }
   if (clientLike || !trust.trusted) {
     return { ok: false, entry: "mw-jobs", reason: trust.reason || "CLIENT_INVOKE_DENIED" };
   }
   if (!ctx.jobStore || !trust.invoke) {
     return { ok: false, entry: "mw-jobs", reason: "NO_TRUSTED_SERVER_TRIGGER" };
+  }
+  if (trust.invoke.action === "jobs.tick") {
+    if (!ctx.catalogChangeStore || !ctx.categoryStore || !ctx.maintenanceStore) {
+      return { ok: false, entry: "mw-jobs", reason: "CATALOG_CHANGE_STORE_UNAVAILABLE" };
+    }
+    const ticked = await processDueCatalogJobs({
+      jobStore: ctx.jobStore,
+      change: ctx.catalogChangeStore,
+      category: ctx.categoryStore,
+      maintenance: ctx.maintenanceStore,
+      ranking: ctx.rankingStore,
+      now,
+      requestId: requestIdOf(event)
+    });
+    return { ok: true, entry: "mw-jobs", reason: "JOBS_TICK", processed: ticked.processed };
   }
   if (trust.invoke.action === "idempotency.probe") {
     if (!ctx.idempotencyStore) {

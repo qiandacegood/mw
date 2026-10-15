@@ -44,6 +44,16 @@ Page({
       return;
     }
     const data = asRecord(res.data);
+    if (data.updating === true) {
+      this.setData({
+        state: "updating",
+        message: String(data.message || "类目结构更新中，请稍后重试。"),
+        children: [],
+        crumbs: [{ id: "", name: "分类" }],
+        title: "分类"
+      });
+      return;
+    }
     const nodes = Array.isArray(data.nodes) ? data.nodes.map(asNode).filter((item) => item.id) : [];
     if (!nodes.length) {
       this.setData({ state: "empty", message: "暂无可用类目。", children: [], crumbs: [] });

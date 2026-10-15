@@ -86,7 +86,13 @@ function asCursor(value: unknown): JobCursor {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const done = typeof rec.done === "number" ? rec.done : 0;
   const total = typeof rec.total === "number" ? rec.total : 3;
-  return { done, total };
+  return {
+    done,
+    total,
+    ...(typeof rec.stage === "string" ? { stage: rec.stage } : {}),
+    ...(typeof rec.offset === "number" ? { offset: rec.offset } : {}),
+    ...(rec.summary && typeof rec.summary === "object" ? { summary: rec.summary as Record<string, unknown> } : {})
+  };
 }
 
 function asJob(id: string, data: Record<string, unknown>): JobRecord {

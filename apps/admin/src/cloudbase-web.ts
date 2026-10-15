@@ -78,6 +78,27 @@ export type AdminCallResult = {
   error?: { code?: string; message?: string; details?: { reason?: string; note?: string; message?: string } };
 };
 
+export type AdminCategoryChangeAction = "category.change.preview" | "category.change.commit" | "category.change.status";
+
+export async function callAdminCategoryChange(
+  app: CloudApp,
+  action: AdminCategoryChangeAction,
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action !== "category.change.status") {
+    payload.idempotencyKey = idempotencyKey || `mw18/admin/${action}/${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
 export async function callAdminCategory(
   app: CloudApp,
   action: "category.tree" | "category.create" | "category.update" | "category.delete" | "category.seed",

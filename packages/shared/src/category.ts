@@ -73,6 +73,8 @@ export type CategoryNameRecord = {
   categoryId: string;
 };
 
+export type CatalogRankingStatus = "ready" | "updating" | "pending_recovery";
+
 export type CatalogRecord = {
   treeVersion: number;
   categoryMetricsGeneration: number;
@@ -80,6 +82,11 @@ export type CatalogRecord = {
   seededAt: string | null;
   schemaVersion: number;
   updatedAt: string;
+  /** 结构任务进行中：业务读侧只返回更新中，不暴露半棵树。 */
+  structureUpdating?: boolean;
+  structureJobId?: string;
+  categoryRankingStatus?: CatalogRankingStatus;
+  categoryRankingError?: string;
 };
 
 export type PublicCategoryNode = {
@@ -160,7 +167,11 @@ export function emptyCatalog(now: Date): CatalogRecord {
     seeded: false,
     seededAt: null,
     schemaVersion: CATEGORY_SCHEMA_VERSION,
-    updatedAt: now.toISOString()
+    updatedAt: now.toISOString(),
+    structureUpdating: false,
+    structureJobId: "",
+    categoryRankingStatus: "ready",
+    categoryRankingError: ""
   };
 }
 

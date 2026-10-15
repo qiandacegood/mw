@@ -351,8 +351,12 @@ function rebuildEvent(reason: string, options: Record<string, unknown> = {}) {
   });
 }
 
-async function rebuild(ranking: ReturnType<typeof memoryRankingStore>, reason: string) {
-  return (await handleOfficial(adminCtx(rebuildEvent(reason), ranking, ["super"]))) as {
+async function rebuild(
+  ranking: ReturnType<typeof memoryRankingStore>,
+  reason: string,
+  options: Record<string, unknown> = {}
+) {
+  return (await handleOfficial(adminCtx(rebuildEvent(reason, options), ranking, ["super"]))) as {
     ok: boolean;
     error?: { code: string; details?: { reason?: string } };
     data: {
@@ -883,6 +887,55 @@ describe("MW17-B 交卷路径", () => {
     const repeated = await listBoard(ranking, { scope: "total" });
     expect(repeated.data.rows).toHaveLength(1);
     expect(repeated.data.rows[0]?.value).toBe(10);
+  });
+});
+
+describe("MW18 category-only 重建隔离", () => {
+  it("只重建分类榜时不清空 total/week/month，也不改全局 publishedGeneration", async () => {
+    const { ranking } = harness();
+    ranking.seedMember({
+      memberId: "m_iso",
+      nickname: "隔离学员",
+      avatarKey: "avatar.builtin.01",
+      status: "active",
+      rankingOptIn: true,
+      revision: 2
+    });
+    seedRankMetric(ranking, { scope: "total", periodKey: "all", categoryId: "", memberId: "m_iso", value: 21 });
+    seedRankMetric(ranking, { scope: "week", periodKey: "2026-10-12", categoryId: "", memberId: "m_iso", value: 8 });
+    seedRankMetric(ranking, { scope: "month", periodKey: "2026-10", categoryId: "", memberId: "m_iso", value: 13 });
+    seedRankMetric(ranking, { scope: "category", periodKey: "all", categoryId: rootId, memberId: "m_iso", value: 21 });
+
+    const full = await rebuild(ranking, "mw18-full");
+    expect(full.ok).toBe(true);
+    const published = ranking.runtime?.publishedGeneration;
+    expect(published).toBeTruthy();
+    const totalBefore = await listBoard(ranking, { scope: "total" });
+    const weekBefore = await listBoard(ranking, { scope: "week" });
+    const monthBefore = await listBoard(ranking, { scope: "month" });
+    expect(totalBefore.data.rows).toHaveLength(1);
+    expect(totalBefore.data.rows[0]?.value).toBe(21);
+    expect(weekBefore.data.rows[0]?.value).toBe(8);
+    expect(monthBefore.data.rows[0]?.value).toBe(13);
+
+    const dirtyAt = "2026-10-15T02:05:00.000Z";
+    ranking.runtime = { ...ranking.runtime!, requestedAt: dirtyAt };
+    const categoryOnly = await rebuild(ranking, "mw18-category-only", { scopes: ["category"] });
+    expect(categoryOnly.ok).toBe(true);
+    expect(ranking.runtime?.publishedGeneration).toBe(published);
+    expect(ranking.runtime?.requestedAt).toBe(dirtyAt);
+
+    const totalAfter = await listBoard(ranking, { scope: "total" });
+    const weekAfter = await listBoard(ranking, { scope: "week" });
+    const monthAfter = await listBoard(ranking, { scope: "month" });
+    expect(totalAfter.data.generation).toBe(totalBefore.data.generation);
+    expect(totalAfter.data.rows).toHaveLength(1);
+    expect(totalAfter.data.rows[0]?.value).toBe(21);
+    expect(weekAfter.data.generation).toBe(weekBefore.data.generation);
+    expect(weekAfter.data.rows[0]?.value).toBe(8);
+    expect(monthAfter.data.generation).toBe(monthBefore.data.generation);
+    expect(monthAfter.data.rows[0]?.value).toBe(13);
+    expect((await listBoard(ranking, { scope: "category", categoryId: rootId })).ok).toBe(true);
   });
 });
 

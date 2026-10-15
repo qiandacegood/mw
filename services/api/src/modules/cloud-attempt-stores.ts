@@ -2,6 +2,8 @@ import {
   ATTEMPT_SCHEMA_VERSION,
   DEFAULT_LEVEL_ID,
   defaultMaintenanceConfig,
+  CATALOG_DOC_ID,
+  emptyCatalog,
   emptyMaintenanceFlag,
   paperBestId,
   type ActiveAttemptRecord,
@@ -359,6 +361,7 @@ export function cloudAttemptWorkStore(): AttemptWorkStore {
     getAnswer: (chunkId) => papers.getAnswer(chunkId),
     getMember: (memberId) => members.getMember(memberId),
     getCategory: (categoryId) => categories.getCategory(categoryId),
+    getCatalog: () => categories.getCatalog(),
     async getStats(memberId) {
       const snap = await cloudApp().database().collection(MW15_COLLECTIONS.memberStats).doc(memberId).get();
       const data = unwrapDoc(snap);
@@ -659,6 +662,7 @@ export function cloudAttemptWorkStore(): AttemptWorkStore {
           : undefined;
         const idemData = await txGet(tx, MW15_COLLECTIONS.idempotency, input.idempotencyId);
         const maintData = await txGet(tx, MW15_COLLECTIONS.appConfig, MAINTENANCE_DOC_ID);
+        const catalogData = await txGet(tx, MW15_COLLECTIONS.appConfig, CATALOG_DOC_ID);
         const statsData = await txGet(tx, MW15_COLLECTIONS.memberStats, input.memberId);
         const bestData = await txGet(tx, MW15_COLLECTIONS.paperBests, input.bestId);
         const metricRows: ScoreMetricRecord[] = [];
@@ -702,6 +706,24 @@ export function cloudAttemptWorkStore(): AttemptWorkStore {
           category: category as CategoryRecord | undefined,
           idem: idemData ? asIdem(input.idempotencyId, idemData) : undefined,
           maintenance: asMaintenance(maintData),
+          catalog: catalogData
+            ? {
+                treeVersion: typeof catalogData.treeVersion === "number" ? catalogData.treeVersion : 0,
+                categoryMetricsGeneration:
+                  typeof catalogData.categoryMetricsGeneration === "number" ? catalogData.categoryMetricsGeneration : 0,
+                seeded: catalogData.seeded === true,
+                seededAt: typeof catalogData.seededAt === "string" ? catalogData.seededAt : null,
+                schemaVersion: typeof catalogData.schemaVersion === "number" ? catalogData.schemaVersion : 1,
+                updatedAt: asIso(catalogData.updatedAt, new Date().toISOString()),
+                structureUpdating: catalogData.structureUpdating === true,
+                structureJobId: typeof catalogData.structureJobId === "string" ? catalogData.structureJobId : "",
+                categoryRankingStatus:
+                  catalogData.categoryRankingStatus === "updating" || catalogData.categoryRankingStatus === "pending_recovery"
+                    ? catalogData.categoryRankingStatus
+                    : "ready",
+                categoryRankingError: typeof catalogData.categoryRankingError === "string" ? catalogData.categoryRankingError : ""
+              }
+            : emptyCatalog(new Date()),
           stats: statsData ? asStats(input.memberId, statsData) : undefined,
           best: bestData ? asBest(bestData, input.memberId, paperId) : undefined,
           metrics: metricRows,

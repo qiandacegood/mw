@@ -4,6 +4,7 @@ import {
   attemptIdFor,
   attemptSubmitHash,
   buildIdempotencyRecord,
+  categoryMetricGenerationKey,
   categoryMetricIdsOf,
   checkMaintenanceGate,
   DEFAULT_GROWTH_LEVELS,
@@ -759,13 +760,14 @@ function upsertMetric(input: {
   scope: ScoreMetricRecord["scope"];
   periodKey: string;
   categoryId: string;
+  metricGeneration: string;
   delta: number;
   nowIso: string;
 }): ScoreMetricRecord {
   const next = applyScoreMetric(input.previous, input.delta, input.nowIso);
   return {
     metricId: input.metricId,
-    metricGeneration: METRIC_GENERATION_BASE,
+    metricGeneration: input.metricGeneration,
     scope: input.scope,
     periodKey: input.periodKey,
     categoryId: input.categoryId,
@@ -873,15 +875,25 @@ export async function submitAttempt(input: {
     const categoryIds = categoryMetricIdsOf(paper?.categoryId || "", category?.ancestorIds || []);
     const weekKey = weekKeyShanghai(input.now);
     const monthKey = monthKeyShanghai(input.now);
+    const outsideCatalog = input.store.getCatalog
+      ? await input.store.getCatalog()
+      : (input.store as { catalog?: { treeVersion?: number; categoryMetricsGeneration?: number } }).catalog;
+    const outsideTreeVersion = outsideCatalog?.treeVersion;
+    const outsideGeneration = outsideCatalog?.categoryMetricsGeneration ?? 0;
     const metricSpecs = [
-      { scope: "total" as const, periodKey: "all", categoryId: "" },
-      { scope: "week" as const, periodKey: weekKey, categoryId: "" },
-      { scope: "month" as const, periodKey: monthKey, categoryId: "" },
-      ...categoryIds.map((categoryId) => ({ scope: "category" as const, periodKey: "all", categoryId }))
+      { scope: "total" as const, periodKey: "all", categoryId: "", generation: METRIC_GENERATION_BASE },
+      { scope: "week" as const, periodKey: weekKey, categoryId: "", generation: METRIC_GENERATION_BASE },
+      { scope: "month" as const, periodKey: monthKey, categoryId: "", generation: METRIC_GENERATION_BASE },
+      ...categoryIds.map((categoryId) => ({
+        scope: "category" as const,
+        periodKey: "all",
+        categoryId,
+        generation: categoryMetricGenerationKey(outsideGeneration)
+      }))
     ];
     const metricIds = metricSpecs.map((spec) =>
       scoreMetricId({
-        metricGeneration: METRIC_GENERATION_BASE,
+        metricGeneration: spec.generation,
         scope: spec.scope,
         periodKey: spec.periodKey,
         categoryId: spec.categoryId,
@@ -938,11 +950,20 @@ export async function submitAttempt(input: {
           };
         }
         if (!snap.paper || !snap.version) return { error: { code: "NOT_FOUND", reason: "PAPER_NOT_FOUND" }, result: dummy };
+        const insideGeneration = snap.catalog?.categoryMetricsGeneration ?? outsideGeneration;
+        const insideTree = snap.catalog?.treeVersion;
+        const insidePath = categoryMetricIdsOf(snap.paper.categoryId, snap.category?.ancestorIds || []);
+        if (
+          (outsideTreeVersion !== undefined && insideTree !== undefined && insideTree !== outsideTreeVersion) ||
+          insideGeneration !== outsideGeneration ||
+          snap.paper.categoryId !== (paper?.categoryId || "") ||
+          insidePath.join("\0") !== categoryIds.join("\0")
+        ) {
+          throw new Error("TRANSACTION_CONFLICT:CATALOG_OR_PATH_CHANGED");
+        }
         const gate = paperNewStartGate(snap.paper.status);
         if (gate.blocked) return { error: { code: gate.code, reason: gate.reason }, result: dummy };
-        if (snap.category && (snap.category.enabled !== true || snap.category.deletedAt)) {
-          return { error: { code: "CATEGORY_UNAVAILABLE", reason: "CATEGORY_UNAVAILABLE" }, result: dummy };
-        }
+        // 停用禁止新开始，但不撤回已有答题；维护 / 撤回 / 账号 / VIP 仍独立执行。
         const vip = paperStartDeniedByAccess(snap.paper.access, entitlement);
         if (vip.blocked) return { error: { code: vip.code, reason: vip.reason }, result: dummy };
         const submittedAt = input.now.toISOString();
@@ -1018,6 +1039,7 @@ export async function submitAttempt(input: {
             scope: spec.scope,
             periodKey: spec.periodKey,
             categoryId: spec.categoryId,
+            metricGeneration: spec.generation,
             delta,
             nowIso: submittedAt
           })

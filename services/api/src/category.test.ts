@@ -320,14 +320,14 @@ describe("MW09 category management", () => {
       ok: false,
       error: { code: "INVALID_ARGUMENT", details: { reason: "PARENT_CHANGE_REQUIRES_MW18" } }
     });
-    const preview = await call("category.change.preview", { expectedTreeVersion: 1 }, {
+    const preview = await call("category.change.preview", { expectedTreeVersion: 1, operations: [{ type: "move", categoryId: seedCategoryId("open"), parentId: seedCategoryId("logical") }] }, {
       uid: contentUid,
       categoryStore: store,
       extra: { suffix: "preview" }
     });
     expect(preview).toMatchObject({
       ok: false,
-      error: { details: { reason: "PARENT_CHANGE_REQUIRES_MW18", note: PARENT_CHANGE_NOTE } }
+      error: { code: "FORBIDDEN", details: { reason: "SUPER_ROLE_REQUIRED" } }
     });
   });
 

@@ -14,6 +14,9 @@ export const MW06_DEMO_JOB_TYPE = "mw06.demo.cursor";
 export interface JobCursor {
   done: number;
   total: number;
+  stage?: string;
+  offset?: number;
+  summary?: Record<string, unknown>;
 }
 
 export interface JobError {
@@ -71,6 +74,16 @@ function iso(now: Date): string {
   return now.toISOString();
 }
 
+export function cloneCursor(cursor: JobCursor): JobCursor {
+  return {
+    done: cursor.done,
+    total: cursor.total,
+    ...(cursor.stage ? { stage: cursor.stage } : {}),
+    ...(cursor.offset !== undefined ? { offset: cursor.offset } : {}),
+    ...(cursor.summary ? { summary: { ...cursor.summary } } : {})
+  };
+}
+
 export function isJobState(value: string): value is JobState {
   return (JOB_STATES as readonly string[]).includes(value);
 }
@@ -81,7 +94,7 @@ export function publicJobView(job: JobRecord): JobPublicView {
     type: job.type,
     businessKey: job.businessKey,
     state: job.state,
-    cursor: { ...job.cursor },
+    cursor: cloneCursor(job.cursor),
     leaseUntil: job.leaseUntil,
     fencingToken: job.fencingToken,
     attempts: job.attempts,
@@ -103,6 +116,8 @@ export function createJobRecord(input: {
   now: Date;
   maxAttempts?: number;
   total?: number;
+  cursor?: JobCursor;
+  nextRunAt?: string;
 }): JobRecord {
   const stamp = iso(input.now);
   return {
@@ -110,7 +125,7 @@ export function createJobRecord(input: {
     type: input.type,
     businessKey: input.businessKey,
     state: "queued",
-    cursor: { done: 0, total: input.total ?? 3 },
+    cursor: input.cursor ? cloneCursor(input.cursor) : { done: 0, total: input.total ?? 3 },
     leaseUntil: null,
     fencingToken: 0,
     attempts: 0,
@@ -118,7 +133,7 @@ export function createJobRecord(input: {
     resumeCount: 0,
     totalAttempts: 0,
     lastResumeHash: "",
-    nextRunAt: stamp,
+    nextRunAt: input.nextRunAt || stamp,
     lastError: null,
     schemaVersion: 1,
     createdAt: stamp,
@@ -189,7 +204,7 @@ export function saveCursor(job: JobRecord, token: number, cursor: JobCursor, now
     ok: true,
     job: {
       ...job,
-      cursor: { done: cursor.done, total: cursor.total },
+      cursor: cloneCursor(cursor),
       updatedAt: iso(now),
       revision: job.revision + 1
     }

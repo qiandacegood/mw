@@ -84,6 +84,35 @@ export function paymentNotifyBlockedByMaintenance(
   return { blocked: false, reason: "PAYMENT_NOTIFY_NOT_GATED" };
 }
 
+export const CATALOG_CHANGE_GATES: readonly MaintenanceGate[] = ["contentWrites", "attemptStart", "attemptSubmit"];
+
+export function closeCatalogChangeGates(
+  config: MaintenanceConfig,
+  jobId: string,
+  reason: string,
+  now: Date
+): MaintenanceConfig {
+  let next = config;
+  for (const gate of CATALOG_CHANGE_GATES) {
+    next = setMaintenanceGate(next, gate, { enabled: false, reason, jobId }, now);
+  }
+  return next;
+}
+
+/** 只打开本任务占用的门；其他任务占用的支付等开关不误开。 */
+export function openCatalogChangeGatesIfOwned(
+  config: MaintenanceConfig,
+  jobId: string,
+  now: Date
+): MaintenanceConfig {
+  let next = config;
+  for (const gate of CATALOG_CHANGE_GATES) {
+    if (next[gate].jobId && next[gate].jobId !== jobId) continue;
+    next = setMaintenanceGate(next, gate, { enabled: true, reason: "", jobId: "" }, now);
+  }
+  return next;
+}
+
 export function setMaintenanceGate(
   config: MaintenanceConfig,
   gate: MaintenanceGate,

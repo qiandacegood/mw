@@ -93,6 +93,13 @@ function asCatalog(data: Record<string, unknown> | undefined, now: Date): Catalo
     treeVersion: typeof data.treeVersion === "number" ? data.treeVersion : fallback.treeVersion,
     categoryMetricsGeneration:
       typeof data.categoryMetricsGeneration === "number" ? data.categoryMetricsGeneration : 0,
+    structureUpdating: data.structureUpdating === true,
+    structureJobId: typeof data.structureJobId === "string" ? data.structureJobId : "",
+    categoryRankingStatus:
+      data.categoryRankingStatus === "updating" || data.categoryRankingStatus === "pending_recovery"
+        ? data.categoryRankingStatus
+        : "ready",
+    categoryRankingError: typeof data.categoryRankingError === "string" ? data.categoryRankingError : "",
     seeded: data.seeded === true,
     seededAt: typeof data.seededAt === "string" ? data.seededAt : null,
     schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1,
@@ -183,6 +190,10 @@ function catalogWrite(row: CatalogRecord): Record<string, unknown> {
     kind: "catalog",
     treeVersion: row.treeVersion,
     categoryMetricsGeneration: row.categoryMetricsGeneration,
+    structureUpdating: row.structureUpdating === true,
+    structureJobId: row.structureJobId || "",
+    categoryRankingStatus: row.categoryRankingStatus || "ready",
+    categoryRankingError: row.categoryRankingError || "",
     seeded: row.seeded,
     seededAt: row.seededAt,
     schemaVersion: row.schemaVersion,

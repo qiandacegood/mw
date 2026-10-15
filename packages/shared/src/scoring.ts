@@ -93,6 +93,11 @@ export function categoryMetricIdsOf(categoryId: string, ancestorIds: readonly st
   return [...new Set(path)].slice(-3);
 }
 
+/** 分类重建的达到时间必须来自可追溯 best，不能用迁移时刻冒充。 */
+export function categoryMetricReachedAtFromBest(firstReachedAt: string | undefined): string {
+  return typeof firstReachedAt === "string" && firstReachedAt ? firstReachedAt : "";
+}
+
 export function applyScoreMetric(
   previous: { value: number; reachedAt: string } | undefined,
   delta: number,

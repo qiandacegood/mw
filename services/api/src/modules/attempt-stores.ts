@@ -2,6 +2,7 @@ import {
   paperBestId,
   type ActiveAttemptRecord,
   type AttemptRecord,
+  type CatalogRecord,
   type CategoryRecord,
   type IdempotencyRecord,
   type MaintenanceConfig,
@@ -40,6 +41,7 @@ export type AttemptWriteMutation<T> = {
 
 export type SubmitWriteSnapshot = AttemptWriteSnapshot & {
   maintenance?: MaintenanceConfig;
+  catalog?: CatalogRecord;
   stats?: MemberStatsRecord;
   best?: PaperBestRecord;
   metrics: ScoreMetricRecord[];
@@ -65,6 +67,7 @@ export interface AttemptReadStore {
   getAnswer(chunkId: string): Promise<PaperAnswerRecord | undefined>;
   getMember(memberId: string): Promise<MemberRecord | undefined>;
   getCategory(categoryId: string): Promise<CategoryRecord | undefined>;
+  getCatalog?(): Promise<CatalogRecord | undefined>;
   getStats(memberId: string): Promise<MemberStatsRecord | undefined>;
   getBest(memberId: string, paperId: string): Promise<PaperBestRecord | undefined>;
   listSubmittedAttempts(input: {
@@ -189,6 +192,7 @@ export type MemoryAttemptBundle = AttemptWorkStore & {
   grants: Map<string, MedalGrantRecord>;
   idem: Map<string, IdempotencyRecord>;
   maintenance?: MaintenanceConfig;
+  catalog?: CatalogRecord;
   seedSubmitted(row: AttemptRecord): void;
   linkMemberStats(stats: Map<string, MemberStatsRecord>): void;
   /** 本地测试用：让结算写入的勋章授予与其它本地 bundle 共享同一份存储（云端为同一集合）。 */
@@ -306,6 +310,9 @@ export function memoryAttemptStore(seed: {
       const row = categories.get(categoryId);
       return row ? { ...row, ancestorIds: [...row.ancestorIds] } : undefined;
     },
+    async getCatalog() {
+      return store.catalog ? { ...store.catalog } : undefined;
+    },
     transactWrite(input) {
       const run = queue.then(() => {
         const started = Date.now();
@@ -389,6 +396,7 @@ export function memoryAttemptStore(seed: {
           category: category ? { ...category, ancestorIds: [...category.ancestorIds] } : undefined,
           idem: input.idempotencyId && idem.has(input.idempotencyId) ? { ...idem.get(input.idempotencyId)! } : undefined,
           maintenance: store.maintenance,
+          catalog: store.catalog ? { ...store.catalog } : undefined,
           stats: store.stats.get(input.memberId) ? cloneStats(store.stats.get(input.memberId)!) : undefined,
           best: bests.get(input.bestId) ? cloneBest(bests.get(input.bestId)!) : undefined,
           metrics: input.metricIds.map((id) => metrics.get(id)).filter((row): row is ScoreMetricRecord => Boolean(row)).map(cloneMetric),

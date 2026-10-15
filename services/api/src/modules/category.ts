@@ -561,6 +561,7 @@ export async function updateCategory(input: {
           return { result: null as unknown as CategoryMutationView, error: { code: "INVALID_ARGUMENT", reason: "NAME_CONFLICT" } };
         }
         const catalog = bumpCatalog(snap.catalog, input.now);
+        const enabledChanged = parsed.enabled !== undefined && parsed.enabled !== snap.category.enabled;
         const next: CategoryRecord = {
           ...snap.category,
           name: parsed.name ?? snap.category.name,
@@ -600,7 +601,9 @@ export async function updateCategory(input: {
             ? categoryNameId(snap.category.parentId, snap.category.normalizedName)
             : undefined;
         return {
-          catalog,
+          catalog: enabledChanged
+            ? { ...catalog, categoryRankingStatus: "updating" as const, categoryRankingError: "" }
+            : catalog,
           category: next,
           removeNameId: oldNameId,
           nameSlot: nextNameId

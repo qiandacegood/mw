@@ -8,7 +8,7 @@
 ## 当前状态
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
-- **MW01、MW02、MW03、MW05、MW06、MW07、MW08、MW09、MW10、MW11、MW13、MW14 已完成**；**MW04 部分完成**；**MW12 部分完成**；**MW15 已完成**（2026-10-14 手点与 leftover 收口闭合）；**MW16 已完成**（2026-10-15 用户手点 1–9 完成、leftover 收口闭合）；**MW17 已完成**（2026-10-15 用户手点 1–10 完成、leftover 收口闭合；过程中修掉一处 `ranking_rows` 行写入缺陷后补部署）；MW18—MW30 未开始。MW07 仅为技术样例：未真实扣款、未 iOS 现网、未购买闭环，未标 A14/A20/T20/T26 通过。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
+- **MW01、MW02、MW03、MW05、MW06、MW07、MW08、MW09、MW10、MW11、MW13、MW14 已完成**；**MW04 部分完成**；**MW12 部分完成**；**MW15 已完成**（2026-10-14 手点与 leftover 收口闭合）；**MW16 已完成**（2026-10-15 用户手点 1–9 完成、leftover 收口闭合）；**MW17 已完成**（2026-10-15 用户手点 1–10 完成、leftover 收口闭合；过程中修掉一处 `ranking_rows` 行写入缺陷后补部署）；**MW18 已完成**（2026-10-15/16 A–D 接线与 mw-test 核验通过，E 段用户手点 1–12 与 leftover=0 闭合；未标 A28—A30 / T03—T07）；MW19—MW30 未开始。MW07 仅为技术样例：未真实扣款、未 iOS 现网、未购买闭环，未标 A14/A20/T20/T26 通过。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
 - mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；MW04 真实剩余仅为 **P08/P10/P11 PARTIAL**。P08 已补记 `jobs` / `audit_logs` 索引、MW09 的 `categories` 指定索引（`parentId/deletedAt/sort/_id`）、MW10 的 `questions` 指定索引（`categoryId/status/updatedAt/_id`），以及 MW11 的 `papers` 两条指定索引（`status/categoryId/publishedAt/_id` 与 `status/sort/_id`）；其余未来索引仍 PARTIAL。P10 仍 PARTIAL（网关 413）。已锁定 Nodejs20.19 与 SDK。正式六入口、`cloudbase_auth`、`admin_users` 与 MW06 四集合已部署；MW09 已部署 `categories` / `category_names` 与种子十类；MW10 已部署 `questions` / `question_versions` / `media_assets` / `upload_tickets`；MW11 已部署 `papers` / `paper_versions` / `paper_chunks` / `paper_answers`。**没有生产环境、没有真实支付**。
 - MW07-A 已于 2026-10-08 按官方现行页与思维工坊项目小程序后台完成资格核对。用户其后完成后台开通，并写入本地沙箱配置名。MW07-B 已落地签名/通知/发货隔离样例；`mw-pay-hook` 已覆盖带 `openid` 的 GET 握手、XML/JSON POST 与伪造/APIv3 拒绝。沙箱 `/xpay/query_order` 已对未知单号调用一次 `env=1`：`errcode=268490001`，`authPathReached=true`，`signatureAccepted=true`，`wroteDocs=false`。未把 A14/A20 或 T20/T26 标为通过。未真实扣款、未做 iOS 现网、未做购买闭环。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
@@ -36,7 +36,7 @@
 | MW15 | 交卷评分与成绩解析 | [已完成](first-batch/results/mw15-result.md)（2026-10-14 手点与 leftover 收口闭合） |
 | MW16 | 成长等级与勋章 | [已完成](first-batch/results/mw16-result.md)（2026-10-15 用户手点 1–9 与 leftover 收口闭合；步骤 10 为 NOT_RUN） |
 | MW17 | 四维排行榜 | [已完成](first-batch/results/mw17-result.md)（2026-10-15 用户手点 1–10 与 leftover 收口闭合；过程中修掉三处缺陷并补部署 `runtime.sha256=ccc7fcfa…`） |
-| MW18 | 类目迁移与安全删除 | 未开始 |
+| MW18 | 类目迁移与安全删除 | [已完成](first-batch/results/mw18-result.md)（E 段手点 1–12 与 leftover=0 已闭合；未标 A28—A30 / T03—T07） |
 | MW19 | 题目纠错与历史重评分 | 未开始 |
 | MW20 | VIP 权益账本与判权 | 未开始 |
 | MW21 | VIP 套餐与在线购买 | 未开始 |
@@ -201,3 +201,15 @@ A09 / T29 仍未标通过（可覆盖部分见 [mw16-result.md](first-batch/resu
 | 本地检查 | `check:prototypes` 0、`typecheck` 0、workspaces 单测 **280** 项全 0（admin 8 / miniprogram 36 / shared 111 / api 125）、`mw16:assert` / `mw17:assert` 0。**整链 `npm test` / `npm run build` 无法原样执行**：用户的后台 Vite（4174）期间占用 `packages/shared/dist`，而 `ensure-shared-js.mjs` 是两条命令的首步（删除失败即中断）→ 已按等价步骤逐段复跑（prototypes、`mw05-emit-runtime`、`tsc -p packages/shared/tsconfig.build.json --noEmit`、各工作区 build 与 vitest、断言脚本）全部 0；停掉 4174 后可原样补跑 |
 | 未做 / 已知边界 | 手点 2 的「非 super 被拒」子项未做（需临时非 super 账号；该判定与 `reason` / 幂等键校验已有 API 单测覆盖，未登录调用 `ranking.rebuild` 的 `AUTH_REQUIRED` 已有 CLI 证据；`admin_users` 复核仅 1 个 2026-10-08 建立的 super 账号，无临时账号残留）；`git diff --check` 仅剩 `docs/design/README.md` / `visual-spec.md` 的 MW-UI01 遗留尾随空格（非本轮文件，未代改） |
 | 提交与推送 | 待发起人确认后提交（本轮改动：`scripts/mw17-*.mjs`、`package.json`、`services/api/src/modules/cloud-ranking-stores.ts`、小程序排行榜文案与 `vitest.config.ts`、开发手册文档） |
+
+## 本轮执行记录（2026-10-15，MW18）
+
+只做 MW18：类目迁移与安全删除。不改写 MW12 / MW14 / MW15 / MW16 / MW17，不重开 MW13，不启动 MW19—MW30。只操作 mw-test。没有把 A01—A31 或 T01—T30 标为通过，尤其未标 **A28—A30 / T03—T07**。未自动提交、推送或发布。
+
+| 任务 | 结果 |
+| --- | --- |
+| MW18-A / B / C | 已接线（[mw18-category-change.md](first-batch/mw18-category-change.md)）：方案 A 分类投影、`category.change.preview` / `commit` / `status`、`catalog.change` 持久任务、停用保留指标、category-only 重建隔离、后台预览确认、小程序结构更新中） |
+| MW18-D | 已完成（仅 mw-test）：`mw18:deploy` 部署 `mw-admin` / `mw-jobs` / `mw-public` / `mw-member`，新建 `catalog_change_previews` / `catalog_change_jobs` 与两条索引；`mw18:verify` **`ok:true`**（未登录预览 `AUTH_REQUIRED`、伪造 Timer `FORGED_TIMER_DENIED`、种子十类 10、`orders`/`vip_*` 文档 0） |
+| MW18-E 手点与 leftover | **闭合**。用户手点 1–12 符合预期（测A 迁到测B、维护期分类页更新中、停用后已开始卷可交、category-only 重建不改 `publishedGeneration`）；入册 12 条后精确删除 12；`mw18:verify-leftovers` **`ok:true`**、`leftoverDocs=0`、种子十类 10 |
+| 本地检查 | `typecheck` 0、`npm test` 0（workspaces **289** 项：admin 8 / miniprogram 36 / shared 115 / api 130）、`npm run build` 0。当时 4174 未占用 `shared/dist` |
+| 提交与推送 | 本轮收口提交并推送 |
