@@ -1,5 +1,72 @@
+/*
+ * MW-UI01：TDesign 小程序主题变量入口。
+ * 该文件由 `npm run build -w @mw/miniprogram` 复制到 apps/miniprogram/miniprogram_npm，
+ * 未构建时会因路径不存在而报错 —— 这是刻意的，避免"忘了构建 npm"却看起来正常。
+ */
+@import "./miniprogram_npm/tdesign-miniprogram/common/style/theme/_index.wxss";
+
 page {
   background: #f7fafc;
   color: #1a202c;
   font-size: 16px;
+}
+
+/*
+ * MW-UI01 视觉基线语义变量。
+ * 只声明变量，不覆盖任何组件选择器；组件级别覆盖样式一律收在样板专用类下。
+ * 语义 → TDesign 变量的完整映射与理由见 docs/design/tdesign-component-map.md。
+ */
+page {
+  /* 自有语义变量：样板与后续页面的样式只引用这一层 */
+  --mw-color-brand: #2b6cb0;
+  --mw-color-brand-strong: #2c5282;
+  --mw-color-brand-soft: #ebf8ff;
+  --mw-color-brand-disabled: #b3d7f2;
+  --mw-color-page: #f7fafc;
+  --mw-color-surface: #ffffff;
+  --mw-color-fill: #edf2f7;
+  --mw-color-text: #1a202c;
+  --mw-color-text-weak: #4a5568;
+  --mw-color-text-disabled: #a0aec0;
+  --mw-color-border: #e2e8f0;
+  --mw-color-border-strong: #cbd5e0;
+  --mw-color-success: #276749;
+  --mw-color-warning: #c05621;
+  --mw-color-danger: #c53030;
+  --mw-color-gold: #d69e2e;
+  --mw-font-size-body: 32rpx;
+  --mw-font-size-body-large: 40rpx;
+  --mw-line-height-body: 1.6;
+  --mw-radius-card: 16rpx;
+  --mw-radius-control: 16rpx;
+  --mw-space-page: 32rpx;
+  --mw-tap-min: 88rpx;
+
+  /* TDesign 品牌色阶：延续 MW02 主色 #2B6CB0，不使用 TDesign 默认蓝 */
+  --td-brand-color-1: #ebf8ff;
+  --td-brand-color-2: #d6ebfa;
+  --td-brand-color-3: #b3d7f2;
+  --td-brand-color-4: #8cc0e8;
+  --td-brand-color-5: #63a6dc;
+  --td-brand-color-6: #3f8dcb;
+  --td-brand-color-7: #2b6cb0;
+  --td-brand-color-8: #2c5282;
+  --td-brand-color-9: #1d4877;
+  --td-brand-color-10: #16375c;
+
+  /* TDesign 中性色与功能色 */
+  --td-bg-color-page: #f7fafc;
+  --td-bg-color-container: #ffffff;
+  --td-bg-color-component: #edf2f7;
+  --td-text-color-primary: #1a202c;
+  --td-text-color-secondary: #4a5568;
+  --td-text-color-placeholder: #a0aec0;
+  --td-text-color-disabled: #a0aec0;
+  --td-border-level-1-color: #e2e8f0;
+  --td-border-level-2-color: #cbd5e0;
+  --td-component-stroke: #e2e8f0;
+  --td-component-border: #cbd5e0;
+  --td-success-color: #276749;
+  --td-warning-color: #c05621;
+  --td-error-color: #c53030;
 }

@@ -253,3 +253,30 @@ export function conflictChoiceOf(choice: { confirm?: boolean; cancel?: boolean }
   if (choice.cancel === true) return "page";
   return "none";
 }
+
+export function quizTypeLabel(type: string): string {
+  if (type === "multiple") return "多选题";
+  if (type === "trueFalse") return "判断题";
+  return "单选题";
+}
+
+export function answeredPercentOf(answeredCount: number, questionCount: number): number {
+  if (!Number.isFinite(questionCount) || questionCount <= 0) return 0;
+  const raw = Math.round((Number(answeredCount || 0) / questionCount) * 100);
+  if (!Number.isFinite(raw)) return 0;
+  return Math.max(0, Math.min(100, raw));
+}
+
+/**
+ * MW-UI01 事件适配：把 TDesign radio/checkbox 分组 change 事件回传的 detail.value
+ * 映射回既有答题数据结构（questionId → optionIds[]）。
+ * 单选/判断题只取一个 optionId；多选题保留 TDesign 给出的数组顺序；清空时返回空数组。
+ */
+export function choiceOptionIds(type: string, value: unknown): string[] {
+  if (type === "multiple") {
+    if (!Array.isArray(value)) return [];
+    return value.map((id) => String(id)).filter((id) => id.length > 0);
+  }
+  if (value === undefined || value === null || value === "") return [];
+  return [String(value)];
+}

@@ -3,12 +3,14 @@ import { asRecord, errorInfo } from "./browse";
 
 export {
   answersFromServer,
+  answeredPercentOf,
   applyConflictChoice,
   applyNetworkChange,
   applySaveFail,
   applySaveOk,
   beginSave,
   buildSaveBody,
+  choiceOptionIds,
   conflictChoiceOf,
   decideActiveDraft,
   displaySave,
@@ -17,6 +19,7 @@ export {
   markLocalChange,
   paperStartFlags,
   quizCard,
+  quizTypeLabel,
   replaceStartBody,
   saveLabelOf,
   unansweredConfirmCopy,

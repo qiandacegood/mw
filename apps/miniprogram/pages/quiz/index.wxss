@@ -1,19 +1,377 @@
-.page { padding: 16px 16px 32px; }
-.bar { display: flex; justify-content: space-between; align-items: center; }
-.title { font-size: 16px; font-weight: 600; }
-.save { font-size: 13px; color: #4a5568; }
-.save.saving { color: #b7791f; }
-.save.saved { color: #276749; }
-.save.failed, .save.offline, .save.conflict { color: #c53030; }
-.card { margin-top: 12px; padding: 14px; background: #fff; border-radius: 10px; }
-.stem { font-size: 16px; display: block; margin-bottom: 10px; }
-.option { margin-top: 8px; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; }
-.option.on { border-color: #2b6cb0; background: #ebf8ff; }
-.muted { display: block; margin-top: 8px; color: #4a5568; }
-.err { color: #c53030; }
-.grid { display: flex; flex-wrap: wrap; margin-top: 8px; }
-.no { width: 36px; height: 36px; line-height: 36px; text-align: center; margin: 4px; border-radius: 18px; background: #edf2f7; }
-.no.done { background: #c6f6d5; }
-.no.cur { outline: 2px solid #2b6cb0; }
-button { margin-top: 12px; background: #2b6cb0; color: #fff; }
-.ghost { background: #edf2f7; color: #2d3748; }
+/*
+ * MW-UI01 答题页样板样式。
+ * 约定：只使用 .quiz-* 专用类与 MW-UI01 语义变量，不写通用 button / .card 等选择器，
+ * 避免影响其它页面。TDesign 组件的覆盖样式一律收在 .quiz-options 等专用类下。
+ */
+.quiz {
+  padding: 24rpx var(--mw-space-page);
+  padding-bottom: calc(300rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(300rpx + env(safe-area-inset-bottom));
+}
+
+/* ---------- 卡片与提示 ---------- */
+.quiz-card {
+  box-sizing: border-box;
+  margin-bottom: 24rpx;
+  padding: 24rpx;
+  background: var(--mw-color-surface);
+  border: 2rpx solid var(--mw-color-border);
+  border-radius: var(--mw-radius-card);
+}
+
+.quiz-center {
+  display: flex;
+  justify-content: center;
+  padding: 80rpx 24rpx;
+}
+
+.quiz-alert {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 24rpx;
+  padding: 20rpx 24rpx;
+  background: var(--mw-color-fill);
+  border-radius: var(--mw-radius-control);
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+.quiz-alert--error {
+  color: var(--mw-color-danger);
+}
+
+.quiz-alert--warning {
+  color: var(--mw-color-warning);
+}
+
+.quiz-alert__text {
+  flex: 1;
+  margin-left: 12rpx;
+}
+
+.quiz-hint {
+  display: block;
+  margin-bottom: 24rpx;
+  padding: 0 4rpx;
+  color: var(--mw-color-text-weak);
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+/* ---------- 顶部信息与保存状态 ---------- */
+.quiz-head__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.quiz-head__title {
+  flex: 1;
+  min-width: 0;
+  margin-right: 16rpx;
+  color: var(--mw-color-text);
+  font-size: var(--mw-font-size-body);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.quiz-head__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12rpx 0 16rpx;
+  color: var(--mw-color-text-weak);
+  font-size: 26rpx;
+}
+
+.quiz-head__pos {
+  color: var(--mw-color-text);
+  font-weight: 600;
+}
+
+.quiz-save {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: 88rpx;
+  padding: 0 20rpx;
+  background: var(--mw-color-fill);
+  border-radius: 999rpx;
+  color: var(--mw-color-text-weak);
+  font-size: 24rpx;
+}
+
+.quiz-save--saving {
+  color: var(--mw-color-warning);
+}
+
+.quiz-save--saved {
+  color: var(--mw-color-success);
+}
+
+.quiz-save--failed,
+.quiz-save--conflict,
+.quiz-save--offline {
+  color: var(--mw-color-danger);
+}
+
+.quiz-save__text {
+  margin-left: 8rpx;
+}
+
+.quiz-spin {
+  animation: quiz-spin 1s linear infinite;
+}
+
+@keyframes quiz-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- 题干与选项 ---------- */
+.quiz-stem {
+  margin-bottom: 8rpx;
+}
+
+.quiz-stem__text {
+  display: block;
+  margin-top: 16rpx;
+  color: var(--mw-color-text);
+  font-size: var(--mw-font-size-body);
+  line-height: var(--mw-line-height-body);
+  word-break: break-word;
+}
+
+.quiz-options {
+  /* 通过 TDesign 变量调整内部尺寸，避免直接改写组件选择器 */
+  --td-checkbox-vertical-padding: 20rpx 24rpx;
+  --td-radio-vertical-padding: 20rpx 24rpx;
+  --td-checkbox-icon-size: 40rpx;
+  --td-radio-icon-size: 40rpx;
+}
+
+.quiz-options .quiz-option {
+  box-sizing: border-box;
+  min-height: var(--mw-tap-min);
+  margin-top: 16rpx;
+  background: var(--mw-color-surface);
+  border: 2rpx solid var(--mw-color-border);
+  border-radius: var(--mw-radius-control);
+}
+
+.quiz-options .quiz-option--on {
+  background: var(--mw-color-brand-soft);
+  border-color: var(--mw-color-brand);
+}
+
+/* 卡片本身提供分隔，不再显示组件分组用的细线 */
+.quiz-options .t-checkbox__border,
+.quiz-options .t-radio__border {
+  display: none;
+}
+
+.quiz-option__body {
+  display: flex;
+  align-items: flex-start;
+}
+
+.quiz-option__id {
+  flex: none;
+  min-width: 40rpx;
+  color: var(--mw-color-text-weak);
+  font-weight: 600;
+}
+
+.quiz-options .quiz-option--on .quiz-option__id {
+  color: var(--mw-color-brand);
+}
+
+.quiz-option__text {
+  flex: 1;
+  color: var(--mw-color-text);
+  font-size: 30rpx;
+  line-height: var(--mw-line-height-body);
+  word-break: break-word;
+}
+
+/* ---------- 底部操作区 ---------- */
+.quiz-actions {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  padding: 16rpx var(--mw-space-page) calc(16rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(16rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.98);
+  border-top: 2rpx solid var(--mw-color-border);
+  /* 触点高度按 MW-UI01 基线提升到 44px */
+  --td-button-medium-height: 88rpx;
+}
+
+.quiz-actions__row {
+  display: flex;
+  align-items: stretch;
+  margin-bottom: 12rpx;
+}
+
+.quiz-actions__btn {
+  flex: 1;
+  min-width: 0;
+}
+
+.quiz-actions__btn + .quiz-actions__btn {
+  margin-left: 12rpx;
+}
+
+/* ---------- 答题卡 ---------- */
+.quiz-sheet {
+  padding: 32rpx 32rpx calc(32rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(32rpx + env(safe-area-inset-bottom));
+  background: var(--mw-color-surface);
+  border-radius: 24rpx 24rpx 0 0;
+}
+
+.quiz-sheet__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.quiz-sheet__title {
+  color: var(--mw-color-text);
+  font-size: var(--mw-font-size-body-large);
+  font-weight: 600;
+}
+
+.quiz-sheet__sub {
+  color: var(--mw-color-text-weak);
+  font-size: 26rpx;
+}
+
+.quiz-legend {
+  display: flex;
+  align-items: center;
+  margin: 24rpx 0 16rpx;
+}
+
+.quiz-legend__item {
+  display: flex;
+  align-items: center;
+  margin-right: 32rpx;
+  color: var(--mw-color-text-weak);
+  font-size: 24rpx;
+}
+
+.quiz-legend__text {
+  margin-left: 8rpx;
+}
+
+.quiz-legend .quiz-cell {
+  width: 56rpx;
+  height: 56rpx;
+  font-size: 24rpx;
+}
+
+.quiz-sheet__scroll {
+  max-height: 50vh;
+}
+
+.quiz-grid {
+  display: flex;
+  flex-wrap: wrap;
+  width: calc(100% + 16rpx);
+}
+
+.quiz-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 88rpx;
+  height: 88rpx;
+  margin: 0 16rpx 16rpx 0;
+  background: var(--mw-color-fill);
+  border: 2rpx solid var(--mw-color-border);
+  border-radius: var(--mw-radius-control);
+  color: var(--mw-color-text-weak);
+  font-size: 28rpx;
+}
+
+.quiz-cell--done {
+  background: var(--mw-color-brand-soft);
+  border-color: var(--mw-color-brand-soft);
+  color: var(--mw-color-brand);
+}
+
+.quiz-cell--current {
+  border-width: 4rpx;
+  border-color: var(--mw-color-brand);
+  color: var(--mw-color-brand);
+  font-weight: 600;
+}
+
+.quiz-sheet__note {
+  display: block;
+  margin-top: 8rpx;
+  color: var(--mw-color-text-weak);
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+/* ---------- 已交卷只读 ---------- */
+.quiz-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 32rpx;
+  padding: 32rpx 0 8rpx;
+  color: var(--mw-color-success);
+}
+
+.quiz-done__title {
+  margin-top: 16rpx;
+  color: var(--mw-color-text);
+  font-size: var(--mw-font-size-body-large);
+  font-weight: 600;
+  text-align: center;
+}
+
+.quiz-done__hint {
+  margin-top: 8rpx;
+  color: var(--mw-color-text-weak);
+  font-size: 26rpx;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* ---------- 调试与测试区 ---------- */
+.quiz-test {
+  margin-bottom: 24rpx;
+  color: var(--mw-color-text-weak);
+  font-size: 24rpx;
+}
+
+.quiz-test__toggle {
+  display: flex;
+  align-items: center;
+  min-height: var(--mw-tap-min);
+  padding: 0 4rpx;
+}
+
+.quiz-test__toggle-text {
+  margin-left: 8rpx;
+}
+
+.quiz-test__body {
+  padding: 20rpx 24rpx;
+  background: var(--mw-color-fill);
+  border-radius: var(--mw-radius-control);
+}
+
+.quiz-test__hint {
+  display: block;
+  margin-bottom: 16rpx;
+  line-height: 1.5;
+}

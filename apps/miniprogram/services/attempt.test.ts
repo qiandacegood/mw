@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  answeredPercentOf,
   answersFromServer,
   applyConflictChoice,
   applyNetworkChange,
@@ -7,6 +8,7 @@ import {
   applySaveOk,
   beginSave,
   buildSaveBody,
+  choiceOptionIds,
   conflictChoiceOf,
   decideActiveDraft,
   displaySave,
@@ -16,6 +18,7 @@ import {
   paperStartFlags,
   quizCard,
   quizSubmitMode,
+  quizTypeLabel,
   replaceStartBody,
   unansweredConfirmCopy,
   buildSubmitBody
@@ -160,5 +163,51 @@ describe("restore, continue, and submit stay on the server path", () => {
       answers: [{ questionId: "q1", optionIds: ["A"] }],
       confirmUnanswered: true
     });
+  });
+});
+
+describe("TDesign 事件参数适配回原有答题数据结构", () => {
+  it("把 checkbox-group 的 value 数组映射为 optionIds 数组", () => {
+    expect(choiceOptionIds("multiple", ["A", "C"])).toEqual(["A", "C"]);
+    expect(choiceOptionIds("multiple", [])).toEqual([]);
+    expect(choiceOptionIds("multiple", undefined)).toEqual([]);
+    expect(choiceOptionIds("multiple", "A")).toEqual([]);
+    expect(choiceOptionIds("multiple", ["A", "", "B"])).toEqual(["A", "B"]);
+  });
+
+  it("把 radio-group 的单个 value 映射为单元素数组，并保留判断题取值", () => {
+    expect(choiceOptionIds("single", "B")).toEqual(["B"]);
+    expect(choiceOptionIds("trueFalse", "TRUE")).toEqual(["TRUE"]);
+    expect(choiceOptionIds("single", "")).toEqual([]);
+    expect(choiceOptionIds("single", null)).toEqual([]);
+    expect(choiceOptionIds("single", undefined)).toEqual([]);
+  });
+
+  it("适配后的选择可以直接进入既有保存数据结构", () => {
+    const selected: Record<string, string[]> = {
+      q1: choiceOptionIds("single", "B"),
+      q2: choiceOptionIds("multiple", ["D", "A"])
+    };
+    const cleared = choiceOptionIds("trueFalse", "");
+    if (cleared.length) selected.q3 = cleared;
+    expect(buildSaveBody("att_1", 2, selected)).toEqual({
+      attemptId: "att_1",
+      expectedRevision: 2,
+      answers: [
+        { questionId: "q1", optionIds: ["B"] },
+        { questionId: "q2", optionIds: ["D", "A"] }
+      ]
+    });
+  });
+
+  it("题型标签与进度只做呈现，不暴露多选题正确项数量", () => {
+    expect(quizTypeLabel("multiple")).toBe("多选题");
+    expect(quizTypeLabel("trueFalse")).toBe("判断题");
+    expect(quizTypeLabel("single")).toBe("单选题");
+    expect(quizTypeLabel("unknown")).toBe("单选题");
+    expect(answeredPercentOf(3, 10)).toBe(30);
+    expect(answeredPercentOf(10, 10)).toBe(100);
+    expect(answeredPercentOf(0, 0)).toBe(0);
+    expect(answeredPercentOf(11, 10)).toBe(100);
   });
 });

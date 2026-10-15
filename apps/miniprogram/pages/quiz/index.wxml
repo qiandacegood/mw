@@ -1,62 +1,202 @@
-<view class="page">
-  <view wx:if="{{state === 'loading'}}" class="card">加载中…</view>
-  <view wx:elif="{{state === 'error'}}" class="card err">
-    <text>{{message}}</text>
-    <button bindtap="reload">重试</button>
-  </view>
-  <block wx:elif="{{attemptState === 'submitted'}}">
-    <view class="card">
-      <text class="title">{{paperTitle}}</text>
-      <text class="muted">已交卷。交卷入口改为查看结果。</text>
-    </view>
-    <button bindtap="goResult">查看结果</button>
-    <view class="card">
-      <text class="muted">只有本轮测试 attempt 才应点下面按钮。浏览或自动进页不会记入 leftover。</text>
-      <button class="ghost" bindtap="markLeftover">记入本轮 leftover</button>
-      <text wx:if="{{leftoverMarked}}" class="muted">已记入。回首页再复制本轮 leftover knownIds。</text>
+<view class="quiz">
+  <!-- 加载中 -->
+  <block wx:if="{{state === 'loading'}}">
+    <view class="quiz-card quiz-center">
+      <t-loading theme="circular" size="48rpx" text="正在加载试卷…" />
     </view>
   </block>
-  <block wx:else>
-    <view class="bar">
-      <text class="title">{{paperTitle}}</text>
-      <text class="save {{saveStatus}}" bindtap="retrySave">{{saveLabel}}</text>
-    </view>
-    <text class="muted">{{index + 1}} / {{questionCount}} · 已答 {{answeredCount}}</text>
-    <view wx:if="{{offline}}" class="card err">当前选择尚未同步。不支持离线完成或交卷。</view>
-    <view wx:if="{{item.questionId}}" class="card">
-      <text class="stem">{{item.stem.text}}</text>
-      <view
-        wx:for="{{item.options}}"
-        wx:for-item="opt"
-        wx:key="optionId"
-        class="option {{currentOn[opt.optionId] ? 'on' : ''}}"
-        data-id="{{opt.optionId}}"
-        bindtap="pick"
-      >{{opt.optionId}}. {{opt.text}}</view>
-    </view>
-    <button class="ghost" bindtap="prev" wx:if="{{index > 0}}">上一题</button>
-    <button bindtap="next" wx:if="{{index + 1 < questionCount}}">下一题</button>
-    <button class="ghost" bindtap="toggleCard">答题卡</button>
-    <view wx:if="{{showCard}}" class="card">
-      <text class="title">答题卡</text>
-      <view class="grid">
-        <view
-          wx:for="{{card}}"
-          wx:key="ord"
-          class="no {{item.done ? 'done' : ''}} {{item.ord === index + 1 ? 'cur' : ''}}"
-          data-ord="{{item.ord}}"
-          bindtap="jump"
-        >{{item.ord}}</view>
+
+  <!-- 加载失败 -->
+  <block wx:elif="{{state === 'error'}}">
+    <view class="quiz-card">
+      <view class="quiz-alert quiz-alert--error">
+        <t-icon name="error-circle" size="36rpx" />
+        <text class="quiz-alert__text">{{message}}</text>
       </view>
-    </view>
-    <button wx:if="{{submitMode === 'result'}}" bindtap="goResult">查看结果</button>
-    <button wx:else bindtap="submitPaper">交卷</button>
-    <text class="muted" wx:if="{{submitMode === 'result'}}">已交卷。可查看分数和解析。</text>
-    <text class="muted" wx:else>未答需确认后才交卷，不会静默丢掉。</text>
-    <view class="card">
-      <text class="muted">只有本轮测试 attempt 才应点下面按钮。浏览或自动进页不会记入 leftover。</text>
-      <button class="ghost" bindtap="markLeftover">记入本轮 leftover</button>
-      <text wx:if="{{leftoverMarked}}" class="muted">已记入。回首页再复制本轮 leftover knownIds。</text>
+      <t-button theme="primary" size="medium" block bind:tap="reload">重试</t-button>
     </view>
   </block>
+
+  <!-- 已交卷：整页只读，交卷入口改为查看结果 -->
+  <block wx:elif="{{submitMode === 'result'}}">
+    <view class="quiz-card">
+      <view class="quiz-done">
+        <t-icon name="check-circle" size="48rpx" />
+        <text class="quiz-done__title">{{paperTitle}}</text>
+        <text class="quiz-done__hint">已交卷，本页只读。交卷入口改为查看结果。</text>
+      </view>
+      <t-button theme="primary" size="medium" block bind:tap="goResult">查看结果</t-button>
+    </view>
+  </block>
+
+  <!-- 答题中 -->
+  <block wx:else>
+    <view class="quiz-card quiz-head">
+      <view class="quiz-head__row">
+        <text class="quiz-head__title">{{paperTitle}}</text>
+        <view class="quiz-save quiz-save--{{saveStatus}}" bind:tap="retrySave">
+          <t-icon wx:if="{{saveStatus === 'saving'}}" class="quiz-spin" name="loading" size="26rpx" />
+          <t-icon wx:elif="{{saveStatus === 'saved'}}" name="check-circle" size="26rpx" />
+          <t-icon wx:elif="{{saveStatus === 'offline'}}" name="cloud" size="26rpx" />
+          <t-icon wx:elif="{{saveStatus === 'failed' || saveStatus === 'conflict'}}" name="error-circle" size="26rpx" />
+          <t-icon wx:else name="time" size="26rpx" />
+          <text class="quiz-save__text">{{saveLabel}}</text>
+        </view>
+      </view>
+      <view class="quiz-head__meta">
+        <text class="quiz-head__pos">第 {{index + 1}} / {{questionCount}} 题</text>
+        <text class="quiz-head__answered">已答 {{answeredCount}} / {{questionCount}}</text>
+      </view>
+      <t-progress percentage="{{answeredPercent}}" label="{{false}}" />
+    </view>
+
+    <view wx:if="{{offline}}" class="quiz-alert quiz-alert--warning">
+      <t-icon name="cloud" size="32rpx" />
+      <text class="quiz-alert__text">当前选择尚未同步。不支持离线完成或交卷。</text>
+    </view>
+
+    <view class="quiz-card">
+      <view class="quiz-stem">
+        <t-tag theme="primary" variant="light" size="medium">{{typeLabel}}</t-tag>
+        <text class="quiz-stem__text">{{item.stem.text}}</text>
+      </view>
+
+      <t-checkbox-group
+        wx:if="{{item.type === 'multiple'}}"
+        class="quiz-options"
+        value="{{checkValue}}"
+        bind:change="pick"
+      >
+        <t-checkbox
+          wx:for="{{item.options}}"
+          wx:for-item="opt"
+          wx:for-index="oi"
+          wx:key="optionId"
+          class="quiz-option {{currentOn[opt.optionId] ? 'quiz-option--on' : ''}}"
+          value="{{opt.optionId}}"
+          icon="rectangle"
+          borderless="{{true}}"
+          max-label-row="{{99}}"
+        >
+          <view class="quiz-option__body">
+            <text class="quiz-option__id">{{opt.optionId}}</text>
+            <text class="quiz-option__text">{{opt.text}}</text>
+          </view>
+        </t-checkbox>
+      </t-checkbox-group>
+
+      <t-radio-group wx:else class="quiz-options" value="{{radioValue}}" bind:change="pick">
+        <t-radio
+          wx:for="{{item.options}}"
+          wx:for-item="opt"
+          wx:for-index="oi"
+          wx:key="optionId"
+          class="quiz-option {{currentOn[opt.optionId] ? 'quiz-option--on' : ''}}"
+          value="{{opt.optionId}}"
+          icon="circle"
+          borderless="{{true}}"
+          max-label-row="{{99}}"
+        >
+          <view class="quiz-option__body">
+            <text class="quiz-option__id">{{opt.optionId}}</text>
+            <text class="quiz-option__text">{{opt.text}}</text>
+          </view>
+        </t-radio>
+      </t-radio-group>
+    </view>
+
+    <text class="quiz-hint">未答需确认后才交卷，不会静默丢掉。保存结果由服务器确认。</text>
+
+    <view class="quiz-actions">
+      <view class="quiz-actions__row">
+        <t-button
+          class="quiz-actions__btn"
+          theme="default"
+          variant="outline"
+          size="medium"
+          disabled="{{index <= 0}}"
+          bind:tap="prev"
+        >上一题</t-button>
+        <t-button
+          class="quiz-actions__btn"
+          theme="default"
+          variant="outline"
+          size="medium"
+          bind:tap="toggleCard"
+        >答题卡</t-button>
+        <t-button
+          class="quiz-actions__btn"
+          theme="primary"
+          variant="outline"
+          size="medium"
+          disabled="{{index + 1 >= questionCount}}"
+          bind:tap="next"
+        >下一题</t-button>
+      </view>
+      <t-button
+        class="quiz-actions__submit"
+        theme="primary"
+        size="medium"
+        block
+        loading="{{submitting}}"
+        disabled="{{submitting}}"
+        bind:tap="submitPaper"
+      >交卷</t-button>
+    </view>
+  </block>
+
+  <!-- 调试与测试区：明确标识、默认收起，展开不写任何数据 -->
+  <view wx:if="{{state === 'ok'}}" class="quiz-test">
+    <view class="quiz-test__toggle" bind:tap="toggleTestPanel">
+      <t-icon name="{{showTestPanel ? 'chevron-down' : 'chevron-right'}}" size="28rpx" />
+      <text class="quiz-test__toggle-text">调试与测试区（非正式，默认收起）</text>
+    </view>
+    <view wx:if="{{showTestPanel}}" class="quiz-test__body">
+      <text class="quiz-test__hint">只有本轮测试 attempt 才应点下面按钮。浏览或自动进页不会记入 leftover。</text>
+      <t-button theme="default" variant="outline" size="medium" block bind:tap="markLeftover">记入本轮 leftover</t-button>
+      <text wx:if="{{leftoverMarked}}" class="quiz-test__hint">已记入。回首页再复制本轮 leftover knownIds。</text>
+    </view>
+  </view>
+
+  <!-- 答题卡 -->
+  <t-popup
+    visible="{{showCard}}"
+    placement="bottom"
+    close-on-overlay-click="{{true}}"
+    bind:visible-change="onCardVisibleChange"
+  >
+    <view class="quiz-sheet">
+      <view class="quiz-sheet__head">
+        <text class="quiz-sheet__title">答题卡</text>
+        <text class="quiz-sheet__sub">已答 {{answeredCount}} / {{questionCount}}</text>
+      </view>
+      <view class="quiz-legend">
+        <view class="quiz-legend__item">
+          <view class="quiz-cell quiz-cell--current">1</view>
+          <text class="quiz-legend__text">当前题</text>
+        </view>
+        <view class="quiz-legend__item">
+          <view class="quiz-cell quiz-cell--done">2</view>
+          <text class="quiz-legend__text">已答</text>
+        </view>
+        <view class="quiz-legend__item">
+          <view class="quiz-cell">3</view>
+          <text class="quiz-legend__text">未答</text>
+        </view>
+      </view>
+      <scroll-view class="quiz-sheet__scroll" scroll-y>
+        <view class="quiz-grid">
+          <view
+            wx:for="{{card}}"
+            wx:for-item="cell"
+            wx:key="ord"
+            class="quiz-cell {{cell.done ? 'quiz-cell--done' : ''}} {{cell.current ? 'quiz-cell--current' : ''}}"
+            data-ord="{{cell.ord}}"
+            bind:tap="jump"
+          >{{cell.ord}}</view>
+        </view>
+      </scroll-view>
+      <text class="quiz-sheet__note">「已答」表示已保存的选择，不代表答对。</text>
+    </view>
+  </t-popup>
 </view>

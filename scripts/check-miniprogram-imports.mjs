@@ -1,7 +1,8 @@
-import { existsSync } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { readFile, readdir } from "node:fs/promises";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MP_FILE_EXTENSIONS, specsOfSource } from "./mp-module-specs.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const mp = join(root, "apps", "miniprogram");
@@ -14,60 +15,68 @@ function fail(message) {
   process.exit(1);
 }
 
+function isFile(path) {
+  return existsSync(path) && statSync(path).isFile();
+}
+
+function relOf(file) {
+  return relative(mp, file).split(sep).join("/");
+}
+
 async function walk(dir, acc = []) {
   for (const name of await readdir(dir)) {
     if (skipDirs.has(name)) continue;
     const full = join(dir, name);
-    const info = await stat(full);
+    const info = statSync(full);
     if (info.isDirectory()) await walk(full, acc);
-    else if (name.endsWith(".js") && !name.endsWith(".test.js")) acc.push(full);
+    else if (MP_FILE_EXTENSIONS.includes(extname(name)) && !name.endsWith(".test.js")) acc.push(full);
   }
   return acc;
 }
 
-function specs(source) {
-  const found = [];
-  const patterns = [
-    /require\(\s*["']([^"']+)["']\s*\)/g,
-    /from\s+["']([^"']+)["']/g,
-    /import\(\s*["']([^"']+)["']\s*\)/g
+function candidatesFor(base) {
+  return [
+    base,
+    ...MP_FILE_EXTENSIONS.map((ext) => `${base}${ext}`),
+    ...MP_FILE_EXTENSIONS.map((ext) => join(base, `index${ext}`))
   ];
-  for (const re of patterns) {
-    for (const match of source.matchAll(re)) found.push(match[1]);
-  }
-  return found;
 }
 
+/**
+ * 小程序运行时的解析规则：
+ * - 相对路径：相对当前文件，可省略扩展名，也可落到目录 index。
+ * - 裸包名：到 miniprogram_npm 下查找（覆盖 @mw/shared 与 tdesign-miniprogram 的 tslib 等）。
+ */
 function resolveSpec(fromFile, spec) {
-  if (spec.startsWith(".")) {
-    const base = resolve(dirname(fromFile), spec);
-    return [base, `${base}.js`, join(base, "index.js")].find((candidate) => existsSync(candidate)) ?? null;
-  }
-  if (spec === "@mw/shared") {
-    return existsSync(bundledShared) ? bundledShared : null;
-  }
-  return null;
+  const base = spec.startsWith(".")
+    ? resolve(dirname(fromFile), spec)
+    : join(mp, "miniprogram_npm", spec);
+  return candidatesFor(base).filter(isFile);
 }
 
 const files = await walk(mp);
-if (files.length === 0) fail("no generated JavaScript under apps/miniprogram");
+if (files.length === 0) fail("no generated miniprogram files under apps/miniprogram");
 
 const missing = [];
 for (const file of files) {
+  const ext = extname(file);
   const source = await readFile(file, "utf8");
-  for (const spec of specs(source)) {
+  for (const spec of specsOfSource(source, ext)) {
     if (spec.startsWith("node:") || spec === "fs" || spec === "path") {
-      missing.push(`${file}: unexpected node import ${spec}`);
+      missing.push(`${relOf(file)}: unexpected node import ${spec}`);
       continue;
     }
-    if (!resolveSpec(file, spec)) {
-      missing.push(`${file}: cannot resolve ${spec} from miniprogram root`);
-    }
+    const matches = resolveSpec(file, spec);
+    // 组件的 usingComponents 必须落到真实组件定义（.json），只命中 .js 不算。
+    const ok = ext === ".json" ? matches.some((match) => match.endsWith(".json")) : matches.length > 0;
+    if (!ok) missing.push(`${relOf(file)}: cannot resolve ${spec}`);
   }
 }
 
 if (missing.length) fail(missing.join("\n"));
-console.log(`checked ${files.length} js files; all runtime imports resolve`);
+console.log(
+  `checked ${files.length} miniprogram files (js/json/wxml/wxss); all runtime dependencies resolve from miniprogram root`
+);
 
 if (!existsSync(generatedClient)) fail("generated services/mock-client.js is missing");
 if (!existsSync(bundledShared)) fail("generated miniprogram_npm/@mw/shared/index.js is missing");

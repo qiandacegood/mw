@@ -10,7 +10,8 @@
     "smoke:devtools": "node ../../scripts/try-wechat-devtools-smoke.mjs"
   },
   "dependencies": {
-    "@mw/shared": "0.0.1"
+    "@mw/shared": "0.0.1",
+    "tdesign-miniprogram": "1.17.0"
   },
   "devDependencies": {
     "esbuild": "^0.25.11"

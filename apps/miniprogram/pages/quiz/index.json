@@ -1,3 +1,15 @@
 {
-  "navigationBarTitleText": "答题"
+  "navigationBarTitleText": "答题",
+  "usingComponents": {
+    "t-button": "tdesign-miniprogram/button/button",
+    "t-checkbox": "tdesign-miniprogram/checkbox/checkbox",
+    "t-checkbox-group": "tdesign-miniprogram/checkbox-group/checkbox-group",
+    "t-icon": "tdesign-miniprogram/icon/icon",
+    "t-loading": "tdesign-miniprogram/loading/loading",
+    "t-popup": "tdesign-miniprogram/popup/popup",
+    "t-progress": "tdesign-miniprogram/progress/progress",
+    "t-radio": "tdesign-miniprogram/radio/radio",
+    "t-radio-group": "tdesign-miniprogram/radio-group/radio-group",
+    "t-tag": "tdesign-miniprogram/tag/tag"
+  }
 }

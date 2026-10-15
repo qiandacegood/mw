@@ -11,6 +11,7 @@
 1. [02 首版任务总览](02-roadmap.md)：30 项任务、6 个阶段、依赖、交付和有限验收。
 2. [07 实际进度](07-progress.md)：唯一执行状态入口。
 3. [MW01 实施基线与接口约定](first-batch/mw01-baseline.md)：建议首项的可执行说明。
+4. [MW-UI01 UI 规范定稿与答题页样板](first-batch/mw-ui01-tdesign-quiz.md)：2026-10-15 安排的补充任务，落实 TDesign 规范与实际答题页样板；[结果](first-batch/results/mw-ui01-result.md) 标记**已完成**（用户手点 4 步通过闭合可见检查）。不重排 MW01—MW30。
 
 ## 已有依据
 

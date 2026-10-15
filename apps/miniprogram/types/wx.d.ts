@@ -21,6 +21,7 @@ declare const wx: {
   }): void;
   navigateTo(opts: { url: string }): void;
   switchTab(opts: { url: string }): void;
+  stopPullDownRefresh(): void;
   setClipboardData(opts: { data: string; success?: () => void }): void;
   onNetworkStatusChange(cb: (res: { isConnected: boolean }) => void): void;
   offNetworkStatusChange?(cb: (res: { isConnected: boolean }) => void): void;
@@ -63,6 +64,10 @@ interface PageInstance {
   };
   onNetwork: (online: boolean) => void;
   syncSave: (offline?: boolean) => void;
+  syncAnswered: (answeredCount: number) => void;
+  submitting: boolean;
+  onCardVisibleChange: (event?: { detail?: { visible?: boolean } }) => void;
+  toggleTestPanel: () => void;
   showIndex: (index: number, items: any[], selected: Record<string, string[]>, extra?: Record<string, unknown>) => void;
   flushSave: (explicit: boolean) => void | Promise<void>;
   handleConflict: (details: Record<string, unknown>) => void | Promise<void>;
@@ -75,12 +80,28 @@ interface PageInstance {
   submitPaper?: () => void | Promise<void>;
   toggleWrong?: () => void;
   fetchPage?: (cursor?: string) => void | Promise<void>;
+  /** MW17 排行榜页：四榜切换、类目选择、参与开关与分页。 */
+  onPullDownRefresh?: (this: PageInstance) => void;
+  loadCategories?: (this: PageInstance) => void | Promise<void>;
+  applyList?: (this: PageInstance, data: Record<string, unknown>, append: boolean) => void;
+  loadMore?: (this: PageInstance) => void | Promise<void>;
+  retry?: (this: PageInstance) => void;
+  onTabChange?: (this: PageInstance, event?: { detail?: { value?: unknown } }) => void;
+  openCategoryPicker?: (this: PageInstance) => void;
+  closeCategoryPicker?: (this: PageInstance) => void;
+  onPickerVisibleChange?: (this: PageInstance, event?: { detail?: { visible?: boolean } }) => void;
+  chooseCategory?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string; name?: string } } }) => void;
+  openSettings?: (this: PageInstance) => void;
+  closeSettings?: (this: PageInstance) => void;
+  onSettingsVisibleChange?: (this: PageInstance, event?: { detail?: { visible?: boolean } }) => void;
+  toggleRanking?: (this: PageInstance) => void | Promise<void>;
 }
 
 interface PageOptions {
   data?: Record<string, unknown>;
   answers?: Record<string, string[]>;
   session?: PageInstance["session"];
+  submitting?: boolean;
   onLoad?: (this: PageInstance, query?: Record<string, string | undefined>) => void;
   onShow?: (this: PageInstance) => void;
   onUnload?: (this: PageInstance) => void;
@@ -122,6 +143,7 @@ interface PageOptions {
   copyKnownIds?: (this: PageInstance) => void;
   onNetwork?: (this: PageInstance, online: boolean) => void;
   syncSave?: (this: PageInstance, offline?: boolean) => void;
+  syncAnswered?: (this: PageInstance, answeredCount: number) => void;
   showIndex?: (
     this: PageInstance,
     index: number,
@@ -129,13 +151,16 @@ interface PageOptions {
     selected: Record<string, string[]>,
     extra?: Record<string, unknown>
   ) => void;
-  pick?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string } } }) => void;
+  /** MW-UI01：TDesign radio/checkbox 分组通过 change 事件 detail.value 回传选中值 */
+  pick?: (this: PageInstance, event?: { detail?: { value?: unknown } }) => void;
   retrySave?: (this: PageInstance) => void;
   flushSave?: (this: PageInstance, explicit: boolean) => void | Promise<void>;
   handleConflict?: (this: PageInstance, details: Record<string, unknown>) => void | Promise<void>;
   prev?: (this: PageInstance) => void;
   next?: (this: PageInstance) => void;
   toggleCard?: (this: PageInstance) => void;
+  onCardVisibleChange?: (this: PageInstance, event?: { detail?: { visible?: boolean } }) => void;
+  toggleTestPanel?: (this: PageInstance) => void;
   jump?: (this: PageInstance, event?: { currentTarget?: { dataset?: { ord?: number } } }) => void;
   submitHint?: (this: PageInstance) => void;
   goResult?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string } } }) => void;
@@ -145,6 +170,24 @@ interface PageOptions {
   submitPaper?: (this: PageInstance) => void | Promise<void>;
   toggleWrong?: (this: PageInstance) => void;
   fetchPage?: (this: PageInstance, cursor?: string) => void | Promise<void>;
+  /** MW17 排行榜页：四榜切换、类目选择、参与开关与分页。 */
+  onPullDownRefresh?: (this: PageInstance) => void;
+  loadCategories?: (this: PageInstance) => void | Promise<void>;
+  applyList?: (this: PageInstance, data: Record<string, unknown>, append: boolean) => void;
+  loadMore?: (this: PageInstance) => void | Promise<void>;
+  retry?: (this: PageInstance) => void;
+  onTabChange?: (this: PageInstance, event?: { detail?: { value?: unknown } }) => void;
+  openCategoryPicker?: (this: PageInstance) => void;
+  closeCategoryPicker?: (this: PageInstance) => void;
+  onPickerVisibleChange?: (this: PageInstance, event?: { detail?: { visible?: boolean } }) => void;
+  chooseCategory?: (
+    this: PageInstance,
+    event?: { currentTarget?: { dataset?: { id?: string; name?: string } } }
+  ) => void;
+  openSettings?: (this: PageInstance) => void;
+  closeSettings?: (this: PageInstance) => void;
+  onSettingsVisibleChange?: (this: PageInstance, event?: { detail?: { visible?: boolean } }) => void;
+  toggleRanking?: (this: PageInstance) => void | Promise<void>;
 }
 
 declare function getApp<T = { globalData: Record<string, unknown> }>( ): T;

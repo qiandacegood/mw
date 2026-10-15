@@ -1,5 +1,6 @@
 import { asRecord } from "../../services/browse";
 import {
+  answeredPercentOf,
   answersFromServer,
   applyConflictChoice,
   applyNetworkChange,
@@ -9,6 +10,7 @@ import {
   beginSave,
   buildSaveBody,
   buildSubmitBody,
+  choiceOptionIds,
   conflictChoiceOf,
   displaySave,
   emptySaveSession,
@@ -16,6 +18,7 @@ import {
   memberAction,
   quizCard,
   quizSubmitMode,
+  quizTypeLabel,
   unansweredConfirmCopy
 } from "../../services/attempt";
 import { markLeftoverAttemptId } from "../../services/known-ids";
@@ -28,6 +31,10 @@ type QuizItem = {
   options: Array<{ optionId: string; text: string }>;
 };
 
+/** TDesign radio/checkbox 系列组件统一通过 change 事件的 detail.value 回传选中值。 */
+type TDesignChoiceEvent = { detail?: { value?: unknown } };
+type TDesignPopupEvent = { detail?: { visible?: boolean } };
+
 Page({
   data: {
     state: "loading",
@@ -38,21 +45,27 @@ Page({
     index: 0,
     revision: 0,
     answeredCount: 0,
+    answeredPercent: 0,
     item: {} as QuizItem,
     items: [] as QuizItem[],
-    selected: {} as Record<string, string[]>,
     currentOn: {} as Record<string, boolean>,
-    card: [] as Array<{ ord: number; done: boolean }>,
+    radioValue: "",
+    checkValue: [] as string[],
+    typeLabel: "单选题",
+    card: [] as Array<{ ord: number; done: boolean; current: boolean }>,
     showCard: false,
     saveStatus: "idle",
     saveLabel: "未保存",
     offline: false,
+    submitting: false,
+    showTestPanel: false,
     leftoverMarked: false,
     attemptState: "inProgress",
     submitMode: "submit"
   },
   answers: {} as Record<string, string[]>,
   session: emptySaveSession(),
+  submitting: false,
   onLoad(query?: Record<string, string | undefined>) {
     this.setData({ attemptId: String(query?.attemptId || "") });
     const self = this as { onNet?: (res: { isConnected: boolean }) => void };
@@ -83,6 +96,13 @@ Page({
       saveLabel: shown.label
     });
   },
+  syncAnswered(answeredCount: number) {
+    const total = Number(this.data.questionCount || 0);
+    this.setData({
+      answeredCount,
+      answeredPercent: answeredPercentOf(answeredCount, total)
+    });
+  },
   async reload() {
     const attemptId = String(this.data.attemptId || "");
     if (!attemptId) {
@@ -106,6 +126,8 @@ Page({
         paperTitle: String(draft.paperTitle || "练习"),
         questionCount: Number(draft.questionCount || 0),
         items: [],
+        card: [],
+        submitting: false,
         leftoverMarked: false
       });
       return;
@@ -158,6 +180,7 @@ Page({
       attemptId,
       paperTitle: String(draft.paperTitle || "练习"),
       questionCount: Number(draft.questionCount || items.length),
+      submitting: false,
       leftoverMarked: false,
       attemptState,
       submitMode: quizSubmitMode(attemptState)
@@ -170,31 +193,29 @@ Page({
     const currentOn: Record<string, boolean> = {};
     for (const id of picked) currentOn[id] = true;
     const shown = displaySave(this.session, this.data.offline === true);
+    const answeredCount = Object.keys(selected).filter((key) => (selected[key] || []).length).length;
     this.setData({
       state: "ok",
       index,
       items,
-      item: item || {},
+      item: item || ({} as QuizItem),
       currentOn,
+      radioValue: picked.length ? picked[0] : "",
+      checkValue: [...picked],
+      typeLabel: quizTypeLabel(item ? item.type : "single"),
       card: quizCard(items, selected, index),
-      answeredCount: Object.keys(selected).filter((key) => (selected[key] || []).length).length,
+      answeredCount,
+      answeredPercent: answeredPercentOf(answeredCount, Number(this.data.questionCount || items.length)),
       saveStatus: shown.status,
       saveLabel: shown.label,
       revision: this.session.revision,
       ...extra
     });
   },
-  pick(event?: { currentTarget?: { dataset?: { id?: string } } }) {
-    const optionId = String(event?.currentTarget?.dataset?.id || "");
+  pick(event?: TDesignChoiceEvent) {
     const item = this.data.item as QuizItem;
-    if (!optionId || !item.questionId) return;
-    const current = [...(this.answers[item.questionId] || [])];
-    let next: string[];
-    if (item.type === "multiple") {
-      next = current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId];
-    } else {
-      next = [optionId];
-    }
+    if (!item || !item.questionId) return;
+    const next = choiceOptionIds(item.type, event?.detail?.value);
     if (next.length) this.answers[item.questionId] = next;
     else delete this.answers[item.questionId];
     const offline = this.data.offline === true;
@@ -233,7 +254,7 @@ Page({
     }
     const data = asRecord(res.data);
     this.session = applySaveOk(this.session, Number(data.revision || this.session.revision));
-    this.setData({ answeredCount: Number(data.answeredCount || body.answers.length) });
+    this.syncAnswered(Number(data.answeredCount || body.answers.length));
     this.syncSave();
     if (this.session.queued) void this.flushSave?.(false);
   },
@@ -272,10 +293,16 @@ Page({
   toggleCard() {
     this.setData({ showCard: !this.data.showCard });
   },
+  onCardVisibleChange(event?: TDesignPopupEvent) {
+    this.setData({ showCard: event?.detail?.visible === true });
+  },
   jump(event?: { currentTarget?: { dataset?: { ord?: number } } }) {
     const ord = Number(event?.currentTarget?.dataset?.ord || 0);
     if (ord < 1) return;
     this.showIndex(ord - 1, (this.data.items || []) as QuizItem[], this.answers, { showCard: false });
+  },
+  toggleTestPanel() {
+    this.setData({ showTestPanel: !this.data.showTestPanel });
   },
   goResult() {
     const attemptId = String(this.data.attemptId || "");
@@ -289,31 +316,41 @@ Page({
       wx.showToast({ title: "尚未同步，不能交卷", icon: "none" });
       return;
     }
-    const body = buildSubmitBody(attemptId, this.session.revision, this.answers || {}, confirmUnanswered === true);
-    const requestId = `req_mp_submit_${Date.now()}`;
-    const res = await memberAction("attempt.submit", body, { requestId, idempotencyKey: requestId });
-    if (!res.ok) {
-      const info = attemptError(res);
-      if (info.code === "UNANSWERED_CONFIRM_REQUIRED") {
-        const copy = unansweredConfirmCopy(Number(info.details.unansweredCount || 0));
-        const picked = await new Promise<{ confirm?: boolean }>((resolve) => {
-          wx.showModal({
-            title: copy.title,
-            content: copy.content,
-            confirmText: "仍要交卷",
-            cancelText: "回去改",
-            success: (modal) => resolve(modal),
-            fail: () => resolve({})
+    if (this.submitting === true) return;
+    this.submitting = true;
+    this.setData({ submitting: true });
+    try {
+      const body = buildSubmitBody(attemptId, this.session.revision, this.answers || {}, confirmUnanswered === true);
+      const requestId = `req_mp_submit_${Date.now()}`;
+      const res = await memberAction("attempt.submit", body, { requestId, idempotencyKey: requestId });
+      if (!res.ok) {
+        const info = attemptError(res);
+        if (info.code === "UNANSWERED_CONFIRM_REQUIRED") {
+          this.submitting = false;
+          this.setData({ submitting: false });
+          const copy = unansweredConfirmCopy(Number(info.details.unansweredCount || 0));
+          const picked = await new Promise<{ confirm?: boolean }>((resolve) => {
+            wx.showModal({
+              title: copy.title,
+              content: copy.content,
+              confirmText: "仍要交卷",
+              cancelText: "回去改",
+              success: (modal) => resolve(modal),
+              fail: () => resolve({})
+            });
           });
-        });
-        if (picked.confirm === true) await this.submitAttempt?.(true);
+          if (picked.confirm === true) await this.submitAttempt?.(true);
+          return;
+        }
+        wx.showModal({ title: info.code, content: info.message, showCancel: false });
         return;
       }
-      wx.showModal({ title: info.code, content: info.message, showCancel: false });
-      return;
+      this.setData({ attemptState: "submitted", submitMode: "result" });
+      wx.navigateTo({ url: `/pages/result/index?attemptId=${encodeURIComponent(attemptId)}` });
+    } finally {
+      this.submitting = false;
+      this.setData({ submitting: false });
     }
-    this.setData({ attemptState: "submitted", submitMode: "result" });
-    wx.navigateTo({ url: `/pages/result/index?attemptId=${encodeURIComponent(attemptId)}` });
   },
   submitPaper() {
     if (this.data.submitMode === "result") {
