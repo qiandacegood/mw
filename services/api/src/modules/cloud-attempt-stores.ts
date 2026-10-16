@@ -130,6 +130,9 @@ function asAttempt(id: string, data: Record<string, unknown>): AttemptRecord {
     score: typeof data.score === "number" ? data.score : null,
     gradeRevision: typeof data.gradeRevision === "number" ? data.gradeRevision : null,
     submitHash: typeof data.submitHash === "string" ? data.submitHash : null,
+    gradingVersionId: typeof data.gradingVersionId === "string" && data.gradingVersionId ? data.gradingVersionId : null,
+    correctionId: typeof data.correctionId === "string" && data.correctionId ? data.correctionId : null,
+    correctedAt: typeof data.correctedAt === "string" && data.correctedAt ? data.correctedAt : null,
     schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : ATTEMPT_SCHEMA_VERSION,
     createdAt: asIso(data.createdAt, now),
     updatedAt: asIso(data.updatedAt, now)
@@ -297,6 +300,9 @@ function attemptWrite(row: AttemptRecord): Record<string, unknown> {
     score: row.score,
     gradeRevision: row.gradeRevision,
     submitHash: row.submitHash,
+    gradingVersionId: row.gradingVersionId || "",
+    correctionId: row.correctionId || "",
+    correctedAt: row.correctedAt || "",
     schemaVersion: row.schemaVersion,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt

@@ -10,6 +10,7 @@
     <view wx:for="{{items}}" wx:key="attemptId" class="card" data-id="{{item.attemptId}}" bindtap="goResult">
       <text class="title">{{item.paperTitle}}</text>
       <text class="muted">{{item.score}} / {{item.maxScore}} · {{item.submittedAt}}</text>
+      <text wx:if="{{item.corrected}}" class="note">{{item.correctionNote}}</text>
     </view>
     <button wx:if="{{nextCursor}}" class="ghost" bindtap="more">更多</button>
   </block>

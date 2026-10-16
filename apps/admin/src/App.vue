@@ -9,6 +9,7 @@ import {
 import {
   callAdminCategory,
   callAdminCategoryChange,
+  callAdminCorrection,
   callAdminGrowth,
   callAdminJob,
   callAdminQuestion,
@@ -98,6 +99,14 @@ const pMaxScore = ref(0);
 const pQuestionCount = ref(0);
 const pActiveVersionId = ref("");
 const pWithdrawReason = ref("答案错误，紧急撤回未提交交卷");
+const pFromVersionId = ref("");
+const pToVersionId = ref("");
+const corrReason = ref("MW19 题目正确答案纠错");
+const corrPreviewId = ref("");
+const corrPlanHash = ref("");
+const corrJobId = ref("");
+const corrStatusText = ref("先紧急撤回，再填 from/to 版本预览。commit 只绑定服务端预览。");
+const corrView = ref("");
 const pItemText = ref("");
 const pPreview = ref("");
 const pEvidence = ref("");
@@ -106,6 +115,8 @@ const knownPapers = ref<string[]>([]);
 const knownPaperVersions = ref<string[]>([]);
 const knownChunks = ref<string[]>([]);
 const knownAnswers = ref<string[]>([]);
+const knownCorrectionPreviews = ref<string[]>([]);
+const knownCorrectionWork = ref<string[]>([]);
 const iKind = ref<"question" | "paper">("question");
 const iStatus = ref("先下载模板，只填虚构内容。必须先导题库再导试卷。operations 不能导入。");
 const iEvidence = ref("");
@@ -160,7 +171,7 @@ const PAGES: Record<PageKey, { group: string; nav: NavGroup; title: string; desc
     group: "内容管理",
     nav: "content",
     title: "试卷编排与发布",
-    desc: "组卷、整卷预览、发布、普通下架、紧急撤回。发布不等于公众上线，也不等于 MW13 首页选卷。"
+    desc: "组卷、整卷预览、发布、普通下架、紧急撤回，以及 MW19 答案纠错重评。发布不等于公众上线。"
   },
   "admin-import-questions": {
     group: "内容导入",
@@ -759,40 +770,69 @@ async function saveQuestion(): Promise<void> {
   }
 }
 
+function applyLoadedQuestion(data: Record<string, unknown>): string {
+  const question = (
+    data.question && typeof data.question === "object" && !Array.isArray(data.question) ? data.question : data
+  ) as Record<string, unknown>;
+  const stem = question.stem && typeof question.stem === "object" ? (question.stem as Record<string, unknown>) : {};
+  const analysis = question.analysis && typeof question.analysis === "object" ? (question.analysis as Record<string, unknown>) : {};
+  const answer = question.answer && typeof question.answer === "object" ? (question.answer as Record<string, unknown>) : {};
+  const type = question.type === "multiple" || question.type === "trueFalse" ? question.type : "single";
+  const options = Array.isArray(question.options) ? question.options : [];
+  const answerIds = Array.isArray(answer.optionIds) ? answer.optionIds.map((item) => String(item)) : [];
+  qQuestionId.value = String(question.questionId || qQuestionId.value);
+  qCategoryId.value = String(question.categoryId || qCategoryId.value);
+  qType.value = type;
+  qStem.value = typeof stem.text === "string" ? stem.text : "";
+  qOptions.value = options
+    .map((row) => (row && typeof row === "object" ? String((row as { text?: unknown }).text || "") : ""))
+    .filter(Boolean)
+    .join("\n");
+  qAnswers.value = type === "trueFalse" ? answerIds[0] === "FALSE" ? "FALSE" : "TRUE" : answerIds.join("|");
+  qAnalysis.value = typeof analysis.text === "string" ? analysis.text : "";
+  qPoints.value = typeof question.defaultPoints === "number" ? question.defaultPoints : qPoints.value;
+  qDifficulty.value = question.difficulty === "intermediate" || question.difficulty === "challenge" ? question.difficulty : "beginner";
+  qRevision.value = Number(question.revision || 0);
+  qVersionId.value = String(question.versionId || question.currentVersionId || "");
+  qStatus.value = String(question.status || "");
+  qComplete.value = data.complete === true;
+  const missing = Array.isArray(question.missingAssets)
+    ? (question.missingAssets as Array<{ assetId?: string; kind?: string }>)
+    : [];
+  qMissing.value = missing.map((item) => `${item.kind || "?"}:${String(item.assetId || "").slice(0, 8)}`).join(",");
+  const assets = Array.isArray(data.assets) ? (data.assets as Array<Record<string, unknown>>) : [];
+  const prompt = assets.find((item) => item.kind === "prompt");
+  previewUrl.value = typeof prompt?.readUrl === "string" ? prompt.readUrl : "";
+  previewKind.value = previewUrl.value ? "prompt" : "";
+  promptAssetId.value = typeof prompt?.assetId === "string" ? prompt.assetId : "";
+  const analysisAsset = assets.find((item) => item.kind === "analysis");
+  analysisAssetId.value = typeof analysisAsset?.assetId === "string" ? analysisAsset.assetId : "";
+  return qStem.value;
+}
+
 async function loadQuestion(): Promise<void> {
   if (!qQuestionId.value) {
-    status.value = "没有 questionId";
+    status.value = "没有 questionId。请从试卷编排「题目」框复制冒号前那一串，不要用 knownIds 哈希。";
     return;
   }
   busy.value = true;
   previewFailed.value = false;
   try {
-    const result = await runQuestion("question.get", { questionId: qQuestionId.value });
+    const result = await runQuestion("question.get", { questionId: qQuestionId.value.trim() });
     if (!result.ok) {
-      status.value = `读取失败：${result.error?.code}`;
+      status.value =
+        result.error?.code === "NOT_FOUND"
+          ? "读取失败：云端没有这道题。请用试卷页「题目」文本框里冒号前的 ID，不要用「复制 knownIds」里的哈希。"
+          : `读取失败：${result.error?.code}`;
       return;
     }
-    const question = (result.data?.question || {}) as Record<string, unknown>;
-    qRevision.value = Number(question.revision || 0);
-    qVersionId.value = String(question.versionId || result.data?.question && (result.data.question as { versionId?: string }).versionId || "");
-    qStatus.value = String(question.status || "");
-    qComplete.value = result.data?.complete === true;
-    const missing = Array.isArray((question as { missingAssets?: unknown[] }).missingAssets)
-      ? (question as { missingAssets: Array<{ assetId: string; kind: string }> }).missingAssets
-      : [];
-    qMissing.value = missing.map((item) => `${item.kind}:${item.assetId.slice(0, 8)}`).join(",");
-    const assets = Array.isArray(result.data?.assets) ? (result.data?.assets as Array<Record<string, unknown>>) : [];
-    const prompt = assets.find((item) => item.kind === "prompt");
-    const analysis = assets.find((item) => item.kind === "analysis");
-    previewUrl.value = typeof prompt?.readUrl === "string" ? prompt.readUrl : "";
-    previewKind.value = previewUrl.value ? "prompt" : "";
-    if (!qComplete.value || missing.length) {
+    const stem = applyLoadedQuestion(result.data || {});
+    if (!qComplete.value || qMissing.value) {
       previewFailed.value = true;
-      status.value = "缺图，题目未完整，可重载";
+      status.value = `已读取「${stem || "（无题干）"}」，但题目未完整`;
     } else {
-      status.value = "已读取题目";
+      status.value = `已读取「${stem || "（无题干）"}」 revision=${qRevision.value}`;
     }
-    void analysis;
   } finally {
     busy.value = false;
   }
@@ -1025,8 +1065,46 @@ function applyPaperView(data: Record<string, unknown>): void {
   pMaxScore.value = Number(paper.draftMaxScore || paper.maxScore || data.maxScore || 0);
   pQuestionCount.value = Number(paper.draftQuestionCount || paper.questionCount || data.questionCount || 0);
   pActiveVersionId.value = String(paper.activeVersionId || data.versionId || pActiveVersionId.value);
+  if (typeof paper.title === "string" && paper.title) pTitle.value = paper.title;
+  if (typeof paper.summary === "string") pSummary.value = paper.summary;
+  if (typeof paper.goal === "string") pGoal.value = paper.goal;
+  if (paper.access === "free" || paper.access === "vip") pAccess.value = paper.access;
+  if (paper.difficulty === "beginner" || paper.difficulty === "intermediate" || paper.difficulty === "challenge") {
+    pDifficulty.value = paper.difficulty;
+  }
+  if (typeof paper.sort === "number") pSort.value = paper.sort;
+  const items = Array.isArray(paper.draftItems) ? paper.draftItems : [];
+  if (items.length) {
+    pItemText.value = items
+      .map((row) => {
+        const rec = row && typeof row === "object" ? (row as { questionId?: unknown; points?: unknown }) : {};
+        return `${String(rec.questionId || "")}:${Number(rec.points || 0)}`;
+      })
+      .filter((line) => !line.startsWith(":"))
+      .join("\n");
+  }
   rememberId(knownPapers, pPaperId.value);
   if (pActiveVersionId.value) rememberId(knownPaperVersions, pActiveVersionId.value);
+}
+
+async function loadPaperById(): Promise<void> {
+  const paperId = pPaperId.value.trim();
+  if (!paperId) {
+    setPaperStatus("请先在「试卷 ID」贴上要打开的试卷，不要只改标题。");
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await runPaper("paper.get", { paperId });
+    if (!result.ok) {
+      setPaperStatus(`按 ID 读取试卷失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`);
+      return;
+    }
+    applyPaperView(result.data || {});
+    setPaperStatus(`已打开「${pTitle.value}」status=${pStatus.value} revision=${pRevision.value}。改标题不会换卷。`);
+  } finally {
+    busy.value = false;
+  }
 }
 
 async function savePaperDraft(): Promise<void> {
@@ -1103,6 +1181,7 @@ async function publishPaper(fault?: "missingChunk" | "badManifest"): Promise<voi
     });
     if (result.ok) {
       applyPaperView(result.data || {});
+      if (pFromVersionId.value) pToVersionId.value = pActiveVersionId.value;
       setPaperStatus(`发布成功 version=${pActiveVersionId.value}`);
     } else {
       setPaperStatus(`发布拒绝：${result.error?.code || ""} ${result.error?.details?.reason || result.error?.message || ""}`);
@@ -1128,6 +1207,95 @@ async function unpublishPaper(): Promise<void> {
   }
 }
 
+async function runCorrection(
+  action: "correction.preview" | "correction.commit" | "correction.status",
+  data: Record<string, unknown>
+): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  const result = await callAdminCorrection(app, action, data);
+  lastError.value = result.ok ? "" : result.error?.code || "CALL_FAILED";
+  corrView.value = JSON.stringify(result, null, 2);
+  if (typeof result.data?.previewId === "string") {
+    corrPreviewId.value = result.data.previewId;
+    rememberId(knownCorrectionPreviews, result.data.previewId);
+  }
+  if (typeof result.data?.planHash === "string") corrPlanHash.value = result.data.planHash;
+  if (typeof result.data?.jobId === "string") {
+    corrJobId.value = result.data.jobId;
+    rememberId(knownCorrectionWork, result.data.jobId);
+  }
+  return result;
+}
+
+async function previewCorrectionAction(): Promise<void> {
+  if (!pPaperId.value || !pFromVersionId.value || !pToVersionId.value) {
+    corrStatusText.value = "需要 paperId、fromVersionId（撤回前版本）、toVersionId（修订后版本）。";
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await runCorrection("correction.preview", {
+      paperId: pPaperId.value,
+      fromVersionId: pFromVersionId.value,
+      toVersionId: pToVersionId.value
+    });
+    corrStatusText.value = result.ok
+      ? `预览已生成。受影响尝试 ${String(result.data?.affectedAttemptCount ?? 0)}，会员 ${String(result.data?.affectedMemberCount ?? 0)}。请 super 确认。`
+      : `预览失败：${result.error?.code} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function commitCorrectionAction(): Promise<void> {
+  if (!corrPreviewId.value || !corrPlanHash.value) {
+    corrStatusText.value = "请先预览。commit 不接受本页手填计划。";
+    return;
+  }
+  busy.value = true;
+  try {
+    const result = await runCorrection("correction.commit", {
+      previewId: corrPreviewId.value,
+      planHash: corrPlanHash.value,
+      reason: corrReason.value,
+      confirmed: true
+    });
+    corrStatusText.value = result.ok
+      ? `已提交重评任务 ${String(result.data?.jobId || "")}。notBefore=${String(result.data?.notBefore || "")}。35 秒内不会推进。`
+      : `确认失败：${result.error?.code} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function refreshCorrectionStatus(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runCorrection("correction.status", corrJobId.value ? { jobId: corrJobId.value } : {});
+    corrStatusText.value = result.ok
+      ? `维护交卷=${result.data?.submitClosed === true ? "已关" : "开放"} · 更新中=${result.data?.updating === true ? "是" : "否"} · ${String((result.data?.work as { rankingStatus?: string } | undefined)?.rankingStatus || "")}`
+      : `读取进度失败：${result.error?.code}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function resumeCorrectionJob(): Promise<void> {
+  if (!corrJobId.value) {
+    corrStatusText.value = "没有可恢复的 jobId。job.resume 只用于失败恢复，不能代替正常调度。";
+    return;
+  }
+  busy.value = true;
+  try {
+    const app = await createAdminApp();
+    const result = await callAdminJob(app, "job.resume", { jobId: corrJobId.value, reason: corrReason.value });
+    corrView.value = JSON.stringify(result, null, 2);
+    corrStatusText.value = result.ok ? "已请求恢复。请再读进度。" : `恢复失败：${result.error?.code}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function withdrawPaper(): Promise<void> {
   if (!pPaperId.value) {
     setPaperStatus("还没有已保存的试卷，不能撤回。");
@@ -1141,7 +1309,10 @@ async function withdrawPaper(): Promise<void> {
       expectedRevision: pRevision.value,
       reason: pWithdrawReason.value
     });
-    if (result.ok) applyPaperView(result.data || {});
+    if (result.ok) {
+      applyPaperView(result.data || {});
+      if (pActiveVersionId.value && !pFromVersionId.value) pFromVersionId.value = pActiveVersionId.value;
+    }
     setPaperStatus(result.ok ? "已紧急撤回，未提交不可交卷" : `撤回失败：${result.error?.code}`);
   } finally {
     busy.value = false;
@@ -1180,6 +1351,8 @@ async function copyPaperEvidence(): Promise<void> {
     questions: await Promise.all(knownQuestions.value.map((id) => hashText(id))),
     questionVersions: await Promise.all(knownVersions.value.map((id) => hashText(id))),
     assets: await Promise.all(knownAssets.value.map((id) => hashText(id))),
+    previews: await Promise.all(knownCorrectionPreviews.value.map((id) => hashText(id))),
+    work: await Promise.all(knownCorrectionWork.value.map((id) => hashText(id))),
     idempotency: [],
     audits: []
   };
@@ -2062,6 +2235,10 @@ async function logout(): Promise<void> {
               <input v-model="qCategoryId" autocomplete="off" />
             </label>
             <label>
+              题目 ID（没有目录可点。要改已保存的题：从「试卷编排」题目框复制冒号前那一串，贴到这里，再点「读取并重载」）
+              <input v-model="qQuestionId" autocomplete="off" placeholder="保存成功后自动出现；不要手填 111/222" />
+            </label>
+            <label>
               题型
               <select v-model="qType">
                 <option value="single">单选</option>
@@ -2135,6 +2312,13 @@ async function logout(): Promise<void> {
           </div>
           <div class="card">
             <label>
+              试卷 ID（后台没有卷目录。要换回学员交过的卷：贴 ID 后点「按 ID 读取试卷」，不要只改标题）
+              <input v-model="pPaperId" autocomplete="off" placeholder="打开已有试卷时粘贴 paperId" />
+            </label>
+            <div class="actions">
+              <button type="button" class="ghost" :disabled="busy" @click="loadPaperById">按 ID 读取试卷</button>
+            </div>
+            <label>
               标题
               <input v-model="pTitle" autocomplete="off" />
             </label>
@@ -2194,6 +2378,30 @@ async function logout(): Promise<void> {
             <p class="status">
               paper revision={{ pRevision }} · status={{ pStatus }} · 题数={{ pQuestionCount }} · 满分={{ pMaxScore }}
             </p>
+          </div>
+          <div class="card form-block">
+            <h2 class="panel-subtitle">MW19 题目纠错与历史重评分</h2>
+            <p class="page-desc">仅 super。先紧急撤回，再发布同结构修订版，预览影响后确认。题数/分值结构变化会拒绝，当作新卷。</p>
+            <p class="status">{{ corrStatusText }}</p>
+            <label>
+              fromVersionId（撤回前、答错过的版本）
+              <input v-model="pFromVersionId" autocomplete="off" />
+            </label>
+            <label>
+              toVersionId（修订后版本）
+              <input v-model="pToVersionId" autocomplete="off" />
+            </label>
+            <label>
+              原因
+              <input v-model="corrReason" autocomplete="off" />
+            </label>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="previewCorrectionAction">预览重评影响</button>
+              <button type="button" :disabled="busy" @click="commitCorrectionAction">确认提交重评任务</button>
+              <button type="button" class="ghost" :disabled="busy" @click="refreshCorrectionStatus">读取重评进度</button>
+              <button type="button" class="ghost" :disabled="busy" @click="resumeCorrectionJob">恢复失败任务</button>
+            </div>
+            <pre data-testid="correction-view">{{ corrView }}</pre>
           </div>
           <pre data-testid="paper-preview">{{ pPreview }}</pre>
           <pre data-testid="paper-evidence">{{ pEvidence }}</pre>

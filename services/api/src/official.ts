@@ -75,6 +75,9 @@ import {
 import { commitCategoryChange, previewCategoryChange, readCategoryChangeStatus, treeHiddenForStructureUpdate } from "./modules/category-change.js";
 import { processDueCatalogJobs } from "./modules/category-change-job.js";
 import type { CatalogChangeStore } from "./modules/category-change-stores.js";
+import { commitCorrection, previewCorrection, readCorrectionStatus } from "./modules/correction.js";
+import { processDueCorrectionJobs } from "./modules/correction-job.js";
+import type { CorrectionStore } from "./modules/correction-stores.js";
 import type { CategoryUsageStore, CategoryWorkStore } from "./modules/category-stores.js";
 import { emptyCategoryUsage } from "./modules/category-stores.js";
 import { disableQuestion, getQuestion, listQuestions, saveQuestion } from "./modules/question.js";
@@ -180,6 +183,7 @@ export const ADMIN_WRITE_ACTIONS = [
   "ranking.rebuild"
 ] as const;
 export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit", "category.change.status"] as const;
+export const ADMIN_MW19_ACTIONS = ["correction.preview", "correction.commit", "correction.status"] as const;
 
 export type OfficialEntry =
   | "mw-public"
@@ -232,6 +236,7 @@ export interface OfficialContext {
   growthStore?: GrowthWorkStore;
   rankingStore?: RankingWorkStore;
   catalogChangeStore?: CatalogChangeStore;
+  correctionStore?: CorrectionStore;
   entitlement?: PracticeEntitlementReader;
   virtualPayNotify?: VirtualPayNotifyConfig;
 }
@@ -805,9 +810,10 @@ async function handleAdmin(
     return fail(requestId, "FORBIDDEN", { reason: "PUBLIC_ADMIN_REGISTER_DENIED" });
   }
   const isMw18 = (ADMIN_MW18_ACTIONS as readonly string[]).includes(action);
+  const isMw19 = (ADMIN_MW19_ACTIONS as readonly string[]).includes(action);
   const isRead = (ADMIN_ACTIONS as readonly string[]).includes(action);
   const isWrite = (ADMIN_WRITE_ACTIONS as readonly string[]).includes(action);
-  if (!isRead && !isWrite && !isMw18) {
+  if (!isRead && !isWrite && !isMw18 && !isMw19) {
     return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
   }
   const admin = await requireAdmin(ctx, requestId);
@@ -817,6 +823,12 @@ async function handleAdmin(
       return fail(requestId, "FORBIDDEN", { reason: "SUPER_ROLE_REQUIRED" });
     }
     return handleAdminCategoryChange(ctx, admin.record, action, requestId, now);
+  }
+  if (isMw19) {
+    if (!adminHasRole(admin.record.roles, "super")) {
+      return fail(requestId, "FORBIDDEN", { reason: "SUPER_ROLE_REQUIRED" });
+    }
+    return handleAdminCorrection(ctx, admin.record, action, requestId, now);
   }
   if (action === "category.tree" || action.startsWith("category.")) {
     return handleAdminCategory(ctx, admin.record, action, requestId, now);
@@ -1082,6 +1094,68 @@ async function handleAdminCategoryChange(
       }
     }
     const maint = (ctx.catalogChangeStore as { maintenance?: import("@mw/shared").MaintenanceConfig }).maintenance;
+    if (ctx.maintenanceStore && maint) {
+      await ctx.maintenanceStore.save(maint);
+    }
+  }
+  return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+}
+
+async function handleAdminCorrection(
+  ctx: OfficialContext,
+  admin: { uid: string; roles: string[] },
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  const event = unwrapFunctionEvent(ctx.event);
+  const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+  const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
+  if (!ctx.correctionStore) {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "CORRECTION_STORE_UNAVAILABLE" });
+  }
+  if (action === "correction.status") {
+    const jobId = typeof data.jobId === "string" ? data.jobId : "";
+    const job = jobId && ctx.jobStore ? await ctx.jobStore.get(jobId) : undefined;
+    const maint = ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined;
+    const status = await readCorrectionStatus({
+      store: ctx.correctionStore,
+      job,
+      data,
+      submitClosed: maint?.attemptSubmit.enabled === false
+    });
+    if (!status.ok) return fail(requestId, status.code as ErrorCode, { reason: status.reason });
+    return ok(requestId, now, status.data);
+  }
+  if (typeof rec.idempotencyKey !== "string" || !rec.idempotencyKey) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  const common = {
+    store: ctx.correctionStore,
+    actorId: admin.uid,
+    data,
+    requestId,
+    idempotencyKey: rec.idempotencyKey,
+    now
+  };
+  const result = action === "correction.preview" ? await previewCorrection(common) : await commitCorrection(common);
+  if (!result.ok) {
+    return fail(requestId, result.code as ErrorCode, {
+      reason: result.reason,
+      ...(result.issues ? { issues: result.issues } : {}),
+      ...(result.details || {})
+    });
+  }
+  if (action === "correction.commit") {
+    if (ctx.jobStore && "jobs" in ctx.correctionStore) {
+      const jobs = (ctx.correctionStore as { jobs?: Map<string, import("@mw/shared").JobRecord> }).jobs;
+      const jobId = (result.data as { jobId?: string }).jobId;
+      const stored = jobId && jobs ? jobs.get(jobId) : undefined;
+      if (stored && "put" in ctx.jobStore) {
+        await ctx.jobStore.put(stored);
+      }
+    }
+    const maint = (ctx.correctionStore as { maintenance?: import("@mw/shared").MaintenanceConfig }).maintenance;
     if (ctx.maintenanceStore && maint) {
       await ctx.maintenanceStore.save(maint);
     }
@@ -1641,6 +1715,7 @@ async function handleJobs(ctx: OfficialContext): Promise<Record<string, unknown>
     ctx.categoryStore &&
     ctx.maintenanceStore
   ) {
+    const processed: unknown[] = [];
     const ticked = await processDueCatalogJobs({
       jobStore: ctx.jobStore,
       change: ctx.catalogChangeStore,
@@ -1650,7 +1725,19 @@ async function handleJobs(ctx: OfficialContext): Promise<Record<string, unknown>
       now,
       requestId: requestIdOf(event)
     });
-    return { ok: true, entry: "mw-jobs", reason: "PLATFORM_TIMER_TICK", processed: ticked.processed };
+    processed.push(...ticked.processed);
+    if (ctx.correctionStore) {
+      const corr = await processDueCorrectionJobs({
+        jobStore: ctx.jobStore,
+        correction: ctx.correctionStore,
+        maintenance: ctx.maintenanceStore,
+        ranking: ctx.rankingStore,
+        now,
+        requestId: requestIdOf(event)
+      });
+      processed.push(...corr.processed);
+    }
+    return { ok: true, entry: "mw-jobs", reason: "PLATFORM_TIMER_TICK", processed };
   }
   if (clientLike || !trust.trusted) {
     return { ok: false, entry: "mw-jobs", reason: trust.reason || "CLIENT_INVOKE_DENIED" };
@@ -1659,19 +1746,37 @@ async function handleJobs(ctx: OfficialContext): Promise<Record<string, unknown>
     return { ok: false, entry: "mw-jobs", reason: "NO_TRUSTED_SERVER_TRIGGER" };
   }
   if (trust.invoke.action === "jobs.tick") {
-    if (!ctx.catalogChangeStore || !ctx.categoryStore || !ctx.maintenanceStore) {
+    if (!ctx.maintenanceStore) {
+      return { ok: false, entry: "mw-jobs", reason: "MAINTENANCE_STORE_UNAVAILABLE" };
+    }
+    const processed: unknown[] = [];
+    if (ctx.catalogChangeStore && ctx.categoryStore) {
+      const ticked = await processDueCatalogJobs({
+        jobStore: ctx.jobStore,
+        change: ctx.catalogChangeStore,
+        category: ctx.categoryStore,
+        maintenance: ctx.maintenanceStore,
+        ranking: ctx.rankingStore,
+        now,
+        requestId: requestIdOf(event)
+      });
+      processed.push(...ticked.processed);
+    }
+    if (ctx.correctionStore) {
+      const ticked = await processDueCorrectionJobs({
+        jobStore: ctx.jobStore,
+        correction: ctx.correctionStore,
+        maintenance: ctx.maintenanceStore,
+        ranking: ctx.rankingStore,
+        now,
+        requestId: requestIdOf(event)
+      });
+      processed.push(...ticked.processed);
+    }
+    if (!ctx.catalogChangeStore && !ctx.correctionStore) {
       return { ok: false, entry: "mw-jobs", reason: "CATALOG_CHANGE_STORE_UNAVAILABLE" };
     }
-    const ticked = await processDueCatalogJobs({
-      jobStore: ctx.jobStore,
-      change: ctx.catalogChangeStore,
-      category: ctx.categoryStore,
-      maintenance: ctx.maintenanceStore,
-      ranking: ctx.rankingStore,
-      now,
-      requestId: requestIdOf(event)
-    });
-    return { ok: true, entry: "mw-jobs", reason: "JOBS_TICK", processed: ticked.processed };
+    return { ok: true, entry: "mw-jobs", reason: "JOBS_TICK", processed };
   }
   if (trust.invoke.action === "idempotency.probe") {
     if (!ctx.idempotencyStore) {

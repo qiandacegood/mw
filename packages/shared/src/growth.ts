@@ -16,10 +16,12 @@ export const GROWTH_LEVEL_COUNT_MAX = 12;
 export const MEDAL_GRANT_SOURCE_REGISTER = "register";
 export const MEDAL_GRANT_SOURCE_SUBMIT = "submit";
 export const MEDAL_GRANT_SOURCE_RECOMPUTE = "recompute";
+export const MEDAL_GRANT_SOURCE_CORRECTION = "correction";
 export const MEDAL_GRANT_SOURCES = [
   MEDAL_GRANT_SOURCE_REGISTER,
   MEDAL_GRANT_SOURCE_SUBMIT,
-  MEDAL_GRANT_SOURCE_RECOMPUTE
+  MEDAL_GRANT_SOURCE_RECOMPUTE,
+  MEDAL_GRANT_SOURCE_CORRECTION
 ] as const;
 export type MedalGrantSource = (typeof MEDAL_GRANT_SOURCES)[number];
 

@@ -94,6 +94,8 @@ export interface SubmitResultData {
   levelId: string;
   gradeRevision: number;
   submittedAt: string;
+  corrected?: boolean;
+  correctionNote?: string;
 }
 
 export const DEFAULT_PAGE_LIMIT = 20;

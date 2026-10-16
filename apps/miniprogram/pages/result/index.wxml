@@ -13,6 +13,7 @@
     <text class="muted">历史最高 {{bestScore}} · 本次新增 +{{delta}}</text>
     <text class="muted">总分 {{totalScore}} · 等级 {{levelId}}</text>
     <text class="muted">答对 {{correctCount}} / {{questionCount}}</text>
+    <text wx:if="{{corrected}}" class="note">{{correctionNote}}</text>
     <button bindtap="goAnalysis">查看解析</button>
     <button class="ghost" bindtap="goHistory">历史成绩</button>
     <view class="card">

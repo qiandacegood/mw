@@ -16,7 +16,9 @@ Page({
     levelId: "",
     correctCount: 0,
     questionCount: 0,
-    leftoverMarked: false
+    leftoverMarked: false,
+    corrected: false,
+    correctionNote: ""
   },
   onLoad(query?: Record<string, string | undefined>) {
     this.setData({ attemptId: String(query?.attemptId || "") });
@@ -47,7 +49,9 @@ Page({
       totalScore: Number(data.totalScore || 0),
       levelId: String(data.levelId || ""),
       correctCount: Number(data.correctCount || 0),
-      questionCount: Number(data.questionCount || 0)
+      questionCount: Number(data.questionCount || 0),
+      corrected: data.corrected === true,
+      correctionNote: String(data.correctionNote || "")
     });
   },
   goAnalysis() {

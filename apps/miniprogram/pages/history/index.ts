@@ -6,7 +6,15 @@ Page({
     state: "loading",
     message: "",
     paperId: "",
-    items: [] as Array<{ attemptId: string; paperTitle: string; score: number; maxScore: number; submittedAt: string }>,
+    items: [] as Array<{
+      attemptId: string;
+      paperTitle: string;
+      score: number;
+      maxScore: number;
+      submittedAt: string;
+      corrected: boolean;
+      correctionNote: string;
+    }>,
     nextCursor: ""
   },
   onLoad(query?: Record<string, string | undefined>) {
@@ -38,7 +46,9 @@ Page({
         paperTitle: String(rec.paperTitle || "试卷"),
         score: Number(rec.score || 0),
         maxScore: Number(rec.maxScore || 0),
-        submittedAt: String(rec.submittedAt || "")
+        submittedAt: String(rec.submittedAt || ""),
+        corrected: rec.corrected === true,
+        correctionNote: String(rec.correctionNote || "")
       };
     });
     this.setData({

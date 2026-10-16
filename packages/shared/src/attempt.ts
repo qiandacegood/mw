@@ -55,6 +55,10 @@ export type AttemptRecord = {
   score: number | null;
   gradeRevision: number | null;
   submitHash: string | null;
+  /** 纠错后用于判分/解析的版本；缺省仍用 paperVersionId。不改原快照绑定。 */
+  gradingVersionId?: string | null;
+  correctionId?: string | null;
+  correctedAt?: string | null;
   schemaVersion: number;
   createdAt: string;
   updatedAt: string;

@@ -85,6 +85,8 @@ export function paymentNotifyBlockedByMaintenance(
 }
 
 export const CATALOG_CHANGE_GATES: readonly MaintenanceGate[] = ["contentWrites", "attemptStart", "attemptSubmit"];
+/** 纠错首版：全站短时关闭交卷，不关内容写、不关开始、不关支付。 */
+export const CORRECTION_GATES: readonly MaintenanceGate[] = ["attemptSubmit"];
 
 export function closeCatalogChangeGates(
   config: MaintenanceConfig,
@@ -95,6 +97,32 @@ export function closeCatalogChangeGates(
   let next = config;
   for (const gate of CATALOG_CHANGE_GATES) {
     next = setMaintenanceGate(next, gate, { enabled: false, reason, jobId }, now);
+  }
+  return next;
+}
+
+export function closeCorrectionGates(
+  config: MaintenanceConfig,
+  jobId: string,
+  reason: string,
+  now: Date
+): MaintenanceConfig {
+  let next = config;
+  for (const gate of CORRECTION_GATES) {
+    next = setMaintenanceGate(next, gate, { enabled: false, reason, jobId }, now);
+  }
+  return next;
+}
+
+export function openCorrectionGatesIfOwned(
+  config: MaintenanceConfig,
+  jobId: string,
+  now: Date
+): MaintenanceConfig {
+  let next = config;
+  for (const gate of CORRECTION_GATES) {
+    if (next[gate].jobId && next[gate].jobId !== jobId) continue;
+    next = setMaintenanceGate(next, gate, { enabled: true, reason: "", jobId: "" }, now);
   }
   return next;
 }

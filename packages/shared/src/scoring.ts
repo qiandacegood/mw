@@ -3,6 +3,9 @@ import { scoreObjectiveQuestion } from "./question.js";
 
 export const METRIC_GENERATION_BASE = "base";
 export const SCORE_EVENT_KIND_SUBMIT = "submit";
+export const SCORE_EVENT_KIND_CORRECTION = "correction";
+export const SCORE_EVENT_KINDS = [SCORE_EVENT_KIND_SUBMIT, SCORE_EVENT_KIND_CORRECTION] as const;
+export type ScoreEventKind = (typeof SCORE_EVENT_KINDS)[number];
 export const SCORE_METRIC_SCOPES = ["total", "week", "month", "category"] as const;
 export type ScoreMetricScope = (typeof SCORE_METRIC_SCOPES)[number];
 
@@ -34,7 +37,9 @@ export type ScoreEventRecord = {
   submittedAt: string;
   weekKey: string;
   monthKey: string;
-  kind: typeof SCORE_EVENT_KIND_SUBMIT;
+  kind: ScoreEventKind;
+  sourceEventId?: string;
+  correctionId?: string;
   schemaVersion: number;
   createdAt: string;
 };

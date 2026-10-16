@@ -34,6 +34,8 @@ configs/mw17-state.json
 configs/mw17-verify-state.json
 configs/mw18-state.json
 configs/mw18-verify-state.json
+configs/mw19-state.json
+configs/mw19-verify-state.json
 configs/mw07-state.json
 configs/mw07-verify-state.json
 configs/mw07b-state.json

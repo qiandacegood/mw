@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   callAdminCategory,
   callAdminCategoryChange,
+  callAdminCorrection,
   callAdminJob,
   callAdminQuestion,
   callAdminPaper,
@@ -185,6 +186,17 @@ describe("admin category helpers", () => {
     expect(calls[2]).toMatchObject({
       name: "mw-admin",
       data: { action: "category.change.preview", idempotencyKey: "mw18/admin/preview" }
+    });
+    const corr = await callAdminCorrection(
+      app,
+      "correction.preview",
+      { paperId: "p1", fromVersionId: "v1", toVersionId: "v2" },
+      "mw19/admin/preview"
+    );
+    expect(corr.ok).toBe(true);
+    expect(calls[3]).toMatchObject({
+      name: "mw-admin",
+      data: { action: "correction.preview", idempotencyKey: "mw19/admin/preview" }
     });
   });
 });

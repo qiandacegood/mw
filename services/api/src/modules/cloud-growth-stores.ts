@@ -1,5 +1,6 @@
 import {
   DEFAULT_GROWTH_NOTE,
+  MEDAL_GRANT_SOURCE_CORRECTION,
   MEDAL_GRANT_SOURCE_RECOMPUTE,
   MEDAL_GRANT_SOURCE_REGISTER,
   MEDAL_GRANT_SOURCE_SUBMIT,
@@ -144,7 +145,10 @@ export function asGrant(id: string, data: Record<string, unknown>): MedalGrantRe
     levelId: typeof data.levelId === "string" ? data.levelId : "",
     medalName: typeof data.medalName === "string" ? data.medalName : "",
     sourceType:
-      source === MEDAL_GRANT_SOURCE_REGISTER || source === MEDAL_GRANT_SOURCE_SUBMIT || source === MEDAL_GRANT_SOURCE_RECOMPUTE
+      source === MEDAL_GRANT_SOURCE_REGISTER ||
+      source === MEDAL_GRANT_SOURCE_SUBMIT ||
+      source === MEDAL_GRANT_SOURCE_RECOMPUTE ||
+      source === MEDAL_GRANT_SOURCE_CORRECTION
         ? source
         : MEDAL_GRANT_SOURCE_RECOMPUTE,
     sourceId: typeof data.sourceId === "string" ? data.sourceId : "",

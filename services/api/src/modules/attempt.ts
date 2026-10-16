@@ -1,8 +1,10 @@
 import {
   ATTEMPT_SCHEMA_VERSION,
   applyScoreMetric,
+  attemptCorrected,
   attemptIdFor,
   attemptSubmitHash,
+  correctionNoteFor,
   buildIdempotencyRecord,
   categoryMetricGenerationKey,
   categoryMetricIdsOf,
@@ -1125,7 +1127,9 @@ export async function readAttemptResult(input: {
       totalScore: memberStats?.totalScore ?? 0,
       levelId: memberStats?.levelId ?? DEFAULT_LEVEL_ID,
       gradeRevision: attempt.gradeRevision ?? 1,
-      submittedAt: attempt.submittedAt
+      submittedAt: attempt.submittedAt,
+      corrected: attemptCorrected(attempt),
+      correctionNote: correctionNoteFor(attempt)
     },
     budget: emptyBudget()
   };
@@ -1157,8 +1161,10 @@ export async function readAttemptAnalysis(input: {
   if (attempt.state !== "submitted") return fail("NOT_FOUND", "ATTEMPT_NOT_SUBMITTED");
   if (parsed.chunkNo > attempt.chunkCount) return fail("INVALID_ARGUMENT", "CHUNK_OUT_OF_RANGE", { issues: ["chunkNo out of range"] });
   const version = await input.store.getVersion(attempt.paperVersionId);
+  const gradingVersionId = attempt.gradingVersionId || attempt.paperVersionId;
+  const gradingVersion = gradingVersionId !== attempt.paperVersionId ? await input.store.getVersion(gradingVersionId) : version;
   const chunkId = version?.chunkIds[parsed.chunkNo - 1] || paperChunkId(attempt.paperVersionId, parsed.chunkNo);
-  const answerId = version?.answerChunkIds[parsed.chunkNo - 1];
+  const answerId = (gradingVersion || version)?.answerChunkIds[parsed.chunkNo - 1];
   const chunk = await input.store.getChunk(chunkId);
   const answer = answerId ? await input.store.getAnswer(answerId) : undefined;
   if (!chunk || !answer) return fail("INTERNAL_ERROR", "ANALYSIS_CHUNK_MISSING");
@@ -1210,6 +1216,9 @@ export async function listAttemptHistory(input: {
         score: number;
         maxScore: number;
         submittedAt: string;
+        gradeRevision: number;
+        corrected: boolean;
+        correctionNote: string;
       }>;
       nextCursor: string | null;
     }>
@@ -1236,7 +1245,10 @@ export async function listAttemptHistory(input: {
         paperTitle: row.paperTitle,
         score: row.score ?? 0,
         maxScore: row.maxScore,
-        submittedAt: row.submittedAt
+        submittedAt: row.submittedAt,
+        gradeRevision: row.gradeRevision ?? 1,
+        corrected: attemptCorrected(row),
+        correctionNote: correctionNoteFor(row)
       })),
       nextCursor: rows.length > parsed.limit && last ? encodeHistoryCursor(last.submittedAt, last.attemptId) : null
     },

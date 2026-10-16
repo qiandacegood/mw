@@ -4,6 +4,7 @@ export * from "./validate.js";
 export * from "./scoring.js";
 export * from "./category.js";
 export * from "./category-change.js";
+export * from "./correction.js";
 export * from "./vip.js";
 export * from "./entitlement.js";
 export * from "./attempt.js";
