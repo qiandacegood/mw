@@ -42,6 +42,9 @@ Page({
     medalCount: 0,
     medals: [] as MedalRow[],
     growthNote: "",
+    vipActive: false,
+    vipText: "未读取",
+    vipExpiresAt: "",
     raw: ""
   },
   onShow() {
@@ -63,6 +66,9 @@ Page({
         growthMessage:
           info.code === "MEMBER_REQUIRED" ? "注册后可查看成长等级与勋章。" : `${info.message}。可重试。`,
         medals: [],
+        vipActive: false,
+        vipText: info.code === "MEMBER_REQUIRED" ? "注册后可查看 VIP 状态。" : "未读取",
+        vipExpiresAt: "",
         raw: JSON.stringify({ ok: false, code: info.code, reason: info.reason })
       });
       return;
@@ -73,6 +79,9 @@ Page({
     const medals = growth.ok ? toMedals(growthData.medals) : [];
     const remaining = growth.ok ? Number(growthData.remaining || 0) : 0;
     const nextLevelName = growth.ok ? String(growthData.nextLevelName || "") : "";
+    const vip = asRecord(data.vip);
+    const vipActive = vip.active === true;
+    const vipExpiresAt = String(vip.expiresAt || "");
     this.setData({
       statusText: String(data.status || ""),
       memberId: String(data.memberId || ""),
@@ -97,12 +106,17 @@ Page({
       medalCount: medals.length,
       medals,
       growthNote: growth.ok ? `门槛版本 ${growthData.configVersion ?? 0}` : "",
+      vipActive,
+      vipText: vipActive ? "有效 VIP" : vipExpiresAt ? "已过期" : "未开通",
+      vipExpiresAt,
       raw: JSON.stringify({
         ok: true,
         status: data.status,
         revision: data.revision,
         rankingOptIn: data.rankingOptIn,
-        growthOk: growth.ok === true
+        growthOk: growth.ok === true,
+        vipActive,
+        vipExpiresAt
       })
     });
   },

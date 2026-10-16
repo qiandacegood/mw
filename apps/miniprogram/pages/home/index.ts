@@ -34,6 +34,7 @@ Page({
     levelId: "",
     levelName: "",
     growthHint: "",
+    vipText: "",
     roots: [] as Array<{ id: string; name: string }>,
     recommended: [] as ShelfItem[],
     latest: [] as ShelfItem[],
@@ -68,6 +69,14 @@ Page({
     const meData = asRecord(me.data);
     const stats = asRecord(meData.stats);
     const draft = homeDraftView(guest, asRecord(meData.draft));
+    const vip = asRecord(meData.vip);
+    const vipText = guest
+      ? ""
+      : vip.active === true
+        ? `VIP 有效${vip.expiresAt ? ` · 到期 ${String(vip.expiresAt)}` : ""}`
+        : vip.expiresAt
+          ? "VIP 已过期"
+          : "未开通 VIP";
     // 等级展示取成长接口（MW16 起为真实门槛映射）；失败时退回 member.me 的等级标识。
     const growth = guest ? { ok: false } : await memberGrowth();
     const growthData = asRecord(growth.data);
@@ -78,6 +87,7 @@ Page({
       totalScore: guest ? "" : String(stats.totalScore ?? 0),
       levelId: guest ? "" : String(growth.ok ? growthData.levelId || stats.levelId || "L1" : stats.levelId || "L1"),
       levelName: guest || !growth.ok ? "" : String(growthData.levelName || ""),
+      vipText,
       growthHint:
         guest || !growth.ok
           ? ""

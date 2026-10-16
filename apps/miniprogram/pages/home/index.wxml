@@ -14,6 +14,7 @@
     </view>
     <view wx:else class="card">
       <text class="title">总分 {{totalScore}} · 等级 {{levelName}}{{levelName ? '' : ' ' + levelId}}</text>
+      <text wx:if="{{vipText}}" class="muted">{{vipText}}</text>
       <text wx:if="{{growthHint}}" class="muted">{{growthHint}}</text>
     </view>
     <view wx:if="{{!guest && hasDraft}}" class="card">

@@ -11,6 +11,7 @@ import {
   callAdminCategoryChange,
   callAdminCorrection,
   callAdminGrowth,
+  callAdminVip,
   callAdminJob,
   callAdminQuestion,
   callAdminPaper,
@@ -23,6 +24,7 @@ import {
   type AdminCallResult,
   type AdminGrowthAction,
   type AdminRankingAction,
+  type AdminVipAction,
   type AdminSession
 } from "./cloudbase-web";
 
@@ -36,6 +38,31 @@ type CategoryNode = {
   enabled: boolean;
   effectiveEnabled?: boolean;
   revision?: number;
+};
+
+type QuestionListRow = {
+  questionId: string;
+  categoryId: string;
+  type: string;
+  stem?: { text?: string };
+  status?: string;
+  difficulty?: string;
+  defaultPoints?: number;
+  revision?: number;
+};
+
+type PaperListRow = {
+  paperId: string;
+  title: string;
+  summary?: string;
+  access?: string;
+  difficulty?: string;
+  questionCount?: number;
+  maxScore?: number;
+  categoryId: string;
+  status?: string;
+  revision?: number;
+  publishedAt?: string | null;
 };
 
 const username = ref("");
@@ -110,13 +137,23 @@ const corrView = ref("");
 const pItemText = ref("");
 const pPreview = ref("");
 const pEvidence = ref("");
-const pLocalStatus = ref("先在上方题库保存至少 1 道虚构题，再点「加入上方当前题」。不要手填 111、222 这种假号。");
+const pLocalStatus = ref("先在题库保存或点选一道题，再点「加入当前题」。");
 const knownPapers = ref<string[]>([]);
 const knownPaperVersions = ref<string[]>([]);
 const knownChunks = ref<string[]>([]);
 const knownAnswers = ref<string[]>([]);
 const knownCorrectionPreviews = ref<string[]>([]);
 const knownCorrectionWork = ref<string[]>([]);
+const questionCatalog = ref<QuestionListRow[]>([]);
+const questionListCategory = ref("");
+const questionListStatusFilter = ref("");
+const questionListStatus = ref("登录后会自动读取题库。");
+const paperCatalog = ref<PaperListRow[]>([]);
+const paperListCategory = ref("");
+const paperListStatusFilter = ref("");
+const paperListAccessFilter = ref("");
+const paperListCursor = ref<string | null>(null);
+const paperListStatus = ref("登录后会自动读取试卷。");
 const iKind = ref<"question" | "paper">("question");
 const iStatus = ref("先下载模板，只填虚构内容。必须先导题库再导试卷。operations 不能导入。");
 const iEvidence = ref("");
@@ -136,6 +173,15 @@ const gStatus = ref("先点「读取当前等级配置」，再改门槛 JSON，
 const gImpact = ref("");
 const gEvidence = ref("");
 const gMemberId = ref("");
+const vMemberId = ref("");
+const vReason = ref("");
+const vDurationDays = ref("1");
+const vDurationSeconds = ref("");
+const vSourceId = ref("");
+const vStatus = ref("赠送必须填写原因。content 角色会被拒。本轮不写订单。");
+const vEvidence = ref("");
+const vLastGrantId = ref("");
+const vLastSourceId = ref("");
 /** MW17 榜单治理：快照状态、真实更新时间与更新延迟都由服务端返回，本页不伪造。 */
 const rReason = ref("MW17 重建四维榜单快照");
 const rStatus = ref("先点「读取榜单快照状态」，再按需「重建并发布榜单快照」。重建需要 super 角色。");
@@ -150,6 +196,7 @@ type PageKey =
   | "admin-import-papers"
   | "admin-import"
   | "admin-growth"
+  | "admin-vip"
   | "admin-ranking"
   | "admin-jobs";
 type NavGroup = "content" | "import" | "ops";
@@ -159,19 +206,19 @@ const PAGES: Record<PageKey, { group: string; nav: NavGroup; title: string; desc
     group: "内容管理",
     nav: "content",
     title: "类目",
-    desc: "最多三级，一至三级都可挂卷。改父级仍禁止走 update；迁移与安全删除走本页预览确认。"
+    desc: "最多三级，一至三级都可挂卷。树节点显示已加载题数与卷数。改父级仍禁止走 update；迁移与安全删除走本页预览确认。"
   },
   "admin-questions": {
     group: "内容管理",
     nav: "content",
     title: "题库",
-    desc: "单选 / 多选 / 判断。解析必填。图片 ≤2MB，JPG/PNG/WebP。解析图不进公开或会员接口。"
+    desc: "从列表查看现有题数并点选编辑。单选 / 多选 / 判断。解析必填。图片 ≤2MB，JPG/PNG/WebP。解析图不进公开或会员接口。"
   },
   "admin-papers": {
     group: "内容管理",
     nav: "content",
     title: "试卷编排与发布",
-    desc: "组卷、整卷预览、发布、普通下架、紧急撤回，以及 MW19 答案纠错重评。发布不等于公众上线。"
+    desc: "从列表查看现有试卷并点选编辑。组卷、整卷预览、发布、普通下架、紧急撤回，以及 MW19 答案纠错重评。发布不等于公众上线。"
   },
   "admin-import-questions": {
     group: "内容导入",
@@ -196,6 +243,12 @@ const PAGES: Record<PageKey, { group: string; nav: NavGroup; title: string; desc
     nav: "ops",
     title: "成长等级与勋章配置",
     desc: "门槛必须从 0 起严格递增。发布前先预览影响人数；不删除既得勋章。VIP 购买或到期不参与加减分。"
+  },
+  "admin-vip": {
+    group: "运营",
+    nav: "ops",
+    title: "VIP 赠送与撤销",
+    desc: "人工赠送必须有原因，来源标 gift，不写订单。撤销只扣该赠送来源未用时长。本轮不做付款。"
   },
   "admin-ranking": {
     group: "运营",
@@ -237,6 +290,8 @@ function go(page: PageKey): void {
   currentPage.value = page;
   navExpanded.value = { ...navExpanded.value, [PAGES[page].nav]: true };
   if (isNarrowViewport()) sidebarVisible.value = false;
+  if (page === "admin-questions" && !questionCatalog.value.length) void refreshQuestionList();
+  if (page === "admin-papers" && !paperCatalog.value.length) void refreshPaperList();
 }
 
 function toggleGroup(key: NavGroup): void {
@@ -262,9 +317,125 @@ function rememberId(list: { value: string[] }, id: string): void {
 }
 
 const selected = computed(() => nodes.value.find((row) => (row.categoryId || row.id) === selectedId.value));
+const displayedQuestions = computed(() =>
+  questionCatalog.value.filter((row) => {
+    if (questionListCategory.value && row.categoryId !== questionListCategory.value) return false;
+    if (questionListStatusFilter.value && row.status !== questionListStatusFilter.value) return false;
+    return true;
+  })
+);
+const displayedPapers = computed(() =>
+  paperCatalog.value.filter((row) => {
+    if (paperListCategory.value && row.categoryId !== paperListCategory.value) return false;
+    if (paperListStatusFilter.value && row.status !== paperListStatusFilter.value) return false;
+    if (paperListAccessFilter.value && row.access !== paperListAccessFilter.value) return false;
+    return true;
+  })
+);
+const selectedCategoryQuestions = computed(() =>
+  selectedId.value ? questionCatalog.value.filter((row) => row.categoryId === selectedId.value) : []
+);
+const selectedCategoryPapers = computed(() =>
+  selectedId.value ? paperCatalog.value.filter((row) => row.categoryId === selectedId.value) : []
+);
 
 function nodeId(row: CategoryNode): string {
   return row.categoryId || row.id;
+}
+
+function categoryLabel(id: string): string {
+  const row = nodes.value.find((item) => nodeId(item) === id);
+  return row ? row.name : id ? `${id.slice(0, 8)}…` : "未分类";
+}
+
+function categoryQuestionCount(id: string): number {
+  return questionCatalog.value.filter((row) => row.categoryId === id).length;
+}
+
+function categoryPaperCount(id: string): number {
+  return paperCatalog.value.filter((row) => row.categoryId === id).length;
+}
+
+function questionTypeLabel(type: string): string {
+  if (type === "multiple") return "多选";
+  if (type === "trueFalse") return "判断";
+  return "单选";
+}
+
+function difficultyLabel(value: string): string {
+  if (value === "intermediate") return "进阶";
+  if (value === "challenge") return "挑战";
+  return "入门";
+}
+
+function accessLabel(value: string): string {
+  return value === "vip" ? "VIP" : "免费";
+}
+
+function paperStatusLabel(value: string): string {
+  if (value === "published") return "已发布";
+  if (value === "unpublished") return "已下架";
+  if (value === "withdrawn") return "已撤回";
+  if (value === "draft") return "草稿";
+  return value || "未知";
+}
+
+function questionStatusLabel(value: string): string {
+  return value === "disabled" ? "停用" : "启用";
+}
+
+function stemPreview(text: string, max = 40): string {
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  if (!trimmed) return "（无题干）";
+  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
+}
+
+function asQuestionRows(value: unknown): QuestionListRow[] {
+  if (!Array.isArray(value)) return [];
+  const rows: QuestionListRow[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const questionId = String(rec.questionId || "");
+    if (!questionId) continue;
+    const stem = rec.stem && typeof rec.stem === "object" ? (rec.stem as { text?: unknown }) : {};
+    rows.push({
+      questionId,
+      categoryId: String(rec.categoryId || ""),
+      type: String(rec.type || "single"),
+      stem: { text: typeof stem.text === "string" ? stem.text : "" },
+      status: String(rec.status || ""),
+      difficulty: String(rec.difficulty || ""),
+      defaultPoints: typeof rec.defaultPoints === "number" ? rec.defaultPoints : 0,
+      revision: typeof rec.revision === "number" ? rec.revision : 0
+    });
+  }
+  return rows;
+}
+
+function asPaperRows(value: unknown): PaperListRow[] {
+  if (!Array.isArray(value)) return [];
+  const rows: PaperListRow[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const paperId = String(rec.paperId || "");
+    if (!paperId) continue;
+    rows.push({
+      paperId,
+      title: String(rec.title || "未命名试卷"),
+      summary: typeof rec.summary === "string" ? rec.summary : "",
+      access: String(rec.access || ""),
+      difficulty: String(rec.difficulty || ""),
+      questionCount: typeof rec.questionCount === "number" ? rec.questionCount : 0,
+      maxScore: typeof rec.maxScore === "number" ? rec.maxScore : 0,
+      categoryId: String(rec.categoryId || ""),
+      status: typeof rec.status === "string" ? rec.status : "",
+      revision: typeof rec.revision === "number" ? rec.revision : 0,
+      publishedAt: typeof rec.publishedAt === "string" ? rec.publishedAt : null
+    });
+  }
+  return rows;
 }
 
 function indent(depth: number): string {
@@ -314,6 +485,8 @@ async function login(): Promise<void> {
       : `已登录。角色 ${result.roles.join(",") || "无"}`;
     if (result.loggedIn) {
       await refreshTree();
+      await refreshQuestionList({ manageBusy: false });
+      await refreshPaperList({ manageBusy: false });
     }
   } catch (error) {
     password.value = "";
@@ -725,6 +898,51 @@ async function runQuestion(
   return result;
 }
 
+async function refreshQuestionList(options: { manageBusy?: boolean } = {}): Promise<void> {
+  const manageBusy = options.manageBusy !== false;
+  if (manageBusy) busy.value = true;
+  questionListStatus.value = "正在读取题库…";
+  try {
+    const result = await runQuestion("question.list", { limit: 100 });
+    if (!result.ok) {
+      questionListStatus.value = `读取题库失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+      return;
+    }
+    questionCatalog.value = asQuestionRows(result.data?.items);
+    const loaded = questionCatalog.value.length;
+    questionListStatus.value =
+      loaded >= 100 ? `已加载 ${loaded} 题（达到上限，可能还有更多）` : `已加载 ${loaded} 题`;
+  } catch {
+    questionListStatus.value = "读取题库失败";
+  } finally {
+    if (manageBusy) busy.value = false;
+  }
+}
+
+async function openQuestionFromList(row: QuestionListRow): Promise<void> {
+  qQuestionId.value = row.questionId;
+  qCategoryId.value = row.categoryId;
+  await loadQuestion();
+}
+
+function addQuestionFromList(row: QuestionListRow): void {
+  qQuestionId.value = row.questionId;
+  qCategoryId.value = row.categoryId;
+  if (typeof row.defaultPoints === "number" && row.defaultPoints > 0) qPoints.value = row.defaultPoints;
+  addCurrentQuestion();
+  go("admin-papers");
+}
+
+function viewCategoryQuestions(): void {
+  questionListCategory.value = selectedId.value;
+  go("admin-questions");
+}
+
+function viewCategoryPapers(): void {
+  paperListCategory.value = selectedId.value;
+  go("admin-papers");
+}
+
 async function saveQuestion(): Promise<void> {
   if (!qCategoryId.value && selectedId.value) qCategoryId.value = selectedId.value;
   if (!qCategoryId.value) {
@@ -762,6 +980,7 @@ async function saveQuestion(): Promise<void> {
       rememberId(knownQuestions, qQuestionId.value);
       rememberId(knownVersions, qVersionId.value);
       status.value = `已保存 ${qType.value} revision=${qRevision.value}。三种题型请各点一次「新建下一题」再保存，不要覆盖同一题。`;
+      await refreshQuestionList({ manageBusy: false });
     } else {
       status.value = `保存失败：${result.error?.code}`;
     }
@@ -851,7 +1070,10 @@ async function disableCurrent(): Promise<void> {
       reason: "mw10 unused fixture"
     });
     status.value = result.ok ? "已停用" : `停用失败：${result.error?.code}`;
-    if (result.ok) qStatus.value = "disabled";
+    if (result.ok) {
+      qStatus.value = "disabled";
+      await refreshQuestionList({ manageBusy: false });
+    }
   } finally {
     busy.value = false;
   }
@@ -1024,7 +1246,7 @@ function looksLikeFakeQuestionId(id: string): boolean {
 
 function addCurrentQuestion(): void {
   if (!qQuestionId.value) {
-    setPaperStatus("请先滚到上方「题库」，保存一道虚构题。保存成功后这里才会出现 questionId，再点本按钮。");
+    setPaperStatus("请先在题库保存或从列表点选一道题，再点「加入当前题」。");
     return;
   }
   const lines = pItemText.value
@@ -1035,7 +1257,59 @@ function addCurrentQuestion(): void {
     lines.push(`${qQuestionId.value}:${qPoints.value || 5}`);
   }
   pItemText.value = lines.join("\n");
-  setPaperStatus(`已加入当前题 ${qQuestionId.value.slice(0, 12)}…，共 ${lines.length} 题。不要手填 111/222。`);
+  setPaperStatus(`已加入当前题 ${qQuestionId.value.slice(0, 12)}…，共 ${lines.length} 题。`);
+}
+
+async function refreshPaperList(options: { manageBusy?: boolean; loadMore?: boolean } = {}): Promise<void> {
+  const manageBusy = options.manageBusy !== false;
+  if (manageBusy) busy.value = true;
+  paperListStatus.value = options.loadMore ? "正在加载更多试卷…" : "正在读取试卷…";
+  try {
+    const data: Record<string, unknown> = { limit: 100, sort: "latest" };
+    if (options.loadMore && paperListCursor.value) data.cursor = paperListCursor.value;
+    const result = await runPaper("paper.list", data);
+    if (!result.ok) {
+      paperListStatus.value = `读取试卷失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+      return;
+    }
+    const rows = asPaperRows(result.data?.items);
+    paperCatalog.value = options.loadMore ? [...paperCatalog.value, ...rows] : rows;
+    paperListCursor.value = typeof result.data?.nextCursor === "string" && result.data.nextCursor ? result.data.nextCursor : null;
+    const loaded = paperCatalog.value.length;
+    paperListStatus.value = paperListCursor.value
+      ? `已加载 ${loaded} 份试卷，还有更多`
+      : `已加载 ${loaded} 份试卷`;
+  } catch {
+    paperListStatus.value = "读取试卷失败";
+  } finally {
+    if (manageBusy) busy.value = false;
+  }
+}
+
+async function openPaperFromList(row: PaperListRow): Promise<void> {
+  pPaperId.value = row.paperId;
+  if (row.categoryId) qCategoryId.value = row.categoryId;
+  await loadPaperById();
+}
+
+function startNewPaper(): void {
+  pPaperId.value = "";
+  pRevision.value = 0;
+  pStatus.value = "";
+  pMaxScore.value = 0;
+  pQuestionCount.value = 0;
+  pActiveVersionId.value = "";
+  pFromVersionId.value = "";
+  pToVersionId.value = "";
+  pTitle.value = "";
+  pSummary.value = "";
+  pGoal.value = "";
+  pAccess.value = "free";
+  pDifficulty.value = "beginner";
+  pSort.value = 10;
+  pItemText.value = "";
+  pPreview.value = "";
+  setPaperStatus("已清空当前卷，保存时会新建，不会覆盖刚才那份。");
 }
 
 async function runPaper(
@@ -1111,11 +1385,11 @@ async function savePaperDraft(): Promise<void> {
   if (!qCategoryId.value && selectedId.value) qCategoryId.value = selectedId.value;
   const items = paperItems();
   if (!items.length) {
-    setPaperStatus("题目栏是空的。请先在上方题库保存题目，再点「加入上方当前题」。");
+    setPaperStatus("题目栏是空的。请先在题库保存或点选题目，再点「加入当前题」。");
     return;
   }
   if (items.some((item) => looksLikeFakeQuestionId(item.questionId))) {
-    setPaperStatus("题目栏里的 111/222/333 是假号，云端没有这些题。请清空，用「加入上方当前题」填入真实 questionId。");
+    setPaperStatus("题目栏里有无效的短数字 ID。请清空后从题库列表加入真实题目。");
     return;
   }
   if (!qCategoryId.value) {
@@ -1141,6 +1415,7 @@ async function savePaperDraft(): Promise<void> {
     if (result.ok) {
       applyPaperView(result.data || {});
       setPaperStatus(`草稿已保存 revision=${pRevision.value}，${pQuestionCount.value} 题，满分 ${pMaxScore.value}`);
+      await refreshPaperList({ manageBusy: false });
     } else {
       setPaperStatus(`保存草稿失败：${result.error?.code || ""} ${result.error?.details?.reason || result.error?.message || ""}`);
     }
@@ -1183,6 +1458,7 @@ async function publishPaper(fault?: "missingChunk" | "badManifest"): Promise<voi
       applyPaperView(result.data || {});
       if (pFromVersionId.value) pToVersionId.value = pActiveVersionId.value;
       setPaperStatus(`发布成功 version=${pActiveVersionId.value}`);
+      await refreshPaperList({ manageBusy: false });
     } else {
       setPaperStatus(`发布拒绝：${result.error?.code || ""} ${result.error?.details?.reason || result.error?.message || ""}`);
     }
@@ -1200,7 +1476,10 @@ async function unpublishPaper(): Promise<void> {
   setPaperStatus("正在普通下架…");
   try {
     const result = await runPaper("paper.unpublish", { paperId: pPaperId.value, expectedRevision: pRevision.value });
-    if (result.ok) applyPaperView(result.data || {});
+    if (result.ok) {
+      applyPaperView(result.data || {});
+      await refreshPaperList({ manageBusy: false });
+    }
     setPaperStatus(result.ok ? "已普通下架，只阻止新开始" : `下架失败：${result.error?.code}`);
   } finally {
     busy.value = false;
@@ -1312,6 +1591,7 @@ async function withdrawPaper(): Promise<void> {
     if (result.ok) {
       applyPaperView(result.data || {});
       if (pActiveVersionId.value && !pFromVersionId.value) pFromVersionId.value = pActiveVersionId.value;
+      await refreshPaperList({ manageBusy: false });
     }
     setPaperStatus(result.ok ? "已紧急撤回，未提交不可交卷" : `撤回失败：${result.error?.code}`);
   } finally {
@@ -1842,6 +2122,100 @@ function copyGrowthEvidence(): void {
   gStatus.value = "已复制等级配置证据。不要发送密码、环境 ID 或明文 _id。";
 }
 
+async function runVip(action: AdminVipAction, data: Record<string, unknown>): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  const result = await callAdminVip(app, action, data);
+  const parsed = vEvidence.value ? JSON.parse(vEvidence.value) : { steps: [] };
+  parsed.steps.push({
+    action,
+    ok: result.ok === true,
+    errorCode: result.error?.code || "",
+    errorReason: result.error?.details?.reason || "",
+    sourceType: result.data?.sourceType || "gift",
+    sourceId: result.data?.sourceId || "",
+    grantIdHash: result.data?.grantId ? await hashText(String(result.data.grantId)) : "",
+    active: result.data?.active === true,
+    expiresAt: result.data?.expiresAt || null,
+    revokedSeconds: result.data?.revokedSeconds ?? null
+  });
+  vEvidence.value = JSON.stringify(parsed, null, 2);
+  return result;
+}
+
+function vipGrantPayload(): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    targetMemberId: vMemberId.value.trim(),
+    reason: vReason.value.trim()
+  };
+  if (vSourceId.value.trim()) payload.sourceId = vSourceId.value.trim();
+  const seconds = Number(vDurationSeconds.value);
+  if (vDurationSeconds.value.trim() && Number.isInteger(seconds) && seconds > 0) {
+    payload.durationSeconds = seconds;
+    return payload;
+  }
+  payload.durationDays = Number(vDurationDays.value) || 1;
+  return payload;
+}
+
+async function grantVip(): Promise<void> {
+  if (!vReason.value.trim()) {
+    vStatus.value = "赠送必须填写原因。";
+    return;
+  }
+  busy.value = true;
+  vStatus.value = "正在赠送…";
+  try {
+    const result = await runVip("vip.grant", vipGrantPayload());
+    if (!result.ok) {
+      vStatus.value = `赠送被拒：${result.error?.code || "CALL_FAILED"} ${result.error?.details?.reason || ""}`;
+      return;
+    }
+    vLastGrantId.value = String(result.data?.grantId || "");
+    vLastSourceId.value = String(result.data?.sourceId || vSourceId.value.trim());
+    vStatus.value = `已赠送。sourceType=gift · sourceId=${result.data?.sourceId || ""} · 有效=${result.data?.active === true} · 到期=${result.data?.expiresAt || "无"}。未写订单。`;
+  } catch {
+    vStatus.value = "赠送失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function revokeVip(): Promise<void> {
+  if (!vReason.value.trim() || !vSourceId.value.trim()) {
+    vStatus.value = "撤销必须填写原因和 sourceId。";
+    return;
+  }
+  busy.value = true;
+  vStatus.value = "正在撤销未用赠送…";
+  try {
+    const result = await runVip("vip.revokeGift", {
+      targetMemberId: vMemberId.value.trim(),
+      sourceId: vSourceId.value.trim(),
+      reason: vReason.value.trim()
+    });
+    if (!result.ok) {
+      vStatus.value = `撤销被拒：${result.error?.code || "CALL_FAILED"} ${result.error?.details?.reason || ""}`;
+      return;
+    }
+    vStatus.value = `已撤销未用 ${result.data?.revokedSeconds ?? 0} 秒。有效=${result.data?.active === true} · 到期=${result.data?.expiresAt || "无"}。`;
+  } catch {
+    vStatus.value = "撤销失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function copyVipLeftover(): Promise<void> {
+  const members = vMemberId.value.trim() ? [await hashText(vMemberId.value.trim())] : [];
+  const grants = vLastGrantId.value ? [await hashText(vLastGrantId.value)] : [];
+  const sourceIds = vLastSourceId.value || vSourceId.value.trim() ? [await hashText(vLastSourceId.value || vSourceId.value.trim())] : [];
+  const payload = { members, grants, sourceIds, papers: [], attempts: [] };
+  const text = JSON.stringify(payload);
+  vEvidence.value = JSON.stringify({ knownIds: payload, note: "只入册本轮赠送与测试对象" }, null, 2);
+  void navigator.clipboard?.writeText(text);
+  vStatus.value = "已复制本轮 VIP leftover knownIds（SHA-256）。不要发送明文 memberId。";
+}
+
 async function runRanking(action: AdminRankingAction, data: Record<string, unknown>): Promise<AdminCallResult> {
   const app = await createAdminApp();
   const result = await callAdminRanking(app, action, data);
@@ -1955,6 +2329,10 @@ async function logout(): Promise<void> {
   }
   session.value = null;
   currentPage.value = "admin-categories";
+  questionCatalog.value = [];
+  paperCatalog.value = [];
+  questionListCategory.value = "";
+  paperListCategory.value = "";
   status.value = "已退出";
 }
 </script>
@@ -2109,6 +2487,15 @@ async function logout(): Promise<void> {
             <button
               class="nav-item"
               type="button"
+              :class="{ active: currentPage === 'admin-vip' }"
+              :aria-current="currentPage === 'admin-vip' ? 'page' : undefined"
+              @click="go('admin-vip')"
+            >
+              VIP 赠送
+            </button>
+            <button
+              class="nav-item"
+              type="button"
               :class="{ active: currentPage === 'admin-ranking' }"
               :aria-current="currentPage === 'admin-ranking' ? 'page' : undefined"
               @click="go('admin-ranking')"
@@ -2154,7 +2541,7 @@ async function logout(): Promise<void> {
                     @click="pick(row)"
                   >
                     <span class="tree-label">{{ indent(row.depth) }}{{ row.name }}</span>
-                    <span class="tree-meta">d{{ row.depth }} · {{ row.sort }} · {{ row.enabled ? "启用" : "停用" }}</span>
+                    <span class="tree-meta">{{ categoryQuestionCount(nodeId(row)) }}题 · {{ categoryPaperCount(nodeId(row)) }}卷 · {{ row.enabled ? "启用" : "停用" }}</span>
                   </button>
                 </li>
               </ul>
@@ -2164,6 +2551,35 @@ async function logout(): Promise<void> {
               <h2 class="detail-title">{{ nodeName || "未选择类目" }}</h2>
               <p class="detail-meta">当前 ID {{ selectedId || "—" }}</p>
               <p class="detail-meta">当前父级 {{ selected?.parentId || "（一级）" }}</p>
+              <p class="detail-meta">
+                本类目已加载 {{ selectedCategoryQuestions.length }} 题、{{ selectedCategoryPapers.length }} 卷
+              </p>
+              <div v-if="selectedId" class="actions">
+                <button type="button" class="ghost" :disabled="busy" @click="viewCategoryQuestions">查看题库列表</button>
+                <button type="button" class="ghost" :disabled="busy" @click="viewCategoryPapers">查看试卷列表</button>
+              </div>
+              <div v-if="selectedId" class="catalog-preview">
+                <p class="panel-subtitle">本类目题目</p>
+                <p v-if="!selectedCategoryQuestions.length" class="status">该类目暂无已加载题目。</p>
+                <ul v-else class="mini-list">
+                  <li v-for="row in selectedCategoryQuestions.slice(0, 8)" :key="row.questionId">
+                    <button type="button" class="text-btn" :disabled="busy" @click="openQuestionFromList(row); go('admin-questions')">
+                      {{ stemPreview(row.stem?.text || "") }}
+                    </button>
+                    <span class="tree-meta">{{ questionTypeLabel(row.type) }} · {{ questionStatusLabel(row.status || "") }}</span>
+                  </li>
+                </ul>
+                <p class="panel-subtitle">本类目试卷</p>
+                <p v-if="!selectedCategoryPapers.length" class="status">该类目暂无已加载试卷。</p>
+                <ul v-else class="mini-list">
+                  <li v-for="row in selectedCategoryPapers.slice(0, 8)" :key="row.paperId">
+                    <button type="button" class="text-btn" :disabled="busy" @click="openPaperFromList(row); go('admin-papers')">
+                      {{ row.title }}
+                    </button>
+                    <span class="tree-meta">{{ paperStatusLabel(row.status || "") }} · {{ row.questionCount || 0 }}题</span>
+                  </li>
+                </ul>
+              </div>
               <label>
                 新增用的父级 ID（默认=当前选中，空=一级）
                 <input v-model="parentId" autocomplete="off" />
@@ -2230,13 +2646,85 @@ async function logout(): Promise<void> {
             <code>mw-upload.replay</code> 的 <code>TICKET_REPLAY</code> 即算完成。
           </p>
           <div class="card">
+            <div class="list-head">
+              <h2 class="panel-subtitle">题库列表</h2>
+              <button type="button" class="ghost" :disabled="busy" @click="refreshQuestionList()">刷新列表</button>
+            </div>
+            <div class="list-toolbar">
+              <label>
+                按类目
+                <select v-model="questionListCategory">
+                  <option value="">全部类目</option>
+                  <option v-for="row in nodes" :key="nodeId(row)" :value="nodeId(row)">
+                    {{ indent(row.depth) }}{{ row.name }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                状态
+                <select v-model="questionListStatusFilter">
+                  <option value="">全部</option>
+                  <option value="active">启用</option>
+                  <option value="disabled">停用</option>
+                </select>
+              </label>
+            </div>
+            <p class="status">{{ questionListStatus }} · 当前筛选 {{ displayedQuestions.length }} 题</p>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>题干</th>
+                    <th>题型</th>
+                    <th>类目</th>
+                    <th>难度</th>
+                    <th>状态</th>
+                    <th>分值</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!displayedQuestions.length">
+                    <td colspan="7" class="empty-cell">暂无题目。可先在本页保存，或点「刷新列表」。</td>
+                  </tr>
+                  <tr
+                    v-for="row in displayedQuestions"
+                    :key="row.questionId"
+                    :class="{ selected: row.questionId === qQuestionId }"
+                    @click="openQuestionFromList(row)"
+                  >
+                    <td>{{ stemPreview(row.stem?.text || "") }}</td>
+                    <td>{{ questionTypeLabel(row.type) }}</td>
+                    <td>{{ categoryLabel(row.categoryId) }}</td>
+                    <td>{{ difficultyLabel(row.difficulty || "") }}</td>
+                    <td>
+                      <span class="badge" :class="row.status === 'disabled' ? 'disabled' : 'published'">
+                        {{ questionStatusLabel(row.status || "") }}
+                      </span>
+                    </td>
+                    <td>{{ row.defaultPoints || 0 }}</td>
+                    <td>
+                      <button type="button" class="text-btn" :disabled="busy" @click.stop="addQuestionFromList(row)">加入试卷</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
             <label>
-              类目 ID
-              <input v-model="qCategoryId" autocomplete="off" />
+              类目
+              <select v-model="qCategoryId">
+                <option value="">请选择类目</option>
+                <option v-for="row in nodes" :key="nodeId(row)" :value="nodeId(row)">
+                  {{ indent(row.depth) }}{{ row.name }}
+                </option>
+              </select>
             </label>
+            <p class="detail-meta">类目 ID {{ qCategoryId || "—" }}</p>
             <label>
-              题目 ID（没有目录可点。要改已保存的题：从「试卷编排」题目框复制冒号前那一串，贴到这里，再点「读取并重载」）
-              <input v-model="qQuestionId" autocomplete="off" placeholder="保存成功后自动出现；不要手填 111/222" />
+              题目 ID（从上方列表点选，或粘贴后点「读取并重载」）
+              <input v-model="qQuestionId" autocomplete="off" placeholder="从列表点选或保存后自动填入" />
             </label>
             <label>
               题型
@@ -2311,13 +2799,98 @@ async function logout(): Promise<void> {
             </div>
           </div>
           <div class="card">
+            <div class="list-head">
+              <h2 class="panel-subtitle">试卷列表</h2>
+              <div class="actions">
+                <button type="button" class="ghost" :disabled="busy" @click="refreshPaperList()">刷新列表</button>
+                <button type="button" class="ghost" :disabled="busy || !paperListCursor" @click="refreshPaperList({ loadMore: true })">加载更多</button>
+              </div>
+            </div>
+            <div class="list-toolbar">
+              <label>
+                按类目
+                <select v-model="paperListCategory">
+                  <option value="">全部类目</option>
+                  <option v-for="row in nodes" :key="nodeId(row)" :value="nodeId(row)">
+                    {{ indent(row.depth) }}{{ row.name }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                状态
+                <select v-model="paperListStatusFilter">
+                  <option value="">全部</option>
+                  <option value="draft">草稿</option>
+                  <option value="published">已发布</option>
+                  <option value="unpublished">已下架</option>
+                  <option value="withdrawn">已撤回</option>
+                </select>
+              </label>
+              <label>
+                权限
+                <select v-model="paperListAccessFilter">
+                  <option value="">全部</option>
+                  <option value="free">免费</option>
+                  <option value="vip">VIP</option>
+                </select>
+              </label>
+            </div>
+            <p class="status">{{ paperListStatus }} · 当前筛选 {{ displayedPapers.length }} 份</p>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>标题</th>
+                    <th>类目</th>
+                    <th>状态</th>
+                    <th>权限</th>
+                    <th>难度</th>
+                    <th>题数</th>
+                    <th>满分</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!displayedPapers.length">
+                    <td colspan="7" class="empty-cell">暂无试卷。可先保存草稿，或点「刷新列表」。</td>
+                  </tr>
+                  <tr
+                    v-for="row in displayedPapers"
+                    :key="row.paperId"
+                    :class="{ selected: row.paperId === pPaperId }"
+                    @click="openPaperFromList(row)"
+                  >
+                    <td>{{ row.title }}</td>
+                    <td>{{ categoryLabel(row.categoryId) }}</td>
+                    <td>
+                      <span class="badge" :class="row.status || 'draft'">{{ paperStatusLabel(row.status || "") }}</span>
+                    </td>
+                    <td>{{ accessLabel(row.access || "") }}</td>
+                    <td>{{ difficultyLabel(row.difficulty || "") }}</td>
+                    <td>{{ row.questionCount || 0 }}</td>
+                    <td>{{ row.maxScore || 0 }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
             <label>
-              试卷 ID（后台没有卷目录。要换回学员交过的卷：贴 ID 后点「按 ID 读取试卷」，不要只改标题）
-              <input v-model="pPaperId" autocomplete="off" placeholder="打开已有试卷时粘贴 paperId" />
+              试卷 ID（从上方列表点选，或粘贴后点「按 ID 读取试卷」）
+              <input v-model="pPaperId" autocomplete="off" placeholder="从列表点选或保存后自动填入" />
             </label>
             <div class="actions">
               <button type="button" class="ghost" :disabled="busy" @click="loadPaperById">按 ID 读取试卷</button>
+              <button type="button" class="ghost" :disabled="busy" @click="startNewPaper">新建试卷</button>
             </div>
+            <label>
+              类目
+              <select v-model="qCategoryId">
+                <option value="">请选择类目</option>
+                <option v-for="row in nodes" :key="nodeId(row)" :value="nodeId(row)">
+                  {{ indent(row.depth) }}{{ row.name }}
+                </option>
+              </select>
+            </label>
             <label>
               标题
               <input v-model="pTitle" autocomplete="off" />
@@ -2354,11 +2927,11 @@ async function logout(): Promise<void> {
             </p>
             <p class="status">{{ pLocalStatus }}</p>
             <label>
-              题目（不要手填 111/222。用「加入上方当前题」带入真实 questionId）
-              <textarea v-model="pItemText" rows="6" placeholder="先保存题库题，再点加入"></textarea>
+              题目（每行 questionId:分值。用「加入当前题」从题库带入）
+              <textarea v-model="pItemText" rows="6" placeholder="从题库列表点「加入试卷」，或先保存题再点加入当前题"></textarea>
             </label>
             <div class="actions">
-              <button type="button" class="ghost" :disabled="busy" @click="addCurrentQuestion">加入上方当前题</button>
+              <button type="button" class="ghost" :disabled="busy" @click="addCurrentQuestion">加入当前题</button>
               <button type="button" :disabled="busy" @click="savePaperDraft">保存草稿</button>
               <button type="button" :disabled="busy" @click="previewPaper">整卷预览</button>
               <button type="button" :disabled="busy" @click="publishPaper()">发布</button>
@@ -2521,6 +3094,48 @@ async function logout(): Promise<void> {
             <p class="status">{{ gStatus }}</p>
             <pre data-testid="growth-impact">{{ gImpact }}</pre>
             <pre data-testid="growth-evidence">{{ gEvidence }}</pre>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-vip' }" data-page="admin-vip">
+          <p class="breadcrumb">{{ PAGES["admin-vip"].group }} / {{ PAGES["admin-vip"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-vip"].title }}</h1>
+              <p class="page-desc">
+                人工赠送来源固定为 <strong>gift</strong>，必须填写原因，不写订单、不冒充付款。
+                撤销只扣该赠送来源的未用时长。秒边界测试可填 durationSeconds。
+              </p>
+            </div>
+          </div>
+          <div class="card">
+            <label>
+              会员 ID
+              <input v-model="vMemberId" autocomplete="off" data-testid="vip-member-id" />
+            </label>
+            <label>
+              赠送原因（必填）
+              <input v-model="vReason" autocomplete="off" data-testid="vip-reason" />
+            </label>
+            <label>
+              天数（默认 1 天 = 86400 秒）
+              <input v-model="vDurationDays" autocomplete="off" />
+            </label>
+            <label>
+              秒数（可选；填写则优先，用于恰好到期手点）
+              <input v-model="vDurationSeconds" autocomplete="off" data-testid="vip-seconds" />
+            </label>
+            <label>
+              来源 sourceId（可空；空则用幂等键。撤销必须填）
+              <input v-model="vSourceId" autocomplete="off" data-testid="vip-source-id" />
+            </label>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="grantVip">赠送 VIP（super）</button>
+              <button type="button" class="ghost" :disabled="busy" @click="revokeVip">撤销未用赠送</button>
+              <button type="button" class="ghost" @click="copyVipLeftover">复制本轮 VIP leftover</button>
+            </div>
+            <p class="status">{{ vStatus }}</p>
+            <pre data-testid="vip-evidence">{{ vEvidence }}</pre>
           </div>
         </section>
 

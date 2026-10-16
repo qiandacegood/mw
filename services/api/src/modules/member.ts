@@ -59,8 +59,9 @@ export type MemberPublicView = {
     levelId: string;
   };
   vip: {
-    active: false;
-    expiresAt: null;
+    active: boolean;
+    expiresAt: string | null;
+    reconcileState?: string;
   };
   draft: {
     attemptId: string | null;
@@ -160,7 +161,8 @@ export function publicMemberView(
   member: MemberRecord,
   stats?: MemberStatsRecord,
   identityId?: string,
-  draft?: MemberPublicView["draft"]
+  draft?: MemberPublicView["draft"],
+  vip?: MemberPublicView["vip"]
 ): MemberPublicView {
   return {
     memberId: member.memberId,
@@ -176,7 +178,7 @@ export function publicMemberView(
       scoreSeq: stats?.scoreSeq ?? 0,
       levelId: stats?.levelId ?? DEFAULT_LEVEL_ID
     },
-    vip: { active: false, expiresAt: null },
+    vip: vip || { active: false, expiresAt: null },
     draft: draft && draft.attemptId ? draft : { attemptId: null }
   };
 }
@@ -288,7 +290,9 @@ export async function readMemberMe(
   stores: MemberReadStore | undefined,
   fromAppId: string,
   fromOpenId: string,
-  attemptStore?: AttemptWorkStore
+  attemptStore?: AttemptWorkStore,
+  vipStore?: { evaluate(memberId: string, now: Date): Promise<{ active: boolean; expiresAt: string | null; reconcileState?: string }> },
+  now: Date = new Date()
 ): Promise<MemberActionSuccess<MemberPublicView> | MemberActionFailure> {
   if (!stores) {
     return fail("INTERNAL_ERROR", "MEMBER_STORE_UNAVAILABLE");
@@ -304,7 +308,18 @@ export async function readMemberMe(
   }
   const stats = await stores.getStats(member.memberId);
   const draft = await readDraftSummary(attemptStore, member.memberId);
-  return { ok: true, data: publicMemberView(member, stats, identity.identityId || identityId, draft), budget: emptyBudget() };
+  const vip = vipStore
+    ? await vipStore.evaluate(member.memberId, now)
+    : { active: false, expiresAt: null as string | null };
+  return {
+    ok: true,
+    data: publicMemberView(member, stats, identity.identityId || identityId, draft, {
+      active: vip.active === true,
+      expiresAt: vip.expiresAt,
+      ...(vip.reconcileState ? { reconcileState: vip.reconcileState } : {})
+    }),
+    budget: emptyBudget()
+  };
 }
 
 export type MemberGrowthView = GrowthMemberView & {

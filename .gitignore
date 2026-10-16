@@ -7,6 +7,11 @@
 *.p12
 *.pfx
 cloudbaserc.json
+
+# Project-level MCP config holds credentials — never commit
+.mcp.json
+**/.mcp.json
+
 configs/local.json
 configs/mw04-state.json
 configs/mw05-state.json
@@ -36,6 +41,8 @@ configs/mw18-state.json
 configs/mw18-verify-state.json
 configs/mw19-state.json
 configs/mw19-verify-state.json
+configs/mw20-state.json
+configs/mw20-verify-state.json
 configs/mw07-state.json
 configs/mw07-verify-state.json
 configs/mw07b-state.json

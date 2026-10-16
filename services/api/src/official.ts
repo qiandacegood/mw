@@ -78,6 +78,8 @@ import type { CatalogChangeStore } from "./modules/category-change-stores.js";
 import { commitCorrection, previewCorrection, readCorrectionStatus } from "./modules/correction.js";
 import { processDueCorrectionJobs } from "./modules/correction-job.js";
 import type { CorrectionStore } from "./modules/correction-stores.js";
+import { grantVipGift, readVipStatus, revokeVipGiftAction, vipEntitlementReader } from "./modules/vip.js";
+import type { VipWorkStore } from "./modules/vip-stores.js";
 import type { CategoryUsageStore, CategoryWorkStore } from "./modules/category-stores.js";
 import { emptyCategoryUsage } from "./modules/category-stores.js";
 import { disableQuestion, getQuestion, listQuestions, saveQuestion } from "./modules/question.js";
@@ -145,7 +147,8 @@ export const MEMBER_ACTIONS = [
   "attempt.history",
   "member.growth",
   "member.setRanking",
-  "ranking.me"
+  "ranking.me",
+  "vip.status"
 ] as const;
 export const ADMIN_ACTIONS = [
   "admin.me",
@@ -184,6 +187,7 @@ export const ADMIN_WRITE_ACTIONS = [
 ] as const;
 export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit", "category.change.status"] as const;
 export const ADMIN_MW19_ACTIONS = ["correction.preview", "correction.commit", "correction.status"] as const;
+export const ADMIN_MW20_ACTIONS = ["vip.grant", "vip.revokeGift"] as const;
 
 export type OfficialEntry =
   | "mw-public"
@@ -237,6 +241,7 @@ export interface OfficialContext {
   rankingStore?: RankingWorkStore;
   catalogChangeStore?: CatalogChangeStore;
   correctionStore?: CorrectionStore;
+  vipStore?: VipWorkStore;
   entitlement?: PracticeEntitlementReader;
   virtualPayNotify?: VirtualPayNotifyConfig;
 }
@@ -600,7 +605,7 @@ async function handleMemberAttempt(
     return fail(request.requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
   }
   const maintenance = ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined;
-  const entitlement = ctx.entitlement || isolatedEntitlementReader();
+  const entitlement = ctx.entitlement || vipEntitlementReader(ctx.vipStore) || isolatedEntitlementReader();
   const common = {
     store: ctx.attemptStore,
     memberId: session.memberId,
@@ -683,7 +688,18 @@ async function handleMember(
     return publicSafe(request.requestId, now, session);
   }
   if (request.action === "member.me") {
-    const result = await readMemberMe(ctx.memberStore, fromAppId, fromOpenId, ctx.attemptStore);
+    const result = await readMemberMe(ctx.memberStore, fromAppId, fromOpenId, ctx.attemptStore, ctx.vipStore, now);
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, { reason: result.reason });
+    }
+    return publicSafe(request.requestId, now, result.data);
+  }
+  if (request.action === "vip.status") {
+    const session = await readMemberSession(ctx.memberStore, fromAppId, fromOpenId);
+    if (!session.registered || !session.memberId) {
+      return fail(request.requestId, "MEMBER_REQUIRED", { reason: "MEMBER_NOT_REGISTERED" });
+    }
+    const result = await readVipStatus(ctx.vipStore, session.memberId, now);
     if (!result.ok) {
       return fail(request.requestId, result.code as ErrorCode, { reason: result.reason });
     }
@@ -811,9 +827,10 @@ async function handleAdmin(
   }
   const isMw18 = (ADMIN_MW18_ACTIONS as readonly string[]).includes(action);
   const isMw19 = (ADMIN_MW19_ACTIONS as readonly string[]).includes(action);
+  const isMw20 = (ADMIN_MW20_ACTIONS as readonly string[]).includes(action);
   const isRead = (ADMIN_ACTIONS as readonly string[]).includes(action);
   const isWrite = (ADMIN_WRITE_ACTIONS as readonly string[]).includes(action);
-  if (!isRead && !isWrite && !isMw18 && !isMw19) {
+  if (!isRead && !isWrite && !isMw18 && !isMw19 && !isMw20) {
     return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
   }
   const admin = await requireAdmin(ctx, requestId);
@@ -829,6 +846,12 @@ async function handleAdmin(
       return fail(requestId, "FORBIDDEN", { reason: "SUPER_ROLE_REQUIRED" });
     }
     return handleAdminCorrection(ctx, admin.record, action, requestId, now);
+  }
+  if (isMw20) {
+    if (!adminHasRole(admin.record.roles, "super")) {
+      return fail(requestId, "FORBIDDEN", { reason: "SUPER_ROLE_REQUIRED" });
+    }
+    return handleAdminVip(ctx, admin.record, action, requestId, now);
   }
   if (action === "category.tree" || action.startsWith("category.")) {
     return handleAdminCategory(ctx, admin.record, action, requestId, now);
@@ -1159,6 +1182,52 @@ async function handleAdminCorrection(
     if (ctx.maintenanceStore && maint) {
       await ctx.maintenanceStore.save(maint);
     }
+  }
+  return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+}
+
+async function handleAdminVip(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  if (!ctx.vipStore) {
+    return fail(requestId, "INTERNAL_ERROR", { reason: "VIP_STORE_UNAVAILABLE" });
+  }
+  const { rec, data } = adminRequestBody(ctx);
+  if (typeof rec.idempotencyKey !== "string" || !rec.idempotencyKey) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  const maintenance = ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined;
+  const result =
+    action === "vip.grant"
+      ? await grantVipGift({
+          store: ctx.vipStore,
+          members: ctx.memberStore,
+          actorId: admin.uid,
+          data,
+          requestId,
+          idempotencyKey: rec.idempotencyKey,
+          now,
+          maintenance
+        })
+      : await revokeVipGiftAction({
+          store: ctx.vipStore,
+          actorId: admin.uid,
+          data,
+          requestId,
+          idempotencyKey: rec.idempotencyKey,
+          now,
+          maintenance
+        });
+  if (!result.ok) {
+    return fail(requestId, result.code as ErrorCode, {
+      reason: result.reason,
+      ...(result.issues ? { issues: result.issues } : {}),
+      ...(result.details || {})
+    });
   }
   return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
 }

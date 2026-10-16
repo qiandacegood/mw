@@ -194,6 +194,11 @@ export type PublicPaperDetail = PublicPaperSummary & {
   status: "published";
 };
 
+export type AdminPaperSummary = PublicPaperSummary & {
+  status: PaperStatus;
+  revision: number;
+};
+
 export type AdminPaperView = PublicPaperSummary & {
   goal: string;
   suggestedMinutes: number;
@@ -304,6 +309,14 @@ export function toPublicPaperSummary(paper: PaperRecord, version?: PaperVersionR
     maxScore: version?.maxScore ?? paper.draftMaxScore,
     categoryId: paper.categoryId,
     categoryPath: version?.categoryPathSnapshot ?? []
+  };
+}
+
+export function toAdminPaperSummary(paper: PaperRecord, version?: PaperVersionRecord | null): AdminPaperSummary {
+  return {
+    ...toPublicPaperSummary(paper, version),
+    status: paper.status,
+    revision: paper.revision
   };
 }
 

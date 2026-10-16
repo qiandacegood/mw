@@ -32,6 +32,7 @@ import {
   replayOrConflict,
   toAdminPaperView,
   toPublicPaperDetail,
+  toAdminPaperSummary,
   toPublicPaperSummary,
   type CategoryRecord,
   type PaperDraftItem,
@@ -205,7 +206,12 @@ export async function listPapers(input: {
   data: Record<string, unknown>;
   publicView: boolean;
 }): Promise<
-  PaperActionSuccess<{ items: ReturnType<typeof toPublicPaperSummary>[]; nextCursor: string | null; complete: boolean }> | PaperActionFailure
+  | PaperActionSuccess<{
+      items: Array<ReturnType<typeof toPublicPaperSummary> | ReturnType<typeof toAdminPaperSummary>>;
+      nextCursor: string | null;
+      complete: boolean;
+    }>
+  | PaperActionFailure
 > {
   const parsed = parsePaperListInput(input.data, input.publicView);
   if (!parsed.ok) return fail("INVALID_ARGUMENT", parsed.issues[0] || "INVALID_LIST", { issues: parsed.issues });
@@ -288,7 +294,7 @@ export async function listPapers(input: {
   const items = [];
   for (const paper of page) {
     const version = paper.activeVersionId ? await input.store.getVersion(paper.activeVersionId) : undefined;
-    items.push(toPublicPaperSummary(paper, version));
+    items.push(input.publicView ? toPublicPaperSummary(paper, version) : toAdminPaperSummary(paper, version));
   }
   return { ok: true, data: { items, nextCursor, complete }, budget: emptyBudget() };
 }

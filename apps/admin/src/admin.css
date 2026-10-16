@@ -420,6 +420,83 @@ code {
 .detail-title { margin: 0 0 8px; font-size: 18px; }
 .detail-meta { margin: 0 0 14px; color: var(--text-muted); font-size: 13px; }
 
+.list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.list-head .panel-subtitle { margin: 0; }
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+.list-toolbar label {
+  margin: 0;
+  min-width: 160px;
+  flex: 1 1 160px;
+}
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.data-table th { color: var(--text-muted); font-weight: 600; background: var(--panel-alt); }
+.data-table td:first-child,
+.data-table th:first-child { white-space: normal; min-width: 160px; }
+.data-table tbody tr { cursor: pointer; }
+.data-table tbody tr:hover { background: var(--panel-alt); }
+.data-table tbody tr.selected { background: var(--accent-soft); }
+.data-table .empty-cell {
+  color: var(--text-muted);
+  text-align: center;
+  cursor: default;
+  padding: 18px 10px;
+}
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--panel-alt);
+  color: var(--text-muted);
+}
+.badge.published { color: var(--success); background: var(--success-bg); }
+.badge.draft { color: var(--warning); background: var(--warning-bg); }
+.badge.unpublished { color: var(--accent2-text); background: var(--accent2-soft); }
+.badge.disabled,
+.badge.withdrawn { color: var(--danger); background: var(--danger-bg); }
+.catalog-preview { margin: 8px 0 16px; display: grid; gap: 8px; }
+.catalog-preview .panel-subtitle { margin: 8px 0 0; font-size: 14px; }
+.mini-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.mini-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.mini-list .text-btn { text-align: left; }
+
 .preview img {
   max-width: 240px;
   border: 1px solid var(--border);

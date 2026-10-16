@@ -157,14 +157,14 @@ export function buildSaveBody(
   };
 }
 
-export function paperStartFlags(guest: boolean, access: string): {
+export function paperStartFlags(guest: boolean, access: string, vipActive = false): {
   guest: boolean;
   vipRequired: boolean;
   canShowStart: boolean;
   startHint: string;
 } {
-  const vipRequired = !guest && access === "vip";
-  const canShowStart = !guest && access === "free";
+  const vipRequired = !guest && access === "vip" && vipActive !== true;
+  const canShowStart = !guest && (access === "free" || vipActive === true);
   return {
     guest,
     vipRequired,

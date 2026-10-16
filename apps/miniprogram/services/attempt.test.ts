@@ -46,6 +46,12 @@ describe("paper start flags", () => {
     expect(flags.canShowStart).toBe(false);
     expect(flags.vipRequired).toBe(true);
   });
+
+  it("lets an active VIP start a VIP paper", () => {
+    const flags = paperStartFlags(false, "vip", true);
+    expect(flags.canShowStart).toBe(true);
+    expect(flags.vipRequired).toBe(false);
+  });
 });
 
 describe("active draft confirmation", () => {

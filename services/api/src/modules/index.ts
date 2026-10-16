@@ -17,3 +17,6 @@ export const implementedGrowthModule = "growth" as const;
  * 归属 `plannedModules` 中的 `ranking`。
  */
 export const implementedRankingModule = "ranking" as const;
+
+/** MW20 已落地的 VIP 账本与判权（赠送/撤销，无付款）。归属 `plannedModules` 中的 `billing`。 */
+export const implementedVipModule = "vip" as const;

@@ -58,7 +58,8 @@ Page({
     const me = await memberMe();
     const guest = !me.ok;
     const access = String(paper.access || "free");
-    const flags = paperStartFlags(guest, access);
+    const vipActive = asRecord(asRecord(me.data).vip).active === true;
+    const flags = paperStartFlags(guest, access, vipActive);
     this.setData({
       state: "ok",
       message: "",

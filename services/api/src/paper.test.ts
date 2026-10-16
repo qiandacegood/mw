@@ -156,6 +156,18 @@ describe("MW11 paper compose and publish snapshot", () => {
       event: req("paper.save", paperBody([one]), { idempotencyKey: "save-1" })
     });
     expect(saved).toMatchObject({ ok: true, data: { draftQuestionCount: 1, draftMaxScore: 5, status: "draft" } });
+    const paperId = (saved as { data: { paperId: string } }).data.paperId;
+    const listed = await ctx({
+      paperStore,
+      questionStore,
+      categoryStore,
+      uid: contentUid,
+      event: req("paper.list", { limit: 20 })
+    });
+    expect(listed).toMatchObject({
+      ok: true,
+      data: { items: expect.arrayContaining([expect.objectContaining({ paperId, status: "draft", title: "MW11虚构卷" })]) }
+    });
 
     const manyItems = Array.from({ length: 21 }, (_, index) => seedQuestion(questionStore, `q21_${index + 1}`));
     const many = await ctx({

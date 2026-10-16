@@ -18,7 +18,7 @@
       <text class="muted">本页不含答案、解析或选项对错。</text>
     </view>
     <button wx:if="{{guest}}" bindtap="goRegister">注册后开始</button>
-    <view wx:if="{{vipRequired}}" class="card warn">本试卷需要有效 VIP（VIP_REQUIRED）。正式判权是 MW20，本轮不发明账本，不提供开始。</view>
+    <view wx:if="{{vipRequired}}" class="card warn">本试卷需要有效 VIP（VIP_REQUIRED）。开通后可开始；过期后草稿仍保留。</view>
     <block wx:if="{{canShowStart}}">
       <button bindtap="startFree">开始</button>
       <text class="muted">{{startHint}}</text>

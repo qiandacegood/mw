@@ -223,6 +223,25 @@ export async function callAdminGrowth(
   return unwrapCallResult(result);
 }
 
+export type AdminVipAction = "vip.grant" | "vip.revokeGift";
+
+export async function callAdminVip(
+  app: CloudApp,
+  action: AdminVipAction,
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data,
+    idempotencyKey: idempotencyKey || `mw20/admin/${action}/${Date.now()}`
+  };
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
 export type AdminRankingAction = "ranking.status" | "ranking.rebuild";
 
 /**
