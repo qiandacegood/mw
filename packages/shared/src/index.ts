@@ -6,6 +6,7 @@ export * from "./category.js";
 export * from "./category-change.js";
 export * from "./correction.js";
 export * from "./vip.js";
+export * from "./vip-purchase.js";
 export * from "./entitlement.js";
 export * from "./attempt.js";
 export * from "./idempotency.js";

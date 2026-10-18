@@ -60,5 +60,19 @@
       "handler": "index.main",
       "installDependency": true
     }
+  ],
+  "hosting": [
+    {
+      "name": "mw-admin-web",
+      "root": "./apps/admin",
+      "framework": "vite-vue",
+      "installCommand": "",
+      "buildCommand": "npm run build",
+      "outputDir": "dist",
+      "deployPath": "/",
+      "verify": true,
+      "safe": true,
+      "prune": false
+    }
   ]
 }

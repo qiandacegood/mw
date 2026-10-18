@@ -18,6 +18,8 @@ import { cloudAttemptWorkStore } from "./modules/cloud-attempt-stores.js";
 import { cloudGrowthStore } from "./modules/cloud-growth-stores.js";
 import { cloudRankingStore } from "./modules/cloud-ranking-stores.js";
 import { cloudVipStore } from "./modules/cloud-vip-stores.js";
+import { cloudOrderStore } from "./modules/cloud-order-stores.js";
+import { cloudVirtualPayRuntime } from "./modules/cloud-virtual-pay.js";
 import { handleOfficial, type AdminUserRecord, type AdminUserStore, type OfficialEntry } from "./official.js";
 
 function present(value: unknown): boolean {
@@ -163,7 +165,9 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       importStore: entry === "mw-admin" || entry === "mw-public" ? cloudImportWorkStore() : undefined,
       attemptStore: entry === "mw-member" ? cloudAttemptWorkStore() : undefined,
       growthStore: entry === "mw-member" || entry === "mw-admin" ? cloudGrowthStore() : undefined,
-      vipStore: entry === "mw-member" || entry === "mw-admin" ? cloudVipStore() : undefined,
+      vipStore: entry === "mw-member" || entry === "mw-admin" || entry === "mw-pay-hook" ? cloudVipStore() : undefined,
+      orderStore: entry === "mw-member" || entry === "mw-admin" || entry === "mw-pay-hook" ? cloudOrderStore() : undefined,
+      virtualPay: entry === "mw-member" || entry === "mw-admin" || entry === "mw-pay-hook" ? cloudVirtualPayRuntime() : undefined,
       rankingStore:
         entry === "mw-public" || entry === "mw-member" || entry === "mw-admin" || entry === "mw-jobs"
           ? cloudRankingStore()

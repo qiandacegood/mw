@@ -25,6 +25,7 @@ export interface VirtualPayNotifyResult {
   eventType?: string;
   vipGranted: false;
   protocol: "virtual-pay-message-push";
+  payload?: Record<string, unknown>;
 }
 
 const OFFICIAL_URL_VERIFY = {
@@ -202,7 +203,7 @@ function deny(reason: string): VirtualPayNotifyResult {
   };
 }
 
-function accept(eventType: string): VirtualPayNotifyResult {
+function accept(eventType: string, payload?: Record<string, unknown>): VirtualPayNotifyResult {
   return {
     ok: true,
     reason: "VERIFIED",
@@ -210,7 +211,8 @@ function accept(eventType: string): VirtualPayNotifyResult {
     ErrMsg: "success",
     eventType,
     vipGranted: false,
-    protocol: "virtual-pay-message-push"
+    protocol: "virtual-pay-message-push",
+    ...(payload ? { payload } : {})
   };
 }
 
@@ -219,15 +221,35 @@ function eventTypeOf(payload: Record<string, unknown>): string | undefined {
   return typeof event === "string" && event.length > 0 ? event : undefined;
 }
 
+function xmlField(raw: string, tag: string): string | undefined {
+  return parseSimpleXmlText(raw, tag);
+}
+
 function parseVerifiedPayload(raw: string): { ok: true; payload: Record<string, unknown> } | { ok: false; reason: string } {
   const trimmed = raw.trim();
   if (!trimmed) return { ok: false, reason: "EMPTY_BODY" };
   if (trimmed.startsWith("<")) {
     if (xmlLooksUnsafe(trimmed)) return { ok: false, reason: "XML_EXTERNAL_ENTITY_DENIED" };
-    const event = parseSimpleXmlText(trimmed, "Event");
-    const msgType = parseSimpleXmlText(trimmed, "MsgType");
+    const event = xmlField(trimmed, "Event");
+    const msgType = xmlField(trimmed, "MsgType");
     if (!event) return { ok: false, reason: "EVENT_TYPE_MISSING" };
-    return { ok: true, payload: { Event: event, MsgType: msgType || "event" } };
+    const payload: Record<string, unknown> = { Event: event, MsgType: msgType || "event" };
+    for (const tag of [
+      "OpenId",
+      "openid",
+      "FromUserName",
+      "OutTradeNo",
+      "Env",
+      "ProductId",
+      "ActualPrice",
+      "TransactionId",
+      "Attach",
+      "MchOrderNo"
+    ]) {
+      const value = xmlField(trimmed, tag);
+      if (value !== undefined) payload[tag] = value;
+    }
+    return { ok: true, payload };
   }
   const obj = safeJsonObject(trimmed);
   if (!obj) return { ok: false, reason: "BODY_NOT_JSON_OR_XML" };
@@ -297,7 +319,7 @@ export function verifyVirtualPayNotify(
     if (!parsed.ok) return deny(parsed.reason);
     const eventType = eventTypeOf(parsed.payload);
     if (!eventType) return deny("EVENT_TYPE_MISSING");
-    return accept(eventType);
+    return accept(eventType, parsed.payload);
   }
 
   if (!query.signature || !query.timestamp || !query.nonce) {
@@ -309,7 +331,7 @@ export function verifyVirtualPayNotify(
   if (!parsed.ok) return deny(parsed.reason);
   const eventType = eventTypeOf(parsed.payload);
   if (!eventType) return deny("EVENT_TYPE_MISSING");
-  return accept(eventType);
+  return accept(eventType, parsed.payload);
 }
 
 export function virtualPayNotifyResponse(result: VirtualPayNotifyResult): {

@@ -1,6 +1,6 @@
 # 07 思维工坊实际进度
 
-开发手册 v0.1｜更新日期：2026年10月16日
+开发手册 v0.1｜更新日期：2026年10月17日
 [任务总览](02-roadmap.md)｜[手册入口](README.md)
 
 本文件是开发执行状态入口。任务总览规定应做什么，本文件只记录实际做到哪里；证据和限制写入各任务结果，再由此处链接。
@@ -8,7 +8,7 @@
 ## 当前状态
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
-- **MW01、MW02、MW03、MW05、MW06、MW07、MW08、MW09、MW10、MW11、MW13、MW14 已完成**；**MW04 部分完成**；**MW12 部分完成**；**MW15 已完成**（2026-10-14 手点与 leftover 收口闭合）；**MW16 已完成**（2026-10-15 用户手点 1–9 完成、leftover 收口闭合）；**MW17 已完成**（2026-10-15 用户手点 1–10 完成、leftover 收口闭合；过程中修掉一处 `ranking_rows` 行写入缺陷后补部署）；**MW18 已完成**（2026-10-15/16 A–D 接线与 mw-test 核验通过，E 段用户手点 1–12 与 leftover=0 闭合；未标 A28—A30 / T03—T07）；**MW19 已完成**（2026-10-16 A–D 接线与 mw-test 核验通过，E 段用户手点 1–12 与 leftover=0 闭合；未标 A22 / A23 / T18 / T19）；**MW20 已完成**（2026-10-16 A–D 接线与 mw-test 核验通过，E 段用户手点与 leftover=0 于 2026-10-17 闭合；未标 A02 / A09 / A17 / A18 / T25）；MW21—MW30 未开始。MW07 仅为技术样例：未真实扣款、未 iOS 现网、未购买闭环，未标 A14/A20/T20/T26 通过。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
+- **MW01、MW02、MW03、MW05、MW06、MW07、MW08、MW09、MW10、MW11、MW13、MW14 已完成**；**MW04 部分完成**；**MW12 部分完成**；**MW15 已完成**（2026-10-14 手点与 leftover 收口闭合）；**MW16 已完成**（2026-10-15 用户手点 1–9 完成、leftover 收口闭合）；**MW17 已完成**（2026-10-15 用户手点 1–10 完成、leftover 收口闭合；过程中修掉一处 `ranking_rows` 行写入缺陷后补部署）；**MW18 已完成**（2026-10-15/16 A–D 接线与 mw-test 核验通过，E 段用户手点 1–12 与 leftover=0 闭合；未标 A28—A30 / T03—T07）；**MW19 已完成**（2026-10-16 A–D 接线与 mw-test 核验通过，E 段用户手点 1–12 与 leftover=0 闭合；未标 A22 / A23 / T18 / T19）；**MW20 已完成**（2026-10-16 A–D 接线与 mw-test 核验通过，E 段用户手点与 leftover=0 于 2026-10-17 闭合；未标 A02 / A09 / A17 / A18 / T25）；**MW21 已完成**（A–D 接线与 mw-test 负向核验通过；E 段手点 1–7 通过，入册订单/套餐已清；已付履约 8–10 与现网路径明确留到 MW29；未标 A14 / A15 / A16 / A17 / A20 / T20 / T21 / T22 / T26）；MW22—MW30 未开始。MW07 仅为技术样例：未真实扣款、未 iOS 现网、未购买闭环，未标 A14/A20/T20/T26 通过。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
 - mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；MW04 真实剩余仅为 **P08/P10/P11 PARTIAL**。P08 已补记 `jobs` / `audit_logs` 索引、MW09 的 `categories` 指定索引（`parentId/deletedAt/sort/_id`）、MW10 的 `questions` 指定索引（`categoryId/status/updatedAt/_id`），以及 MW11 的 `papers` 两条指定索引（`status/categoryId/publishedAt/_id` 与 `status/sort/_id`）；其余未来索引仍 PARTIAL。P10 仍 PARTIAL（网关 413）。已锁定 Nodejs20.19 与 SDK。正式六入口、`cloudbase_auth`、`admin_users` 与 MW06 四集合已部署；MW09 已部署 `categories` / `category_names` 与种子十类；MW10 已部署 `questions` / `question_versions` / `media_assets` / `upload_tickets`；MW11 已部署 `papers` / `paper_versions` / `paper_chunks` / `paper_answers`。**没有生产环境、没有真实支付**。
 - MW07-A 已于 2026-10-08 按官方现行页与思维工坊项目小程序后台完成资格核对。用户其后完成后台开通，并写入本地沙箱配置名。MW07-B 已落地签名/通知/发货隔离样例；`mw-pay-hook` 已覆盖带 `openid` 的 GET 握手、XML/JSON POST 与伪造/APIv3 拒绝。沙箱 `/xpay/query_order` 已对未知单号调用一次 `env=1`：`errcode=268490001`，`authPathReached=true`，`signatureAccepted=true`，`wroteDocs=false`。未把 A14/A20 或 T20/T26 标为通过。未真实扣款、未做 iOS 现网、未做购买闭环。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
@@ -39,7 +39,7 @@
 | MW18 | 类目迁移与安全删除 | [已完成](first-batch/results/mw18-result.md)（E 段手点 1–12 与 leftover=0 已闭合；未标 A28—A30 / T03—T07） |
 | MW19 | 题目纠错与历史重评分 | [已完成](first-batch/results/mw19-result.md) |
 | MW20 | VIP 权益账本与判权 | [已完成](first-batch/results/mw20-result.md)（E 段手点与 leftover=0 已闭合；未标 A02 / A09 / A17 / A18 / T25） |
-| MW21 | VIP 套餐与在线购买 | 未开始 |
+| MW21 | VIP 套餐与在线购买 | [已完成](first-batch/results/mw21-result.md)（E 1–7 与 leftover 已闭合；已付 8–10 留 MW29；未标 A14 / A15 / A16 / A17 / A20 / T20 / T21 / T22 / T26） |
 | MW22 | 退款与账务对账 | 未开始 |
 | MW23 | 个人中心与反馈运营 | 未开始 |
 | MW24 | 正式协议与账号注销 | 未开始 |
@@ -235,3 +235,15 @@ A09 / T29 仍未标通过（可覆盖部分见 [mw16-result.md](first-batch/resu
 | MW20-A / B / C | 已接线（[mw20-entitlement.md](first-batch/mw20-entitlement.md)）：真实账本替换隔离替身；`vip.status` / `vip.grant` / `vip.revokeGift`；答题与 `member.me` 读同一账本；后台赠送/撤销；小程序 VIP 展示 |
 | MW20-D | `mw20:deploy` / `mw20:verify` 退出码 0。部署 `mw-admin` / `mw-member`；新建 `vip_accounts` / `vip_grants` / `vip_events` 与 `idx_vip_grants_member_sequence`；未登录 `vip.grant`=`FORBIDDEN`；种子十类 10；付款集合文档 0；`EnableOverrun=false`。`runtime.sha256` 前缀 `9b0c388574a9` |
 | MW20-E 手点与 leftover | **已闭合**（2026-10-17）。导入 6 个哈希，resolve 补齐 37，cleanup 精确删 36（会员账号不删），`independent-check` `remain=0`，`verify-leftovers` `ok:true` `leftoverDocs=0` `seedPresent=10`。第 11 步撤 80 秒得 0 按「只扣未用」通过 |
+
+## 本轮执行记录（2026-10-17，MW21）
+
+只做 MW21：VIP 套餐与在线购买。不改写 MW01—MW20 与 MW-UI01 的历史完成记录，不启动 MW22—MW30。只操作 mw-test。没有把 A01—A31 或 T01—T30 标为通过，尤其未标 **A14 / A15 / A16 / A17 / A20 / T20 / T21 / T22 / T26**，也不回标 A02 / A09 / A18 / T25。未创建 `refunds`。未开启超额。沙箱 `VIRTUAL_PAY_ENV=1`，未切现网 AppKey。未真实扣款，未做 iOS / Apple 现网付款。未自动提交、推送或发布。E 段手点 1–7 已通过，入册订单 2 + 套餐 3 已精确清理。**2026-10-18 用户确认：已付履约 8–10 留到 MW29**。任务总览允许「两端接线完成，未做的现网路径明确留到 MW29」，整项标完成；不把未做真付标成验收通过。
+
+| 任务 | 结果 |
+| --- | --- |
+| MW21-A / B / C | 已接线（[mw21-vip-purchase.md](first-batch/mw21-vip-purchase.md)）：套餐版本与冻结快照、`order` 来源发放接到 MW20 账本、`vip.plans` / `order.*` / `payment.prepare`、`mw-pay-hook` 验签后履约、后台套餐发布、小程序 VIP 中心 / 收银台 / 订单列表 |
+| MW21-D | `mw21:deploy` / `mw21:verify` 退出码 0。部署 `mw-admin` / `mw-member` / `mw-pay-hook`；新建 `vip_plans` / `orders` / `payment_receipts` / `callback_events` 与两条 orders 索引；未登录 `plan.publish` / `order.create` = `AUTH_REQUIRED`；种子十类 10；`refunds` 文档 0；`EnableOverrun=false`；沙箱 `VIRTUAL_PAY_ENV=1`。`runtime.sha256` 前缀 `30ab2754eaec` |
+| MW21-E 手点与 leftover | **已闭合**（2026-10-18）。1–7 通过；拉起收银台后确认中、查单未已付，未付 899 元。8–10 NOT_RUN，留 MW29。入册删订单 2 + 套餐 3。未标 A14/A20/T20/T26 |
+| 本地检查 | `typecheck` 0、`npm test` 0（workspaces **327** 项：admin 8 / miniprogram 38 / shared 137 / api 144）、`npm run build` 0。当时 4174 未占用 |
+| 提交与推送 | 见本轮收口提交 |

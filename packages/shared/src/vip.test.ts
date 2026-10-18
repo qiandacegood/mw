@@ -177,10 +177,21 @@ describe("vip ledger consume and revoke", () => {
       sourceId: "ord-1",
       durationSeconds: 20,
       grantedAt: firstGrantAt,
-      reason: "should fail",
-      actorId: "uid_super"
+      reason: "paid-order",
+      actorId: "system"
     });
-    expect(paid).toMatchObject({ ok: false, reason: "GIFT_SOURCE_REQUIRED" });
+    expect(paid.ok).toBe(true);
+    if (!paid.ok) return;
+    expect(paid.grant.sourceType).toBe("order");
+    expect(paid.grant.grantId).toBe(vipGrantId("order", "ord-1"));
+    const revokePaid = revokeVipGift({
+      account: paid.account,
+      grants: paid.grants,
+      sourceId: "ord-1",
+      now: mid,
+      reason: "cannot revoke paid"
+    });
+    expect(revokePaid).toMatchObject({ ok: false, reason: "GIFT_GRANT_NOT_FOUND" });
   });
 });
 

@@ -119,6 +119,72 @@ export function prepareNotifyProvideGoods(input: {
   return { ok: true, env: env.env, url: signed.url, postBody: signed.postBody };
 }
 
+function nestedOrder(json: Record<string, unknown>): Record<string, unknown> {
+  const order = json.order;
+  if (order && typeof order === "object" && !Array.isArray(order)) return order as Record<string, unknown>;
+  return json;
+}
+
+function intField(rec: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = rec[key];
+    if (typeof value === "number" && Number.isInteger(value)) return value;
+    if (typeof value === "string" && /^-?\d+$/.test(value)) return Number(value);
+  }
+  return undefined;
+}
+
+function textField(rec: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = rec[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+export type XpayQueryParse = {
+  paid: boolean;
+  unknown: boolean;
+  channelBizNo?: string;
+  transactionId?: string;
+  amountFen?: number;
+  productId?: string;
+  openId?: string;
+  environment?: 0 | 1;
+  paidAt?: string;
+  status?: number;
+};
+
+export function parseXpayQueryResult(json: Record<string, unknown>): XpayQueryParse {
+  const errcode = typeof json.errcode === "number" ? json.errcode : 0;
+  if (errcode && errcode !== 0) {
+    return { paid: false, unknown: true, status: errcode };
+  }
+  const order = nestedOrder(json);
+  const status = intField(order, ["status", "Status"]);
+  const channelBizNo = textField(order, ["order_id", "orderId", "OutTradeNo", "out_trade_no"]);
+  const transactionId = textField(order, ["wx_order_id", "wxOrderId", "TransactionId", "transaction_id"]);
+  const amountFen = intField(order, ["order_fee", "actual_price", "ActualPrice", "goods_price", "product_price"]);
+  const productId = textField(order, ["product_id", "productId", "ProductId"]);
+  const openId = textField(order, ["openid", "OpenId", "open_id"]);
+  const envRaw = intField(order, ["env", "Env"]);
+  const environment = envRaw === 0 || envRaw === 1 ? envRaw : undefined;
+  const paidAt = textField(order, ["paid_time", "PaidTime", "pay_time"]);
+  const paid = status === 2 || status === 3;
+  return {
+    paid,
+    unknown: status === undefined,
+    channelBizNo,
+    transactionId,
+    amountFen,
+    productId,
+    openId,
+    environment,
+    paidAt,
+    status
+  };
+}
+
 export async function notifyProvideGoods(
   input: Parameters<typeof prepareNotifyProvideGoods>[0] & { transport: XpayTransport }
 ): Promise<{ sent: false; reason: string; wroteDocs: false } | { sent: true; outcome: ReturnType<typeof redactXpayOutcome>; wroteDocs: false }> {

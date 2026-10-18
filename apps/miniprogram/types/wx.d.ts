@@ -23,6 +23,9 @@ declare const wx: {
   switchTab(opts: { url: string }): void;
   stopPullDownRefresh(): void;
   setClipboardData(opts: { data: string; success?: () => void }): void;
+  login(opts: { success?: (res: { code?: string }) => void; fail?: () => void }): void;
+  getSystemInfoSync(): { platform?: string; osName?: string; system?: string; version?: string };
+  requestVirtualPayment?(opts: Record<string, unknown>): void;
   onNetworkStatusChange(cb: (res: { isConnected: boolean }) => void): void;
   offNetworkStatusChange?(cb: (res: { isConnected: boolean }) => void): void;
   cloud: {
@@ -43,6 +46,8 @@ interface PageInstance {
     item?: { questionId?: string; type?: string };
     items?: unknown[];
     draftAttemptId?: string;
+    lastOrderId?: string;
+    plans?: unknown[];
   };
   setData(data: Record<string, unknown>): void;
   loadPaper?: () => void;
@@ -75,6 +80,8 @@ interface PageInstance {
   goRegister: () => void;
   goResult?: (event?: { currentTarget?: { dataset?: { id?: string } } }) => void;
   goHistory?: () => void;
+  goVip?: () => void;
+  goOrders?: () => void;
   goAnalysis?: (event?: { currentTarget?: { dataset?: { id?: string } } }) => void;
   submitAttempt?: (confirmUnanswered?: boolean) => void | Promise<void>;
   submitPaper?: () => void | Promise<void>;
@@ -95,6 +102,12 @@ interface PageInstance {
   closeSettings?: (this: PageInstance) => void;
   onSettingsVisibleChange?: (this: PageInstance, event?: { detail?: { visible?: boolean } }) => void;
   toggleRanking?: (this: PageInstance) => void | Promise<void>;
+  buy?: (event?: { currentTarget?: { dataset?: { id?: string; version?: string } } }) => void | Promise<void>;
+  pay?: () => void | Promise<void>;
+  fakeSuccess?: () => void | Promise<void>;
+  refresh?: (event?: { currentTarget?: { dataset?: { id?: string } } }) => void | Promise<void>;
+  close?: (event?: { currentTarget?: { dataset?: { id?: string } } }) => void | Promise<void>;
+  copyLeftover?: () => void;
 }
 
 interface PageOptions {
@@ -188,6 +201,14 @@ interface PageOptions {
   closeSettings?: (this: PageInstance) => void;
   onSettingsVisibleChange?: (this: PageInstance, event?: { detail?: { visible?: boolean } }) => void;
   toggleRanking?: (this: PageInstance) => void | Promise<void>;
+  goVip?: (this: PageInstance) => void;
+  goOrders?: (this: PageInstance) => void;
+  buy?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string; version?: string } } }) => void | Promise<void>;
+  pay?: (this: PageInstance) => void | Promise<void>;
+  fakeSuccess?: (this: PageInstance) => void | Promise<void>;
+  refresh?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string } } }) => void | Promise<void>;
+  close?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string } } }) => void | Promise<void>;
+  copyLeftover?: (this: PageInstance) => void;
 }
 
 declare function getApp<T = { globalData: Record<string, unknown> }>( ): T;

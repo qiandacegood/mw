@@ -80,6 +80,27 @@ import { processDueCorrectionJobs } from "./modules/correction-job.js";
 import type { CorrectionStore } from "./modules/correction-stores.js";
 import { grantVipGift, readVipStatus, revokeVipGiftAction, vipEntitlementReader } from "./modules/vip.js";
 import type { VipWorkStore } from "./modules/vip-stores.js";
+import type { OrderWorkStore } from "./modules/order-stores.js";
+import {
+  ADMIN_ORDER_ACTIONS,
+  ADMIN_PLAN_ACTIONS,
+  MEMBER_PURCHASE_ACTIONS,
+  closeOrder,
+  createOrder,
+  disablePlan,
+  evidenceFromNotify,
+  fulfillVerifiedPayment,
+  getOrderForMember,
+  listAdminOrders,
+  listAdminPlans,
+  listOrdersForMember,
+  listVipPlans,
+  orderView,
+  preparePayment,
+  publishPlan,
+  refreshOrder,
+  type VirtualPayRuntime
+} from "./modules/orders.js";
 import type { CategoryUsageStore, CategoryWorkStore } from "./modules/category-stores.js";
 import { emptyCategoryUsage } from "./modules/category-stores.js";
 import { disableQuestion, getQuestion, listQuestions, saveQuestion } from "./modules/question.js";
@@ -148,7 +169,8 @@ export const MEMBER_ACTIONS = [
   "member.growth",
   "member.setRanking",
   "ranking.me",
-  "vip.status"
+  "vip.status",
+  ...MEMBER_PURCHASE_ACTIONS
 ] as const;
 export const ADMIN_ACTIONS = [
   "admin.me",
@@ -188,6 +210,8 @@ export const ADMIN_WRITE_ACTIONS = [
 export const ADMIN_MW18_ACTIONS = ["category.change.preview", "category.change.commit", "category.change.status"] as const;
 export const ADMIN_MW19_ACTIONS = ["correction.preview", "correction.commit", "correction.status"] as const;
 export const ADMIN_MW20_ACTIONS = ["vip.grant", "vip.revokeGift"] as const;
+export const ADMIN_MW21_PLAN_ACTIONS = ADMIN_PLAN_ACTIONS;
+export const ADMIN_MW21_ORDER_ACTIONS = ADMIN_ORDER_ACTIONS;
 
 export type OfficialEntry =
   | "mw-public"
@@ -242,6 +266,8 @@ export interface OfficialContext {
   catalogChangeStore?: CatalogChangeStore;
   correctionStore?: CorrectionStore;
   vipStore?: VipWorkStore;
+  orderStore?: OrderWorkStore;
+  virtualPay?: VirtualPayRuntime;
   entitlement?: PracticeEntitlementReader;
   virtualPayNotify?: VirtualPayNotifyConfig;
 }
@@ -705,6 +731,9 @@ async function handleMember(
     }
     return publicSafe(request.requestId, now, result.data);
   }
+  if ((MEMBER_PURCHASE_ACTIONS as readonly string[]).includes(request.action)) {
+    return handleMemberPurchase(ctx, request, now, fromAppId, fromOpenId);
+  }
   if (request.action === "member.growth") {
     if (!ctx.growthStore) {
       return fail(request.requestId, "INTERNAL_ERROR", { reason: "GROWTH_STORE_UNAVAILABLE" });
@@ -828,9 +857,11 @@ async function handleAdmin(
   const isMw18 = (ADMIN_MW18_ACTIONS as readonly string[]).includes(action);
   const isMw19 = (ADMIN_MW19_ACTIONS as readonly string[]).includes(action);
   const isMw20 = (ADMIN_MW20_ACTIONS as readonly string[]).includes(action);
+  const isMw21Plan = (ADMIN_MW21_PLAN_ACTIONS as readonly string[]).includes(action);
+  const isMw21Order = (ADMIN_MW21_ORDER_ACTIONS as readonly string[]).includes(action);
   const isRead = (ADMIN_ACTIONS as readonly string[]).includes(action);
   const isWrite = (ADMIN_WRITE_ACTIONS as readonly string[]).includes(action);
-  if (!isRead && !isWrite && !isMw18 && !isMw19 && !isMw20) {
+  if (!isRead && !isWrite && !isMw18 && !isMw19 && !isMw20 && !isMw21Plan && !isMw21Order) {
     return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
   }
   const admin = await requireAdmin(ctx, requestId);
@@ -852,6 +883,12 @@ async function handleAdmin(
       return fail(requestId, "FORBIDDEN", { reason: "SUPER_ROLE_REQUIRED" });
     }
     return handleAdminVip(ctx, admin.record, action, requestId, now);
+  }
+  if (isMw21Plan) {
+    return handleAdminPlan(ctx, admin.record, action, requestId, now);
+  }
+  if (isMw21Order) {
+    return handleAdminOrder(ctx, admin.record, action, requestId, now);
   }
   if (action === "category.tree" || action.startsWith("category.")) {
     return handleAdminCategory(ctx, admin.record, action, requestId, now);
@@ -1184,6 +1221,212 @@ async function handleAdminCorrection(
     }
   }
   return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+}
+
+async function handleMemberPurchase(
+  ctx: OfficialContext,
+  request: { action: string; requestId: string; idempotencyKey?: string; data: Record<string, unknown> },
+  now: Date,
+  fromAppId: string,
+  fromOpenId: string
+): Promise<ApiResponse<unknown>> {
+  if (!ctx.orderStore) {
+    return fail(request.requestId, "INTERNAL_ERROR", { reason: "ORDER_STORE_UNAVAILABLE" });
+  }
+  const session = await readMemberSession(ctx.memberStore, fromAppId, fromOpenId);
+  if (request.action === "vip.plans") {
+    const result = await listVipPlans({
+      orders: ctx.orderStore,
+      data: request.data,
+      configuredEnv: ctx.virtualPay?.configuredEnv ?? process.env.VIRTUAL_PAY_ENV
+    });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return publicSafe(request.requestId, now, result.data);
+  }
+  if (!session.registered || !session.memberId) {
+    return fail(request.requestId, "MEMBER_REQUIRED", { reason: "MEMBER_NOT_REGISTERED" });
+  }
+  if (request.action === "order.get") {
+    const result = await getOrderForMember({ orders: ctx.orderStore, memberId: session.memberId, data: request.data });
+    if (!result.ok) return fail(request.requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return publicSafe(request.requestId, now, result.data);
+  }
+  if (request.action === "order.list") {
+    const result = await listOrdersForMember({ orders: ctx.orderStore, memberId: session.memberId, data: request.data });
+    if (!result.ok) return fail(request.requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return publicSafe(request.requestId, now, result.data);
+  }
+  if (request.action === "payment.prepare") {
+    if (!ctx.virtualPay) return fail(request.requestId, "PAYMENT_CHANNEL_UNAVAILABLE", { reason: "VIRTUAL_PAY_UNAVAILABLE" });
+    const result = await preparePayment({
+      orders: ctx.orderStore,
+      memberId: session.memberId,
+      cloudOpenId: fromOpenId,
+      data: request.data,
+      now,
+      pay: ctx.virtualPay
+    });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return publicSafe(request.requestId, now, result.data);
+  }
+  if (request.action === "order.refresh" || request.action === "order.close") {
+    if (!ctx.virtualPay || !ctx.vipStore) {
+      return fail(request.requestId, "PAYMENT_CHANNEL_UNAVAILABLE", { reason: "VIRTUAL_PAY_UNAVAILABLE" });
+    }
+    const maintenance = ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined;
+    const result =
+      request.action === "order.refresh"
+        ? await refreshOrder({
+            orders: ctx.orderStore,
+            vip: ctx.vipStore,
+            memberId: session.memberId,
+            data: request.data,
+            now,
+            pay: ctx.virtualPay,
+            maintenance,
+            actorId: session.memberId
+          })
+        : await closeOrder({
+            orders: ctx.orderStore,
+            vip: ctx.vipStore,
+            memberId: session.memberId,
+            data: request.data,
+            now,
+            pay: ctx.virtualPay,
+            maintenance,
+            actorId: session.memberId
+          });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return publicSafe(request.requestId, now, result.data);
+  }
+  if (request.action !== "order.create") {
+    return fail(request.requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-member" });
+  }
+  if (!request.idempotencyKey) {
+    return fail(request.requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  const maintenance = ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined;
+  const result = await createOrder({
+    orders: ctx.orderStore,
+    members: ctx.memberStore,
+    actorId: session.memberId,
+    memberId: session.memberId,
+    openId: fromOpenId,
+    data: request.data,
+    requestId: request.requestId,
+    idempotencyKey: request.idempotencyKey,
+    now,
+    configuredEnv: ctx.virtualPay?.configuredEnv ?? process.env.VIRTUAL_PAY_ENV,
+    maintenance
+  });
+  if (!result.ok) {
+    return fail(request.requestId, result.code as ErrorCode, {
+      reason: result.reason,
+      ...(result.issues ? { issues: result.issues } : {}),
+      ...(result.details || {})
+    });
+  }
+  return publicSafe(request.requestId, now, { ...result.data, replayed: result.replayed === true });
+}
+
+async function handleAdminPlan(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  if (!ctx.orderStore) return fail(requestId, "INTERNAL_ERROR", { reason: "ORDER_STORE_UNAVAILABLE" });
+  if (action === "plan.list") {
+    if (!adminHasRole(admin.roles, "operations")) {
+      return fail(requestId, "FORBIDDEN", { reason: "OPERATIONS_ROLE_REQUIRED" });
+    }
+    const result = await listAdminPlans(ctx.orderStore);
+    return ok(requestId, now, result.data);
+  }
+  if (!adminHasRole(admin.roles, "super")) {
+    return fail(requestId, "FORBIDDEN", { reason: "SUPER_ROLE_REQUIRED" });
+  }
+  const { rec, data } = adminRequestBody(ctx);
+  if (action === "plan.disable") {
+    const result = await disablePlan({ orders: ctx.orderStore, data, now });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason });
+    return ok(requestId, now, result.data);
+  }
+  if (typeof rec.idempotencyKey !== "string" || !rec.idempotencyKey) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  const result = await publishPlan({
+    orders: ctx.orderStore,
+    actorId: admin.uid,
+    data,
+    now,
+    enabled: action === "plan.publish"
+  });
+  if (!result.ok) {
+    return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+  }
+  return ok(requestId, now, result.data);
+}
+
+async function handleAdminOrder(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  if (!adminHasRole(admin.roles, "operations")) {
+    return fail(requestId, "FORBIDDEN", { reason: "OPERATIONS_ROLE_REQUIRED" });
+  }
+  if (!ctx.orderStore) return fail(requestId, "INTERNAL_ERROR", { reason: "ORDER_STORE_UNAVAILABLE" });
+  const { data } = adminRequestBody(ctx);
+  if (action === "order.list") {
+    const result = await listAdminOrders({ orders: ctx.orderStore, data });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason });
+    return ok(requestId, now, result.data);
+  }
+  if (action === "order.get") {
+    const orderId = typeof data.orderId === "string" ? data.orderId : "";
+    const order = orderId ? await ctx.orderStore.getOrder(orderId) : undefined;
+    if (!order) return fail(requestId, "NOT_FOUND", { reason: "ORDER_NOT_FOUND" });
+    return ok(requestId, now, orderView(order));
+  }
+  if (!ctx.vipStore || !ctx.virtualPay) {
+    return fail(requestId, "PAYMENT_CHANNEL_UNAVAILABLE", { reason: "VIRTUAL_PAY_UNAVAILABLE" });
+  }
+  const maintenance = ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined;
+  const result = await refreshOrder({
+    orders: ctx.orderStore,
+    vip: ctx.vipStore,
+    data,
+    now,
+    pay: ctx.virtualPay,
+    maintenance,
+    actorId: admin.uid
+  });
+  if (!result.ok) {
+    return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.details || {}) });
+  }
+  return ok(requestId, now, result.data);
 }
 
 async function handleAdminVip(
@@ -1743,11 +1986,53 @@ async function handlePayHook(ctx: OfficialContext, event: unknown): Promise<unkn
       protocol: verified.protocol
     };
   }
+  if (verified.eventType === "xpay_refund_notify") {
+    return {
+      ErrCode: 0,
+      ErrMsg: "success",
+      eventType: verified.eventType,
+      vipGranted: false,
+      refundHandled: false,
+      protocol: "virtual-pay-message-push"
+    };
+  }
+  if (!ctx.orderStore || !ctx.vipStore) {
+    return {
+      ErrCode: 0,
+      ErrMsg: "success",
+      eventType: verified.eventType,
+      vipGranted: false,
+      protocol: "virtual-pay-message-push"
+    };
+  }
+  const evidence = evidenceFromNotify(verified.payload || {}, verified.eventType || "");
+  if (!evidence) {
+    return {
+      ErrCode: 0,
+      ErrMsg: "success",
+      eventType: verified.eventType,
+      vipGranted: false,
+      protocol: "virtual-pay-message-push"
+    };
+  }
+  const maintenance = ctx.maintenanceStore ? await ctx.maintenanceStore.get() : undefined;
+  const fulfilled = await fulfillVerifiedPayment({
+    orders: ctx.orderStore,
+    vip: ctx.vipStore,
+    evidence,
+    now: ctx.now ?? new Date(),
+    actorId: "mw-pay-hook",
+    maintenance,
+    pay: ctx.virtualPay
+  });
   return {
     ErrCode: 0,
     ErrMsg: "success",
     eventType: verified.eventType,
-    vipGranted: false,
+    vipGranted: fulfilled.granted,
+    replayed: fulfilled.replayed,
+    needsReview: fulfilled.needsReview,
+    reason: fulfilled.reason,
     protocol: "virtual-pay-message-push"
   };
 }

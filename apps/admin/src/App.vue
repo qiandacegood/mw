@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import {
   paperIdForSourceKey,
   paperTemplateCsv,
+  planDocId,
   questionIdForSourceKey,
   questionTemplateCsv
 } from "@mw/shared";
@@ -12,6 +13,8 @@ import {
   callAdminCorrection,
   callAdminGrowth,
   callAdminVip,
+  callAdminPlan,
+  callAdminOrder,
   callAdminJob,
   callAdminQuestion,
   callAdminPaper,
@@ -25,6 +28,8 @@ import {
   type AdminGrowthAction,
   type AdminRankingAction,
   type AdminVipAction,
+  type AdminPlanAction,
+  type AdminOrderAction,
   type AdminSession
 } from "./cloudbase-web";
 
@@ -182,6 +187,21 @@ const vStatus = ref("赠送必须填写原因。content 角色会被拒。本轮
 const vEvidence = ref("");
 const vLastGrantId = ref("");
 const vLastSourceId = ref("");
+const planId = ref("plan_test_30d");
+const planVersion = ref("1");
+const planTitle = ref("30 天测试套餐");
+const planDays = ref("30");
+const planPriceFen = ref("9900");
+const planProductAndroid = ref("test_android_30d");
+const planReason = ref("MW21 发布测试套餐");
+const planStatus = ref("content 角色会被拒。只发布测试价，非正式售价。");
+const planEvidence = ref("");
+const lastPlanIds = ref<string[]>([]);
+const orderMemberId = ref("");
+const orderId = ref("");
+const orderStatus = ref("operations 可核对同一订单。已支付不得改价。");
+const orderEvidence = ref("");
+const lastOrderIds = ref<string[]>([]);
 /** MW17 榜单治理：快照状态、真实更新时间与更新延迟都由服务端返回，本页不伪造。 */
 const rReason = ref("MW17 重建四维榜单快照");
 const rStatus = ref("先点「读取榜单快照状态」，再按需「重建并发布榜单快照」。重建需要 super 角色。");
@@ -197,6 +217,8 @@ type PageKey =
   | "admin-import"
   | "admin-growth"
   | "admin-vip"
+  | "admin-plans"
+  | "admin-orders"
   | "admin-ranking"
   | "admin-jobs";
 type NavGroup = "content" | "import" | "ops";
@@ -249,6 +271,18 @@ const PAGES: Record<PageKey, { group: string; nav: NavGroup; title: string; desc
     nav: "ops",
     title: "VIP 赠送与撤销",
     desc: "人工赠送必须有原因，来源标 gift，不写订单。撤销只扣该赠送来源未用时长。本轮不做付款。"
+  },
+  "admin-plans": {
+    group: "运营",
+    nav: "ops",
+    title: "VIP 套餐发布",
+    desc: "仅 super 可发布。必须校验平台商品、天数和金额。开发只用测试价，改价改天必须新 planVersion。"
+  },
+  "admin-orders": {
+    group: "运营",
+    nav: "ops",
+    title: "订单核对",
+    desc: "operations 可查本人以外的订单并同单核对。不修改金额。已付未开通走同一订单补偿。"
   },
   "admin-ranking": {
     group: "运营",
@@ -2216,6 +2250,132 @@ async function copyVipLeftover(): Promise<void> {
   vStatus.value = "已复制本轮 VIP leftover knownIds（SHA-256）。不要发送明文 memberId。";
 }
 
+function planPayload(): Record<string, unknown> {
+  return {
+    planId: planId.value.trim(),
+    planVersion: Number(planVersion.value) || 1,
+    title: planTitle.value.trim(),
+    durationDays: Number(planDays.value) || 30,
+    priceFen: Number(planPriceFen.value) || 9900,
+    productIds: { android: planProductAndroid.value.trim() },
+    channels: ["android"],
+    testOnly: true,
+    reason: planReason.value.trim()
+  };
+}
+
+async function runPlan(action: AdminPlanAction, data: Record<string, unknown>): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  const result = await callAdminPlan(app, action, data);
+  const parsed = planEvidence.value ? JSON.parse(planEvidence.value) : { steps: [] };
+  parsed.steps.push({
+    action,
+    ok: result.ok === true,
+    errorCode: result.error?.code || "",
+    errorReason: result.error?.details?.reason || "",
+    planId: result.data?.planId || data.planId,
+    planVersion: result.data?.planVersion || data.planVersion,
+    enabled: result.data?.enabled ?? null
+  });
+  planEvidence.value = JSON.stringify(parsed, null, 2);
+  return result;
+}
+
+async function publishTestPlan(): Promise<void> {
+  busy.value = true;
+  planStatus.value = "正在发布测试套餐…";
+  try {
+    const result = await runPlan("plan.publish", planPayload());
+    if (!result.ok) {
+      planStatus.value = `发布被拒：${result.error?.code || "CALL_FAILED"} ${result.error?.details?.reason || ""}`;
+      return;
+    }
+    lastPlanIds.value = [
+      ...new Set([
+        ...lastPlanIds.value,
+        planDocId(String(result.data?.planId || planId.value), Number(result.data?.planVersion || planVersion.value) || 1)
+      ])
+    ];
+    planStatus.value = `已发布测试套餐 ${result.data?.planId} v${result.data?.planVersion}。测试价非正式售价。`;
+  } catch {
+    planStatus.value = "发布失败";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function listPlans(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runPlan("plan.list", {});
+    planStatus.value = result.ok ? `已读取 ${Array.isArray(result.data?.items) ? result.data.items.length : 0} 个套餐版本。` : `读取失败：${result.error?.code || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function leftoverPayload(): Promise<{ plans: string[]; orders: string[]; members: string[]; papers: string[]; attempts: string[] }> {
+  const plans = await Promise.all(lastPlanIds.value.map((id) => hashText(id)));
+  const orders = await Promise.all(lastOrderIds.value.map((id) => hashText(id)));
+  return { plans, orders, members: [], papers: [], attempts: [] };
+}
+
+async function copyPlanLeftover(): Promise<void> {
+  const payload = await leftoverPayload();
+  const text = JSON.stringify(payload);
+  planEvidence.value = JSON.stringify({ knownIds: payload, note: "只入册本轮测试套餐与订单哈希" }, null, 2);
+  void navigator.clipboard?.writeText(text);
+  planStatus.value = "已复制本轮套餐 leftover 哈希。";
+}
+
+async function runOrder(action: AdminOrderAction, data: Record<string, unknown>): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  const result = await callAdminOrder(app, action, data);
+  const parsed = orderEvidence.value ? JSON.parse(orderEvidence.value) : { steps: [] };
+  parsed.steps.push({
+    action,
+    ok: result.ok === true,
+    errorCode: result.error?.code || "",
+    errorReason: result.error?.details?.reason || "",
+    orderId: result.data?.orderId || data.orderId,
+    payState: result.data?.payState || null,
+    grantState: result.data?.grantState || null
+  });
+  orderEvidence.value = JSON.stringify(parsed, null, 2);
+  if (result.data?.orderId) lastOrderIds.value = [...new Set([...lastOrderIds.value, String(result.data.orderId)])];
+  return result;
+}
+
+async function listMemberOrders(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runOrder("order.list", { memberId: orderMemberId.value.trim() });
+    orderStatus.value = result.ok ? `已读取本人以外指定会员订单 ${Array.isArray(result.data?.items) ? result.data.items.length : 0} 条。` : `读取失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function reconcileOrder(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runOrder("order.reconcile", { orderId: orderId.value.trim() });
+    orderStatus.value = result.ok
+      ? `核对 ${result.data?.payState} / ${result.data?.grantState}。同一订单补偿不会重复延长。`
+      : `核对失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function copyOrderLeftover(): Promise<void> {
+  const payload = await leftoverPayload();
+  const text = JSON.stringify(payload);
+  orderEvidence.value = JSON.stringify({ knownIds: payload, note: "只入册本轮订单与套餐哈希" }, null, 2);
+  void navigator.clipboard?.writeText(text);
+  orderStatus.value = "已复制本轮订单 leftover 哈希。";
+}
+
 async function runRanking(action: AdminRankingAction, data: Record<string, unknown>): Promise<AdminCallResult> {
   const app = await createAdminApp();
   const result = await callAdminRanking(app, action, data);
@@ -2492,6 +2652,24 @@ async function logout(): Promise<void> {
               @click="go('admin-vip')"
             >
               VIP 赠送
+            </button>
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-plans' }"
+              :aria-current="currentPage === 'admin-plans' ? 'page' : undefined"
+              @click="go('admin-plans')"
+            >
+              VIP 套餐
+            </button>
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-orders' }"
+              :aria-current="currentPage === 'admin-orders' ? 'page' : undefined"
+              @click="go('admin-orders')"
+            >
+              订单核对
             </button>
             <button
               class="nav-item"
@@ -3136,6 +3314,53 @@ async function logout(): Promise<void> {
             </div>
             <p class="status">{{ vStatus }}</p>
             <pre data-testid="vip-evidence">{{ vEvidence }}</pre>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-plans' }" data-page="admin-plans">
+          <p class="breadcrumb">{{ PAGES["admin-plans"].group }} / {{ PAGES["admin-plans"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-plans"].title }}</h1>
+              <p class="page-desc">只发布标注测试价的测试商品。改价或改天必须新 planVersion。content 角色会被拒。</p>
+            </div>
+          </div>
+          <div class="card">
+            <label>planId<input v-model="planId" autocomplete="off" /></label>
+            <label>planVersion<input v-model="planVersion" autocomplete="off" /></label>
+            <label>名称<input v-model="planTitle" autocomplete="off" /></label>
+            <label>天数（30/90/365）<input v-model="planDays" autocomplete="off" /></label>
+            <label>价格（分，测试价）<input v-model="planPriceFen" autocomplete="off" /></label>
+            <label>Android 测试商品 ID<input v-model="planProductAndroid" autocomplete="off" /></label>
+            <label>原因<input v-model="planReason" autocomplete="off" /></label>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="publishTestPlan">发布测试套餐（super）</button>
+              <button type="button" class="ghost" :disabled="busy" @click="listPlans">读取套餐</button>
+              <button type="button" class="ghost" @click="copyPlanLeftover">复制本轮套餐 leftover</button>
+            </div>
+            <p class="status">{{ planStatus }}</p>
+            <pre>{{ planEvidence }}</pre>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-orders' }" data-page="admin-orders">
+          <p class="breadcrumb">{{ PAGES["admin-orders"].group }} / {{ PAGES["admin-orders"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-orders"].title }}</h1>
+              <p class="page-desc">同订单查单后履约。已付未开通可补偿，不能重复延长。不修改金额，不创建退款。</p>
+            </div>
+          </div>
+          <div class="card">
+            <label>会员 ID<input v-model="orderMemberId" autocomplete="off" /></label>
+            <label>订单 ID<input v-model="orderId" autocomplete="off" /></label>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="listMemberOrders">查询订单</button>
+              <button type="button" :disabled="busy" @click="reconcileOrder">同订单核对</button>
+              <button type="button" class="ghost" @click="copyOrderLeftover">复制本轮订单 leftover</button>
+            </div>
+            <p class="status">{{ orderStatus }}</p>
+            <pre>{{ orderEvidence }}</pre>
           </div>
         </section>
 

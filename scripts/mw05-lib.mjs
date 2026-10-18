@@ -19,6 +19,26 @@ export const MW05_OFFICIAL_FUNCTIONS = [
   "mw-jobs"
 ];
 
+export const ADMIN_PUBLIC_HOST = "mw.qianjiaoguan.com";
+export const ADMIN_PUBLIC_ORIGIN = `https://${ADMIN_PUBLIC_HOST}`;
+
+export function adminHostingConfig() {
+  return [
+    {
+      name: "mw-admin-web",
+      root: "./apps/admin",
+      framework: "vite-vue",
+      installCommand: "",
+      buildCommand: "npm run build",
+      outputDir: "dist",
+      deployPath: "/",
+      verify: true,
+      safe: true,
+      prune: false
+    }
+  ];
+}
+
 export const MW05_TEMP_HTTP_FUNCTION = "mw-http-size-probe";
 export const MW05_HTTP_PATH = "mw-http-size-probe";
 export const ADMIN_USERS_COLLECTION = "admin_users";
@@ -70,21 +90,31 @@ export function parseFunctionEnv(detailJson) {
     data.Environment?.Variables ||
     data.Environment ||
     [];
+  return flattenFunctionEnv(raw);
+}
+
+function flattenFunctionEnv(raw, out = {}) {
   if (Array.isArray(raw)) {
-    const out = {};
     for (const item of raw) {
       const key = item?.Key || item?.key || item?.Name || item?.name;
       if (!key) continue;
-      out[key] = String(item.Value ?? item.value ?? "");
+      flattenFunctionEnvEntry(out, key, item.Value ?? item.value ?? "");
     }
     return out;
   }
   if (raw && typeof raw === "object") {
-    const out = {};
-    for (const [key, value] of Object.entries(raw)) out[key] = String(value ?? "");
-    return out;
+    for (const [key, value] of Object.entries(raw)) flattenFunctionEnvEntry(out, key, value);
   }
-  return {};
+  return out;
+}
+
+function flattenFunctionEnvEntry(out, key, value) {
+  if (key === "Variables" || key === "variables" || key === "EnvVariables") {
+    if (value && typeof value === "object") flattenFunctionEnv(value, out);
+    return;
+  }
+  if (value && typeof value === "object") return;
+  out[key] = String(value ?? "");
 }
 
 export function functionConfigs(allowedMiniAppIds, extraEnv = {}) {
@@ -121,7 +151,8 @@ export function writeMw05Cloudbaserc(extraFunctions = []) {
     envId,
     region: "ap-shanghai",
     functionRoot: "./cloudfunctions",
-    functions: [...functionConfigs(allowedMiniAppIds), ...extraFunctions]
+    functions: [...functionConfigs(allowedMiniAppIds), ...extraFunctions],
+    hosting: adminHostingConfig()
   };
   writeJson(join(projectRoot(), "cloudbaserc.json"), config);
   return config;

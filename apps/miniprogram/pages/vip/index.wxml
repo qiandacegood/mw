@@ -1,0 +1,27 @@
+<view class="page">
+  <text class="h1">VIP 中心</text>
+  <text class="muted">有效期内可练习全部已上架 VIP 卷。购买不加分。价格由服务端锁定，测试价非正式售价。</text>
+  <view class="card">
+    <text class="title">{{vipText}}</text>
+    <text wx:if="{{expiresAt}}" class="muted">到期时间（UTC）：{{expiresAt}}</text>
+    <text class="muted">{{capabilityHint}}</text>
+  </view>
+  <view wx:if="{{state === 'error'}}" class="card err">{{message}}</view>
+  <view wx:elif="{{!plans.length}}" class="card">当前渠道暂无测试套餐。</view>
+  <view wx:for="{{plans}}" wx:key="planId" class="card">
+    <text class="title">{{item.title}}</text>
+    <text class="muted">{{item.daysText}} · {{item.priceText}} · 版本 {{item.planVersion}}</text>
+    <button size="mini" data-id="{{item.planId}}" data-version="{{item.planVersion}}" bindtap="buy">下单（冻结服务端价格）</button>
+  </view>
+  <view wx:if="{{lastOrderId}}" class="card">
+    <text class="title">订单 {{lastDisplay}}</text>
+    <text class="muted">{{lastHint}}</text>
+    <button bindtap="pay">拉起收银台参数</button>
+    <button class="ghost" bindtap="fakeSuccess">伪造成功（应不发放）</button>
+    <button class="ghost" bindtap="refresh">确认支付结果</button>
+    <button class="ghost" bindtap="close">取消并关单（先查原单）</button>
+  </view>
+  <button class="ghost" bindtap="goOrders">我的订单</button>
+  <button class="ghost" bindtap="copyLeftover">复制本轮购买 leftover</button>
+  <text class="muted">{{raw}}</text>
+</view>

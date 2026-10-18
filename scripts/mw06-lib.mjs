@@ -2,7 +2,14 @@ import { createHmac, randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { authorizedEnvId, projectRoot, readEnvFile, redact, writeJson } from "./mw04-lib.mjs";
-import { functionConfigs, parseFunctionEnv, readMw05LocalConfig, redactMw05, MW05_OFFICIAL_FUNCTIONS } from "./mw05-lib.mjs";
+import {
+  adminHostingConfig,
+  functionConfigs,
+  parseFunctionEnv,
+  readMw05LocalConfig,
+  redactMw05,
+  MW05_OFFICIAL_FUNCTIONS
+} from "./mw05-lib.mjs";
 
 export const MW06_COLLECTIONS = ["jobs", "idempotency", "audit_logs", "app_config"];
 export const MW06_TEST_PREFIX = "mw06/test";
@@ -88,7 +95,8 @@ export function writeMw06Cloudbaserc(existingEnvs = {}) {
     envId,
     region: "ap-shanghai",
     functionRoot: "./cloudfunctions",
-    functions
+    functions,
+    hosting: adminHostingConfig()
   };
   writeJson(join(projectRoot(), "cloudbaserc.json"), config);
   return {

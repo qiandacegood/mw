@@ -1,0 +1,14 @@
+<view class="page">
+  <text class="h1">我的订单</text>
+  <text class="muted">只显示本人订单。付款 / 发放 / 退款三个状态分开。客户端成功不是开通依据。</text>
+  <view wx:if="{{state === 'error'}}" class="card err">{{message}}</view>
+  <view wx:elif="{{!items.length}}" class="card">暂无订单。</view>
+  <view wx:for="{{items}}" wx:key="orderId" class="card">
+    <text class="title">{{item.title}} · {{item.displayStatus}}</text>
+    <text class="muted">{{item.priceText}} · {{item.payState}} / {{item.grantState}}</text>
+    <text wx:if="{{item.userHint}}" class="muted">{{item.userHint}}</text>
+    <button size="mini" data-id="{{item.orderId}}" bindtap="refresh">刷新（查单）</button>
+    <button size="mini" class="ghost" data-id="{{item.orderId}}" bindtap="close">关单</button>
+  </view>
+  <button class="ghost" bindtap="copyLeftover">复制本轮订单 leftover</button>
+</view>

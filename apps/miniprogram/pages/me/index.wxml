@@ -9,7 +9,9 @@
     <text class="h2">VIP 状态</text>
     <text class="title">{{vipText}}</text>
     <text wx:if="{{vipExpiresAt}}" class="muted">到期时间（UTC）：{{vipExpiresAt}}</text>
-    <text class="muted">与答题判权读同一账本。赠送不加分，到期不清空成长。</text>
+    <text class="muted">与答题判权读同一账本。购买或赠送不加分，到期不清空成长。</text>
+    <button bindtap="goVip">VIP 中心</button>
+    <button bindtap="goOrders">我的订单</button>
   </view>
 
   <view class="card" data-block="growth">

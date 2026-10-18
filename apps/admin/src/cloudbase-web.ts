@@ -223,6 +223,45 @@ export async function callAdminGrowth(
   return unwrapCallResult(result);
 }
 
+export type AdminPlanAction = "plan.list" | "plan.save" | "plan.publish" | "plan.disable";
+export type AdminOrderAction = "order.list" | "order.get" | "order.reconcile";
+
+export async function callAdminPlan(
+  app: CloudApp,
+  action: AdminPlanAction,
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action === "plan.save" || action === "plan.publish") {
+    payload.idempotencyKey = idempotencyKey || `mw21/admin/${action}/${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
+export async function callAdminOrder(
+  app: CloudApp,
+  action: AdminOrderAction,
+  data: Record<string, unknown>
+): Promise<AdminCallResult> {
+  const result = await app.callFunction({
+    name: "mw-admin",
+    data: {
+      apiVersion: "1",
+      action,
+      requestId: `req_admin_${action}_${Date.now()}`,
+      data
+    }
+  });
+  return unwrapCallResult(result);
+}
+
 export type AdminVipAction = "vip.grant" | "vip.revokeGift";
 
 export async function callAdminVip(

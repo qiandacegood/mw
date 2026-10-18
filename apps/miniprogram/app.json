@@ -12,6 +12,8 @@
     "pages/history/index",
     "pages/register/index",
     "pages/profile/index",
+    "pages/vip/index",
+    "pages/orders/index",
     "pages/mw08/index",
     "pages/probe/index"
   ],

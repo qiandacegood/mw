@@ -129,6 +129,12 @@ Page({
   goHistory() {
     wx.navigateTo({ url: "/pages/history/index" });
   },
+  goVip() {
+    wx.navigateTo({ url: "/pages/vip/index" });
+  },
+  goOrders() {
+    wx.navigateTo({ url: "/pages/orders/index" });
+  },
   /** 只有用户主动点击才把本人身份记入本轮 leftover，用于按 member 独立核查。 */
   markLeftover() {
     const ok = markLeftoverMemberId(String(this.data.memberId || ""));

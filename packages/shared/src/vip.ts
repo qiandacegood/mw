@@ -232,8 +232,8 @@ export function applyVipGrant(input: {
       replayed: boolean;
     }
   | { ok: false; reason: string } {
-  if (input.sourceType !== VIP_SOURCE_GIFT) {
-    return { ok: false, reason: "GIFT_SOURCE_REQUIRED" };
+  if (input.sourceType !== VIP_SOURCE_GIFT && input.sourceType !== VIP_SOURCE_ORDER) {
+    return { ok: false, reason: "SOURCE_TYPE_INVALID" };
   }
   if (!Number.isInteger(input.durationSeconds) || input.durationSeconds <= 0 || input.durationSeconds > VIP_MAX_DURATION_SECONDS) {
     return { ok: false, reason: "DURATION_INVALID" };

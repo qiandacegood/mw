@@ -10,25 +10,27 @@ import {
   markLeftoverPaperId,
   resetLeftoverAttemptIds,
   resetLeftoverMemberIds,
+  resetLeftoverOrderIds,
   resetLeftoverPaperIds
-} from "./known-ids.js";
+} from "./known-ids";
 
 describe("MW13 leftover knownIds", () => {
   beforeEach(() => {
     resetLeftoverPaperIds();
     resetLeftoverAttemptIds();
     resetLeftoverMemberIds();
+    resetLeftoverOrderIds();
   });
 
   it("defaults to empty papers, attempts and members until something is explicitly marked", () => {
-    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [] });
+    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [], orders: [] });
     expect(leftoverPaperIdList()).toEqual([]);
     expect(leftoverAttemptIdList()).toEqual([]);
     expect(leftoverMemberIdList()).toEqual([]);
   });
 
   it("does not record leftover on browse or automatic page enter", () => {
-    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [] });
+    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [], orders: [] });
     expect(markLeftoverPaperId("paper_fict_mw13")).toBe(true);
     expect(markLeftoverAttemptId("attempt_fict_mw14")).toBe(true);
     expect(markLeftoverMemberId("member_fict_mw16")).toBe(true);
@@ -53,7 +55,7 @@ describe("MW13 leftover knownIds", () => {
     expect(markLeftoverPaperId("   ")).toBe(false);
     expect(markLeftoverAttemptId("")).toBe(false);
     expect(markLeftoverMemberId("  ")).toBe(false);
-    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [] });
+    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [], orders: [] });
   });
 
   it("only hashes the member id when the user explicitly marks it", () => {
