@@ -20,6 +20,8 @@ import {
   rankingCursorMatches,
   rankingGenerationId,
   rankingMemberKey,
+  rankingPublicEligible,
+  overlayPublicRankingRow,
   rankingRebuildIsCategoryOnly,
   rankingRefreshStateOf,
   rankingRowId,
@@ -38,6 +40,7 @@ import { emptyBudget } from "./job-stores.js";
 import type { MemberReadStore, MemberRecord, MemberWorkStore } from "./member-stores.js";
 import {
   emptyRankingRuntime,
+  type RankingMemberRow,
   type RankingObsolete,
   type RankingReadStore,
   type RankingWorkStore
@@ -265,6 +268,7 @@ async function resolveBoard(input: {
  */
 export async function listRanking(input: {
   store?: RankingReadStore;
+  members?: { getMember(memberId: string): Promise<{ memberId: string; nickname: string; avatarKey: string; status: string; rankingOptIn: boolean; rankingBanned?: boolean; revision: number } | undefined> };
   data: Record<string, unknown>;
   now: Date;
 }): Promise<RankingSuccess<RankingListView> | RankingFailure> {
@@ -339,10 +343,24 @@ export async function listRanking(input: {
   });
   const members = await store.listMembers(page.rows.map((row) => row.memberId));
   const memberOf = new Map(members.map((row) => [row.memberId, row]));
-  const visible = page.rows.filter((row) => {
-    const member = memberOf.get(row.memberId);
-    return Boolean(member && member.status === "active" && member.rankingOptIn === true);
-  });
+  if (input.members) {
+    await Promise.all(
+      page.rows.map(async (row) => {
+        const live = await input.members!.getMember(row.memberId);
+        if (!live) return;
+        memberOf.set(row.memberId, {
+          memberId: live.memberId,
+          nickname: live.nickname,
+          avatarKey: live.avatarKey,
+          status: live.status as RankingMemberRow["status"],
+          rankingOptIn: live.rankingOptIn === true,
+          rankingBanned: live.rankingBanned === true,
+          revision: live.revision
+        });
+      })
+    );
+  }
+  const visible = page.rows.filter((row) => rankingPublicEligible(memberOf.get(row.memberId)));
   const staleFiltered = page.rows.length - visible.length;
   const advanced = offset + page.rows.length;
   const nextCursor =
@@ -357,7 +375,13 @@ export async function listRanking(input: {
       : null;
   return {
     ok: true,
-    data: { ...base, rows: visible.map(toPublicRankingRow), nextCursor, complete: nextCursor === null, staleFiltered },
+    data: {
+      ...base,
+      rows: visible.map((row) => overlayPublicRankingRow(row, memberOf.get(row.memberId))),
+      nextCursor,
+      complete: nextCursor === null,
+      staleFiltered
+    },
     budget: emptyBudget()
   };
 }
@@ -381,7 +405,7 @@ export async function readRankingMe(input: {
   const refresh = refreshViewOf({ head, runtime, now: input.now, scope: ref.scope });
   const member = await store.getMember(input.memberId);
   const stats = await store.getStats(input.memberId);
-  const participating = Boolean(member && member.status === "active" && member.rankingOptIn === true);
+  const participating = rankingPublicEligible(member);
   const metric = await store.getMetric({
     metricGeneration:
       ref.scope === "category"
@@ -659,7 +683,7 @@ export async function rebuildRanking(input: {
       nickname: row.nickname,
       avatarKey: row.avatarKey,
       levelId: statsRow?.levelId || "",
-      eligible: row.status === "active" && row.rankingOptIn === true
+      eligible: rankingPublicEligible(row)
     };
   });
   const categoryGenerationKey = categoryMetricGenerationKey(pin?.categoryMetricsGeneration ?? before.categoryMetricsGeneration ?? 0);

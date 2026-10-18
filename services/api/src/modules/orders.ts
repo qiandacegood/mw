@@ -34,6 +34,7 @@ import {
   replayOrConflict,
   resolveServerPayEnv,
   sessionOpenIdMatches,
+  shouldGrantAfterRefund,
   vipGrantId,
   VIRTUAL_PAY_PROVIDER,
   VIRTUAL_PAY_REQUEST_URI,
@@ -216,8 +217,22 @@ async function grantFromPaidOrder(input: {
   actorId: string;
   maintenance?: MaintenanceConfig;
 }): Promise<{ order: OrderRecord; replayed: boolean; granted: boolean; error?: string }> {
-  if (input.order.grantState === "granted") {
-    return { order: input.order, replayed: true, granted: true };
+  if (input.order.grantState === "granted" || input.order.grantState === "revokedRemaining") {
+    return { order: input.order, replayed: true, granted: input.order.grantState === "granted" };
+  }
+  if (!shouldGrantAfterRefund(input.order.refundState)) {
+    return {
+      order: {
+        ...input.order,
+        grantState: "pending",
+        needsReview: true,
+        reviewReason: "REFUND_TERMINAL_NO_GRANT",
+        updatedAt: input.now.toISOString()
+      },
+      replayed: false,
+      granted: false,
+      error: "REFUND_TERMINAL_NO_GRANT"
+    };
   }
   if (entitlementApplyBlocked(input.maintenance)) {
     return {
@@ -343,6 +358,31 @@ export async function fulfillVerifiedPayment(input: {
           order: { ...found, needsReview: true, reviewReason: "PAY_STATE_CONFLICT", updatedAt: input.now.toISOString() },
           callback,
           result: { review: true, reason: "PAY_STATE_CONFLICT" }
+        };
+      }
+      if (!shouldGrantAfterRefund(found.refundState)) {
+        const receiptConflict = snap.receipt || {
+          receiptId,
+          orderId: found.orderId,
+          provider: VIRTUAL_PAY_PROVIDER,
+          environment: found.environment,
+          transactionId: input.evidence.transactionId,
+          amountFen: found.amountFen,
+          verifiedAt: input.now.toISOString(),
+          eventDigest: payloadHash({ eventKey: input.evidence.eventKey })
+        };
+        return {
+          order: {
+            ...found,
+            payState: found.payState === "paid" ? "paid" : "paid",
+            paidAt: found.paidAt || input.evidence.paidAt || input.now.toISOString(),
+            needsReview: true,
+            reviewReason: "SOURCE_CONFLICT_REFUND_FIRST",
+            updatedAt: input.now.toISOString()
+          },
+          receipt: receiptConflict,
+          callback,
+          result: { review: true, reason: "SOURCE_CONFLICT_REFUND_FIRST" }
         };
       }
       const receipt = snap.receipt || {
@@ -475,7 +515,9 @@ export async function createOrder(input: {
   if (input.members) {
     const member = await input.members.getMember(input.memberId);
     if (!member) return fail("NOT_FOUND", "MEMBER_NOT_FOUND");
-    if (member.status === "disabled") return fail("ACCOUNT_DISABLED", "ACCOUNT_DISABLED");
+    if (member.status === "disabled" || member.status === "deleting" || member.status === "deleted") {
+      return fail(member.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_DELETED", member.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_DELETED");
+    }
   }
   const idemRecord = buildIdempotencyRecord({
     actorId: input.actorId,

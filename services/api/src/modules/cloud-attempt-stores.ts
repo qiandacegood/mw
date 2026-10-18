@@ -379,6 +379,13 @@ export function cloudAttemptWorkStore(): AttemptWorkStore {
       const data = unwrapDoc(snap);
       return data ? asBest(data, memberId, paperId) : undefined;
     },
+    async listMemberBests(memberId) {
+      const db = cloudApp().database();
+      const coll = db.collection(MW15_COLLECTIONS.paperBests);
+      if (!coll.where) return [];
+      const snap = await coll.where({ memberId }).orderBy("updatedAt", "desc").limit(200).get();
+      return docsFromGet(snap).map((row) => asBest(row, memberId, String(row.paperId || "")));
+    },
     async listSubmittedAttempts(input) {
       const db = cloudApp().database();
       const query: Record<string, unknown> = { memberId: input.memberId, state: "submitted" };

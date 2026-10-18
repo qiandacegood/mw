@@ -330,13 +330,7 @@ export function applyVipGrant(input: {
   return { ok: true, account, grant, grants, events, replayed: false };
 }
 
-export function revokeVipGift(input: {
-  account?: VipAccountRecord;
-  grants: readonly VipGrantRecord[];
-  sourceId: string;
-  now: Date;
-  reason: string;
-}):
+export type RevokeVipSourceResult =
   | {
       ok: true;
       account: VipAccountRecord;
@@ -346,19 +340,39 @@ export function revokeVipGift(input: {
       revokedSeconds: number;
       replayed: boolean;
     }
-  | { ok: false; reason: string } {
+  | { ok: false; reason: string };
+
+export function revokeVipSource(input: {
+  account?: VipAccountRecord;
+  grants: readonly VipGrantRecord[];
+  sourceType: VipSourceType;
+  sourceId: string;
+  now: Date;
+  reason: string;
+}): RevokeVipSourceResult {
   if (!input.reason.trim()) return { ok: false, reason: "REASON_REQUIRED" };
-  const grantId = vipGrantId(VIP_SOURCE_GIFT, input.sourceId);
-  const found = input.grants.find((row) => row.grantId === grantId || (row.sourceType === VIP_SOURCE_GIFT && row.sourceId === input.sourceId));
-  if (!found) return { ok: false, reason: "GIFT_GRANT_NOT_FOUND" };
-  if (found.sourceType !== VIP_SOURCE_GIFT) return { ok: false, reason: "PAID_SOURCE_NOT_REVOCABLE" };
+  if (input.sourceType !== VIP_SOURCE_GIFT && input.sourceType !== VIP_SOURCE_ORDER) {
+    return { ok: false, reason: "SOURCE_TYPE_INVALID" };
+  }
+  const grantId = vipGrantId(input.sourceType, input.sourceId);
+  const found = input.grants.find(
+    (row) => row.grantId === grantId || (row.sourceType === input.sourceType && row.sourceId === input.sourceId)
+  );
+  if (!found) {
+    return { ok: false, reason: input.sourceType === VIP_SOURCE_GIFT ? "GIFT_GRANT_NOT_FOUND" : "ORDER_GRANT_NOT_FOUND" };
+  }
+  if (found.sourceType !== input.sourceType) {
+    return { ok: false, reason: input.sourceType === VIP_SOURCE_GIFT ? "PAID_SOURCE_NOT_REVOCABLE" : "SOURCE_TYPE_MISMATCH" };
+  }
   const settled = projectVipLedger({
     account: input.account || emptyVipAccount(found.memberId, input.now),
     grants: input.grants,
     now: input.now
   });
   const current = settled.grants.find((row) => row.grantId === found.grantId);
-  if (!current) return { ok: false, reason: "GIFT_GRANT_NOT_FOUND" };
+  if (!current) {
+    return { ok: false, reason: input.sourceType === VIP_SOURCE_GIFT ? "GIFT_GRANT_NOT_FOUND" : "ORDER_GRANT_NOT_FOUND" };
+  }
   if (current.remainingSeconds <= 0) {
     return {
       ok: true,
@@ -418,6 +432,26 @@ export function revokeVipGift(input: {
     accountRevision: revision
   });
   return { ok: true, account, grant: current, grants: settled.grants, events, revokedSeconds, replayed: false };
+}
+
+export function revokeVipGift(input: {
+  account?: VipAccountRecord;
+  grants: readonly VipGrantRecord[];
+  sourceId: string;
+  now: Date;
+  reason: string;
+}): RevokeVipSourceResult {
+  return revokeVipSource({ ...input, sourceType: VIP_SOURCE_GIFT });
+}
+
+export function revokeVipOrderSource(input: {
+  account?: VipAccountRecord;
+  grants: readonly VipGrantRecord[];
+  sourceId: string;
+  now: Date;
+  reason: string;
+}): RevokeVipSourceResult {
+  return revokeVipSource({ ...input, sourceType: VIP_SOURCE_ORDER });
 }
 
 function asPositiveInt(value: unknown): number | undefined {

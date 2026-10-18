@@ -1146,6 +1146,9 @@ export async function readAttemptAnalysis(input: {
       chunkCount: number;
       items: Array<{
         questionId: string;
+        questionVersionId: string;
+        paperId: string;
+        paperVersionId: string;
         selectedOptionIds: string[];
         correctOptionIds: string[];
         score: number;
@@ -1185,6 +1188,9 @@ export async function readAttemptAnalysis(input: {
     ]).items[0];
     return {
       questionId: item.questionId,
+      questionVersionId: item.questionVersionId,
+      paperId: attempt.paperId,
+      paperVersionId: attempt.paperVersionId,
       selectedOptionIds: [...picked],
       correctOptionIds: [...correct],
       score: score?.score ?? 0,

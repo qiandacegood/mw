@@ -2,6 +2,9 @@
   <text class="h1">我的</text>
   <text class="muted">只显示当前可信身份的会员资料，不含 OpenID。</text>
   <text class="title">状态：{{statusText}}</text>
+  <text class="title">会员 ID：{{memberId}}</text>
+  <text class="muted">这是后台「测试夹具」要填的 ID。不是昵称，也不是等级 L1。不要写进 leftover JSON。</text>
+  <button size="mini" bindtap="copyMemberId">复制会员 ID</button>
   <text class="title">昵称：{{nickname}}</text>
   <text class="title">头像：{{avatarKey}}</text>
 
@@ -12,6 +15,20 @@
     <text class="muted">与答题判权读同一账本。购买或赠送不加分，到期不清空成长。</text>
     <button bindtap="goVip">VIP 中心</button>
     <button bindtap="goOrders">我的订单</button>
+  </view>
+
+  <view class="card" data-block="scores">
+    <text class="h2">分类分</text>
+    <text class="muted">直接分只计本节点挂卷；含后代去重。免费卷与 VIP 卷统一计入，没有费用筛选。</text>
+    <text class="muted">{{categoryText}}</text>
+    <button bindtap="goRanking">去排行榜看四维榜</button>
+  </view>
+
+  <view class="card" data-block="ranking">
+    <text class="h2">排行开关</text>
+    <text class="title">{{rankingText}}</text>
+    <text class="muted">默认不参与。关闭后立即不出现在公开榜。禁榜不等于停用。</text>
+    <button bindtap="toggleRanking">{{rankingOptIn ? '退出公开排行' : '开启公开排行'}}</button>
   </view>
 
   <view class="card" data-block="growth">
@@ -37,6 +54,10 @@
   <button bindtap="goRegister">去注册</button>
   <button bindtap="goProfile">修改资料</button>
   <button bindtap="goHistory">历史成绩</button>
+  <button bindtap="goPolicies">协议与隐私</button>
+  <button bindtap="goSupport">客服入口</button>
+  <button bindtap="goFeedback">题目反馈</button>
+  <button bindtap="goDeletion">账号注销</button>
   <button bindtap="markLeftover">记入本轮 leftover（本人）</button>
   <text class="muted">只在主动点击时记入本人身份的 SHA-256，用于本轮按 member 独立核查；不含明文 _id。</text>
   <text class="title">{{raw}}</text>

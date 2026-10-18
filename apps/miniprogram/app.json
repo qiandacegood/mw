@@ -14,6 +14,10 @@
     "pages/profile/index",
     "pages/vip/index",
     "pages/orders/index",
+    "pages/support/index",
+    "pages/policies/index",
+    "pages/feedback/index",
+    "pages/deletion/index",
     "pages/mw08/index",
     "pages/probe/index"
   ],

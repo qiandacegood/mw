@@ -61,6 +61,10 @@ Page({
   goHistory() {
     wx.navigateTo({ url: "/pages/history/index" });
   },
+  goFeedback() {
+    const attemptId = String(this.data.attemptId || "");
+    wx.navigateTo({ url: `/pages/analysis/index?attemptId=${encodeURIComponent(attemptId)}` });
+  },
   markLeftover() {
     if (!markLeftoverAttemptId(String(this.data.attemptId || ""))) {
       wx.showToast({ title: "无法记入本轮 leftover", icon: "none" });

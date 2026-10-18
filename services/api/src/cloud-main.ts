@@ -17,6 +17,7 @@ import { cloudImportWorkStore } from "./modules/cloud-import-stores.js";
 import { cloudAttemptWorkStore } from "./modules/cloud-attempt-stores.js";
 import { cloudGrowthStore } from "./modules/cloud-growth-stores.js";
 import { cloudRankingStore } from "./modules/cloud-ranking-stores.js";
+import { cloudFeedbackStore } from "./modules/cloud-feedback-stores.js";
 import { cloudVipStore } from "./modules/cloud-vip-stores.js";
 import { cloudOrderStore } from "./modules/cloud-order-stores.js";
 import { cloudVirtualPayRuntime } from "./modules/cloud-virtual-pay.js";
@@ -153,7 +154,7 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
           ? cloudMaintenanceStore()
           : undefined,
       policyStore: entry === "mw-public" || entry === "mw-member" ? cloudPolicyStore() : undefined,
-      memberStore: entry === "mw-member" || entry === "mw-admin" ? cloudMemberWorkStore() : undefined,
+      memberStore: entry === "mw-member" || entry === "mw-admin" || entry === "mw-public" ? cloudMemberWorkStore() : undefined,
       categoryStore: entry === "mw-admin" || entry === "mw-public" || entry === "mw-jobs" ? cloudCategoryWorkStore() : undefined,
       categoryUsage: entry === "mw-admin" ? cloudCategoryUsageStore() : undefined,
       catalogChangeStore: entry === "mw-admin" || entry === "mw-jobs" ? cloudCatalogChangeStore() : undefined,
@@ -161,7 +162,7 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
       questionStore: entry === "mw-admin" ? cloudQuestionWorkStore() : undefined,
       questionUsage: entry === "mw-admin" ? cloudQuestionUsageStore() : undefined,
       uploadStore: entry === "mw-admin" || entry === "mw-upload" ? cloudUploadWorkStore() : undefined,
-      paperStore: entry === "mw-admin" || entry === "mw-public" ? cloudPaperWorkStore() : undefined,
+      paperStore: entry === "mw-admin" || entry === "mw-public" || entry === "mw-member" ? cloudPaperWorkStore() : undefined,
       importStore: entry === "mw-admin" || entry === "mw-public" ? cloudImportWorkStore() : undefined,
       attemptStore: entry === "mw-member" ? cloudAttemptWorkStore() : undefined,
       growthStore: entry === "mw-member" || entry === "mw-admin" ? cloudGrowthStore() : undefined,
@@ -172,6 +173,7 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
         entry === "mw-public" || entry === "mw-member" || entry === "mw-admin" || entry === "mw-jobs"
           ? cloudRankingStore()
           : undefined,
+      feedbackStore: entry === "mw-member" || entry === "mw-admin" ? cloudFeedbackStore() : undefined,
       virtualPayNotify:
         entry === "mw-pay-hook"
           ? {

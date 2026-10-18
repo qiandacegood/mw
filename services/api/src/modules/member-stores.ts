@@ -24,7 +24,11 @@ export interface MemberRecord {
   avatarKey: string;
   status: MemberStatus;
   rankingOptIn: boolean;
+  /** 禁榜当前态，与 status 分开记录；默认 false。 */
+  rankingBanned: boolean;
   consentVersions: ConsentVersions;
+  deletedAt?: string;
+  deletionRequestedAt?: string;
   revision: number;
   schemaVersion: number;
   createdAt: string;
@@ -48,8 +52,18 @@ export interface PolicyRecord {
   privacyVersion: string;
   agreementTitle: string;
   privacyTitle: string;
+  agreementText?: string;
+  privacyText?: string;
   placeholder: boolean;
   note: string;
+  support?: {
+    title: string;
+    channel: string;
+    hours: string;
+    note: string;
+    placeholder: boolean;
+    updatedAt: string;
+  };
   updatedAt: string;
   schemaVersion: number;
 }
@@ -99,6 +113,7 @@ export interface MemberReadStore {
   getIdentity(identityId: string): Promise<IdentityRecord | undefined>;
   getMember(memberId: string): Promise<MemberRecord | undefined>;
   getStats(memberId: string): Promise<MemberStatsRecord | undefined>;
+  listMembers?(input?: { limit?: number }): Promise<MemberRecord[]>;
 }
 
 export interface MemberWorkStore {
@@ -111,6 +126,11 @@ export interface MemberWorkStore {
   ): Promise<{ mutation: MemberRegisterMutation<T>; budget: TxBudget }>;
   transactProfile<T>(
     identityId: string,
+    memberId: string,
+    idempotencyId: string,
+    mutate: (snap: MemberProfileSnapshot) => MemberProfileMutation<T>
+  ): Promise<{ mutation: MemberProfileMutation<T>; budget: TxBudget }>;
+  transactAdminMember?<T>(
     memberId: string,
     idempotencyId: string,
     mutate: (snap: MemberProfileSnapshot) => MemberProfileMutation<T>
@@ -144,7 +164,7 @@ function cloneIdentity(row: IdentityRecord): IdentityRecord {
 }
 
 function cloneMember(row: MemberRecord): MemberRecord {
-  return { ...row, consentVersions: { ...row.consentVersions } };
+  return { ...row, rankingBanned: row.rankingBanned === true, consentVersions: { ...row.consentVersions } };
 }
 
 function cloneStats(row: MemberStatsRecord): MemberStatsRecord {
@@ -210,6 +230,10 @@ export function memoryMemberBundle(): MemoryMemberBundle {
     async getStats(memberId) {
       const row = stats.get(memberId);
       return row ? cloneStats(row) : undefined;
+    },
+    async listMembers(input) {
+      const limit = input?.limit ?? 50;
+      return [...members.values()].slice(0, limit).map(cloneMember);
     },
     transactRegister(identityId, memberId, idempotencyId, mutate) {
       const run = queue.then(() => {
@@ -286,6 +310,9 @@ export function memoryMemberBundle(): MemoryMemberBundle {
         () => undefined
       );
       return run;
+    },
+    transactAdminMember(memberId, idempotencyId, mutate) {
+      return bundle.transactProfile("", memberId, idempotencyId, mutate);
     }
   };
   return bundle;
@@ -369,6 +396,10 @@ export function contendingMemberBundle(): MemoryMemberBundle {
       const row = stats.get(memberId);
       return row ? cloneStats(row) : undefined;
     },
+    async listMembers(input) {
+      const limit = input?.limit ?? 50;
+      return [...members.values()].slice(0, limit).map(cloneMember);
+    },
     async transactRegister(identityId, memberId, idempotencyId, mutate) {
       const started = Date.now();
       const snap: MemberRegisterSnapshot = {
@@ -428,6 +459,9 @@ export function contendingMemberBundle(): MemoryMemberBundle {
         mutation,
         budget: { reads: 3, writes, total: 3 + writes, elapsedMs: Date.now() - started }
       };
+    },
+    transactAdminMember(memberId, idempotencyId, mutate) {
+      return bundle.transactProfile("", memberId, idempotencyId, mutate);
     }
   };
   Object.defineProperty(bundle, "profileThrowsLeft", {

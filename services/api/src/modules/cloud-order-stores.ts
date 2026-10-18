@@ -2,11 +2,14 @@ import {
   auditDocId,
   orderDocId,
   planDocId,
+  refundDocId,
   type AuditEntry,
   type CallbackEventRecord,
   type IdempotencyRecord,
   type OrderRecord,
   type PaymentReceiptRecord,
+  type ReconcileDiffRecord,
+  type RefundRecord,
   type VipChannel,
   type VipPlanRecord
 } from "@mw/shared";
@@ -146,7 +149,50 @@ function asOrder(id: string, data: Record<string, unknown>): OrderRecord {
     needsReview: data.needsReview === true,
     reviewReason: typeof data.reviewReason === "string" ? data.reviewReason : "",
     goodsNotified: data.goodsNotified === true,
+    fixtureLedger: data.fixtureLedger === true,
     schemaVersion: 1
+  };
+}
+
+function asRefund(id: string, data: Record<string, unknown>): RefundRecord {
+  return {
+    refundId: typeof data.refundId === "string" ? data.refundId : id,
+    channelRefundNo: typeof data.channelRefundNo === "string" ? data.channelRefundNo : "",
+    orderId: typeof data.orderId === "string" ? data.orderId : "",
+    memberId: typeof data.memberId === "string" ? data.memberId : "",
+    requestedFen: typeof data.requestedFen === "number" ? data.requestedFen : 0,
+    confirmedFen: typeof data.confirmedFen === "number" ? data.confirmedFen : null,
+    state: (typeof data.state === "string" ? data.state : "requested") as RefundRecord["state"],
+    kind: (typeof data.kind === "string" ? data.kind : "whole") as RefundRecord["kind"],
+    channel: data.channel === "ios" || data.channel === "harmony" || data.channel === "windows" ? data.channel : "android",
+    channelRef: typeof data.channelRef === "string" ? data.channelRef : "",
+    reason: typeof data.reason === "string" ? data.reason : "",
+    reviewAdvice: typeof data.reviewAdvice === "string" ? data.reviewAdvice : "",
+    reviewActorId: typeof data.reviewActorId === "string" ? data.reviewActorId : "",
+    executeActorId: typeof data.executeActorId === "string" ? data.executeActorId : "",
+    unknownResult: data.unknownResult === true,
+    appleGuidance: data.appleGuidance === true,
+    fixture: data.fixture === true,
+    createdAt: typeof data.createdAt === "string" ? data.createdAt : "",
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : "",
+    schemaVersion: 1
+  };
+}
+
+function asDiff(id: string, data: Record<string, unknown>): ReconcileDiffRecord {
+  return {
+    diffId: typeof data.diffId === "string" ? data.diffId : id,
+    orderId: typeof data.orderId === "string" ? data.orderId : "",
+    diffKind: (typeof data.diffKind === "string" ? data.diffKind : "paid_ungranted") as ReconcileDiffRecord["diffKind"],
+    status: data.status === "resolved" ? "resolved" : "open",
+    localAmountFen: typeof data.localAmountFen === "number" ? data.localAmountFen : 0,
+    channelAmountFen: typeof data.channelAmountFen === "number" ? data.channelAmountFen : null,
+    localPayState: typeof data.localPayState === "string" ? data.localPayState : "",
+    localGrantState: typeof data.localGrantState === "string" ? data.localGrantState : "",
+    localRefundState: typeof data.localRefundState === "string" ? data.localRefundState : "",
+    note: typeof data.note === "string" ? data.note : "",
+    createdAt: typeof data.createdAt === "string" ? data.createdAt : "",
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : ""
   };
 }
 
@@ -230,10 +276,30 @@ export function cloudOrderStore(): OrderWorkStore {
       const data = unwrapDoc(await cloudApp().database().collection(ORDER_COLLECTIONS.receipts).doc(receiptId).get());
       return data ? asReceipt(receiptId, data) : undefined;
     },
+    async getRefund(refundId) {
+      const data = unwrapDoc(await cloudApp().database().collection(ORDER_COLLECTIONS.refunds).doc(refundId).get());
+      return data ? asRefund(refundId, data) : undefined;
+    },
+    async getRefundByOrder(orderId) {
+      return this.getRefund(refundDocId(orderId));
+    },
+    async listRefunds(limit) {
+      const coll = cloudApp().database().collection(ORDER_COLLECTIONS.refunds);
+      if (!coll.where) return [];
+      const snap = await coll.where({}).orderBy("updatedAt", "desc").limit(Math.max(1, Math.min(limit, 50))).get();
+      return unwrapList(snap).map((row) => asRefund(String(row._id || row.refundId || ""), row));
+    },
+    async listDiffs(limit) {
+      const coll = cloudApp().database().collection(ORDER_COLLECTIONS.diffs);
+      if (!coll.where) return [];
+      const snap = await coll.where({ status: "open" }).orderBy("updatedAt", "desc").limit(Math.max(1, Math.min(limit, 50))).get();
+      return unwrapList(snap).map((row) => asDiff(String(row._id || row.diffId || ""), row));
+    },
     async transactOrder<T>(input: {
       orderId: string;
       receiptId?: string;
       callbackId?: string;
+      refundId?: string;
       idempotencyId?: string;
       mutate: (snap: OrderSnapshot) => OrderMutation<T>;
     }) {
@@ -256,6 +322,12 @@ export function cloudOrderStore(): OrderWorkStore {
           const callbackData = await txGet(tx, ORDER_COLLECTIONS.callbacks, input.callbackId);
           if (callbackData) callback = asCallback(input.callbackId, callbackData);
         }
+        let refundRow: RefundRecord | undefined;
+        if (input.refundId) {
+          reads += 1;
+          const refundData = await txGet(tx, ORDER_COLLECTIONS.refunds, input.refundId);
+          if (refundData) refundRow = asRefund(input.refundId, refundData);
+        }
         let idemRow: IdempotencyRecord | undefined;
         if (input.idempotencyId) {
           reads += 1;
@@ -266,6 +338,7 @@ export function cloudOrderStore(): OrderWorkStore {
           order: orderData ? asOrder(input.orderId, orderData) : undefined,
           receipt,
           callback,
+          refund: refundRow,
           idem: idemRow
         });
         if (next.error) return next;
@@ -280,6 +353,16 @@ export function cloudOrderStore(): OrderWorkStore {
         if (next.callback) {
           writes += 1;
           await tx.collection(ORDER_COLLECTIONS.callbacks).doc(next.callback.eventId).set(plain(next.callback));
+        }
+        if (next.refund) {
+          writes += 1;
+          await tx.collection(ORDER_COLLECTIONS.refunds).doc(next.refund.refundId).set(plain(next.refund));
+        }
+        if (next.diffs) {
+          for (const row of next.diffs) {
+            writes += 1;
+            await tx.collection(ORDER_COLLECTIONS.diffs).doc(row.diffId).set(plain(row));
+          }
         }
         if (next.idem) {
           writes += 1;

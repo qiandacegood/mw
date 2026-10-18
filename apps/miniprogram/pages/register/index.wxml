@@ -1,8 +1,14 @@
 <view class="page">
   <text class="h1">会员注册</text>
-  <text class="muted">须主动勾选当前协议版本。不预勾选，不强制手机号，不抓取微信头像昵称。</text>
-  <text class="title">用户协议：{{agreementTitle}} / {{agreementVersion}}</text>
-  <text class="title">隐私政策：{{privacyTitle}} / {{privacyVersion}}</text>
+  <text class="muted">须主动勾选当前协议与隐私版本。不预勾选，不强制手机号，不抓取微信头像昵称。本轮为带版本号的测试稿，非正式运营条款。</text>
+  <text class="title">{{agreementTitle}} / {{agreementVersion}}</text>
+  <scroll-view class="draft" scroll-y>
+    <text class="muted">{{agreementText}}</text>
+  </scroll-view>
+  <text class="title">{{privacyTitle}} / {{privacyVersion}}</text>
+  <scroll-view class="draft" scroll-y>
+    <text class="muted">{{privacyText}}</text>
+  </scroll-view>
   <view class="box">
     <checkbox-group bindchange="onAgree">
       <label>

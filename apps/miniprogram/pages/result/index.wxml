@@ -15,6 +15,7 @@
     <text class="muted">答对 {{correctCount}} / {{questionCount}}</text>
     <text wx:if="{{corrected}}" class="note">{{correctionNote}}</text>
     <button bindtap="goAnalysis">查看解析</button>
+    <button class="ghost" bindtap="goFeedback">反馈本版题目</button>
     <button class="ghost" bindtap="goHistory">历史成绩</button>
     <view class="card">
       <text class="muted">只有本轮测试 attempt 才应点下面按钮。浏览或自动进页不会记入 leftover。</text>

@@ -1,14 +1,22 @@
 <view class="page">
   <text class="h1">我的订单</text>
-  <text class="muted">只显示本人订单。付款 / 发放 / 退款三个状态分开。客户端成功不是开通依据。</text>
+  <text class="muted">只显示本人订单。付款 / 发放 / 退款三个状态分开。客户端成功不是开通依据。Apple 订单只给 App Store 申请指引，没有商户退款按钮。</text>
+  <view class="card">
+    <text class="muted">售后原因（必填，申请不承诺退款资格，不自动扣 VIP）</text>
+    <input value="{{refundReason}}" bindinput="onReason" placeholder="填写原因" />
+  </view>
   <view wx:if="{{state === 'error'}}" class="card err">{{message}}</view>
   <view wx:elif="{{!items.length}}" class="card">暂无订单。</view>
   <view wx:for="{{items}}" wx:key="orderId" class="card">
     <text class="title">{{item.title}} · {{item.displayStatus}}</text>
-    <text class="muted">{{item.priceText}} · {{item.payState}} / {{item.grantState}}</text>
+    <text class="muted">订单 ID：{{item.orderId}}</text>
+    <text class="muted">{{item.priceText}} · {{item.payState}} / {{item.grantState}} / {{item.refundState}}</text>
     <text wx:if="{{item.userHint}}" class="muted">{{item.userHint}}</text>
+    <text wx:if="{{item.appleGuidance}}" class="muted">{{item.appleGuidance}}</text>
     <button size="mini" data-id="{{item.orderId}}" bindtap="refresh">刷新（查单）</button>
     <button size="mini" class="ghost" data-id="{{item.orderId}}" bindtap="close">关单</button>
+    <button wx:if="{{item.canRequestRefund}}" size="mini" data-id="{{item.orderId}}" bindtap="requestRefund">申请商户售后</button>
+    <button size="mini" class="ghost" data-id="{{item.orderId}}" bindtap="markLeftover">记入本轮 leftover</button>
   </view>
-  <button class="ghost" bindtap="copyLeftover">复制本轮订单 leftover</button>
+  <button class="ghost" bindtap="copyLeftover">复制本轮 leftover（仅主动记入）</button>
 </view>

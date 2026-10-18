@@ -490,6 +490,32 @@ export function toPublicRankingRow(row: RankingRowRecord): RankingPublicRow {
   };
 }
 
+/**
+ * 公开榜资格：active + 已 opt-in + 未被禁榜。
+ * 停用、退出、未 opt-in、禁榜、注销（deleting/deleted）都不公开展示。
+ * 读侧二次核对立即过滤，不半发布新快照。禁榜不等于停用，停用不等于注销。
+ */
+export function rankingPublicEligible(member: {
+  status?: string;
+  rankingOptIn?: boolean;
+  rankingBanned?: boolean;
+} | undefined): boolean {
+  if (!member) return false;
+  return member.status === "active" && member.rankingOptIn === true && member.rankingBanned !== true;
+}
+
+/** 读侧二次核对：用当前昵称/头像覆盖快照行，不含 OPENID / 手机号 / memberId。 */
+export function overlayPublicRankingRow(
+  row: RankingRowRecord,
+  member?: { nickname?: string; avatarKey?: string }
+): RankingPublicRow {
+  return toPublicRankingRow({
+    ...row,
+    nickname: member?.nickname || row.nickname,
+    avatarKey: member?.avatarKey || row.avatarKey
+  });
+}
+
 /** 历史累计总分与可追溯榜值不一致时的固定说明（发起人 2026-10-15 已定"不补记"）。 */
 export const RANKING_HISTORY_GAP_NOTE =
   "本榜值只从可追溯的计分事件累计；历史来源已缺失的部分不纳入榜值，也不补记。";

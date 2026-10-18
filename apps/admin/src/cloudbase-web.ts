@@ -74,6 +74,7 @@ export async function signOutAdmin(app: CloudApp): Promise<void> {
 
 export type AdminCallResult = {
   ok?: boolean;
+  replayed?: boolean;
   data?: Record<string, unknown>;
   error?: { code?: string; message?: string; details?: { reason?: string; note?: string; message?: string } };
 };
@@ -225,6 +226,12 @@ export async function callAdminGrowth(
 
 export type AdminPlanAction = "plan.list" | "plan.save" | "plan.publish" | "plan.disable";
 export type AdminOrderAction = "order.list" | "order.get" | "order.reconcile";
+export type AdminRefundAction =
+  | "refund.list"
+  | "refund.review"
+  | "refund.execute"
+  | "refund.fixturePrepare"
+  | "refund.recordChannelResult";
 
 export async function callAdminPlan(
   app: CloudApp,
@@ -262,6 +269,25 @@ export async function callAdminOrder(
   return unwrapCallResult(result);
 }
 
+export async function callAdminRefund(
+  app: CloudApp,
+  action: AdminRefundAction,
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action === "refund.execute") {
+    payload.idempotencyKey = idempotencyKey || `mw22/admin/${action}/${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
 export type AdminVipAction = "vip.grant" | "vip.revokeGift";
 
 export async function callAdminVip(
@@ -278,6 +304,45 @@ export async function callAdminVip(
     idempotencyKey: idempotencyKey || `mw20/admin/${action}/${Date.now()}`
   };
   const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
+export type AdminMemberAction = "member.list" | "member.get" | "member.disable" | "ranking.ban";
+export type AdminFeedbackAction = "feedback.list" | "feedback.resolve";
+
+export async function callAdminMember(
+  app: CloudApp,
+  action: AdminMemberAction,
+  data: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<AdminCallResult> {
+  const payload: Record<string, unknown> = {
+    apiVersion: "1",
+    action,
+    requestId: `req_admin_${action}_${Date.now()}`,
+    data
+  };
+  if (action === "member.disable" || action === "ranking.ban") {
+    payload.idempotencyKey = idempotencyKey || `mw23/admin/${action}/${Date.now()}`;
+  }
+  const result = await app.callFunction({ name: "mw-admin", data: payload });
+  return unwrapCallResult(result);
+}
+
+export async function callAdminFeedback(
+  app: CloudApp,
+  action: AdminFeedbackAction,
+  data: Record<string, unknown>
+): Promise<AdminCallResult> {
+  const result = await app.callFunction({
+    name: "mw-admin",
+    data: {
+      apiVersion: "1",
+      action,
+      requestId: `req_admin_${action}_${Date.now()}`,
+      data
+    }
+  });
   return unwrapCallResult(result);
 }
 

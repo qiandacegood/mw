@@ -6,6 +6,9 @@ import {
   adminHasRole,
   cloudbaseAuthDecision,
   defaultPolicyRecord,
+  deletionBlocksWrites,
+  disableBlocksWrites,
+  publicSupportEntry,
   errorMessage,
   forgedClientFields,
   looksLikeTimerEvent,
@@ -101,6 +104,20 @@ import {
   refreshOrder,
   type VirtualPayRuntime
 } from "./modules/orders.js";
+import {
+  ADMIN_REFUND_ACTIONS,
+  MEMBER_REFUND_ACTIONS,
+  appleRefundInquiry,
+  applyRefundChannelOutcome,
+  evidenceFromRefundNotify,
+  executeRefund,
+  listAdminRefunds,
+  prepareRefundFixture,
+  reconcileOrders,
+  recordRefundChannelResult,
+  requestRefund,
+  reviewRefund
+} from "./modules/refunds.js";
 import type { CategoryUsageStore, CategoryWorkStore } from "./modules/category-stores.js";
 import { emptyCategoryUsage } from "./modules/category-stores.js";
 import { disableQuestion, getQuestion, listQuestions, saveQuestion } from "./modules/question.js";
@@ -120,6 +137,30 @@ import {
 } from "./modules/paper.js";
 import type { PaperWorkStore } from "./modules/paper-stores.js";
 import type { AttemptWorkStore } from "./modules/attempt-stores.js";
+import type { FeedbackStore } from "./modules/feedback-stores.js";
+import {
+  ADMIN_FEEDBACK_READ_ACTIONS,
+  ADMIN_FEEDBACK_WRITE_ACTIONS,
+  createFeedback,
+  listFeedback,
+  resolveFeedback
+} from "./modules/feedback.js";
+import {
+  ADMIN_MEMBER_DISABLE_ACTIONS,
+  ADMIN_MEMBER_READ_ACTIONS,
+  ADMIN_RANKING_BAN_ACTIONS,
+  banRanking,
+  disableMember,
+  getAdminMember,
+  listAdminMembers,
+  readMemberCategoryScores
+} from "./modules/profile-ops.js";
+import {
+  MEMBER_DELETION_READ_ACTIONS,
+  MEMBER_DELETION_WRITE_ACTIONS,
+  readDeletionStatus,
+  requestMemberDeletion
+} from "./modules/account-deletion.js";
 import {
   abandonAttempt,
   getAttempt,
@@ -168,9 +209,14 @@ export const MEMBER_ACTIONS = [
   "attempt.history",
   "member.growth",
   "member.setRanking",
+  "member.categoryScores",
   "ranking.me",
+  "feedback.create",
   "vip.status",
-  ...MEMBER_PURCHASE_ACTIONS
+  ...MEMBER_DELETION_READ_ACTIONS,
+  ...MEMBER_DELETION_WRITE_ACTIONS,
+  ...MEMBER_PURCHASE_ACTIONS,
+  ...MEMBER_REFUND_ACTIONS
 ] as const;
 export const ADMIN_ACTIONS = [
   "admin.me",
@@ -212,6 +258,13 @@ export const ADMIN_MW19_ACTIONS = ["correction.preview", "correction.commit", "c
 export const ADMIN_MW20_ACTIONS = ["vip.grant", "vip.revokeGift"] as const;
 export const ADMIN_MW21_PLAN_ACTIONS = ADMIN_PLAN_ACTIONS;
 export const ADMIN_MW21_ORDER_ACTIONS = ADMIN_ORDER_ACTIONS;
+export const ADMIN_MW22_REFUND_ACTIONS = ADMIN_REFUND_ACTIONS;
+export const ADMIN_MW23_OPS_ACTIONS = [
+  ...ADMIN_MEMBER_READ_ACTIONS,
+  ...ADMIN_FEEDBACK_READ_ACTIONS,
+  ...ADMIN_FEEDBACK_WRITE_ACTIONS
+] as const;
+export const ADMIN_MW23_SUPER_ACTIONS = [...ADMIN_MEMBER_DISABLE_ACTIONS, ...ADMIN_RANKING_BAN_ACTIONS] as const;
 
 export type OfficialEntry =
   | "mw-public"
@@ -270,6 +323,7 @@ export interface OfficialContext {
   virtualPay?: VirtualPayRuntime;
   entitlement?: PracticeEntitlementReader;
   virtualPayNotify?: VirtualPayNotifyConfig;
+  feedbackStore?: FeedbackStore;
 }
 
 export interface MemoryAdminStore extends AdminUserStore {
@@ -517,8 +571,11 @@ async function handlePublic(
       privacyVersion: policies.privacyVersion,
       agreementTitle: policies.agreementTitle,
       privacyTitle: policies.privacyTitle,
+      agreementText: policies.agreementText || "",
+      privacyText: policies.privacyText || "",
       placeholder: policies.placeholder === true,
-      note: policies.note
+      note: policies.note,
+      support: policies.support || publicSupportEntry(now.toISOString())
     });
   }
   if (action === "category.tree") {
@@ -598,7 +655,7 @@ async function handlePublic(
     const event = unwrapFunctionEvent(ctx.event);
     const rec = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
     const data = rec.data && typeof rec.data === "object" && !Array.isArray(rec.data) ? (rec.data as Record<string, unknown>) : {};
-    const result = await listRanking({ store: ctx.rankingStore, data, now });
+    const result = await listRanking({ store: ctx.rankingStore, members: ctx.memberStore, data, now });
     if (!result.ok) {
       return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.details || {}) });
     }
@@ -718,6 +775,27 @@ async function handleMember(
     if (!result.ok) {
       return fail(request.requestId, result.code as ErrorCode, { reason: result.reason });
     }
+    const text = JSON.stringify(result.data);
+    if (/openid|OPENID|FROM_OPENID/i.test(text)) {
+      return fail(request.requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" });
+    }
+    return publicSafe(request.requestId, now, result.data);
+  }
+  if (request.action === "member.deletionStatus") {
+    if (!ctx.memberStore) return fail(request.requestId, "INTERNAL_ERROR", { reason: "MEMBER_STORE_UNAVAILABLE" });
+    const result = await readDeletionStatus({
+      stores: ctx.memberStore,
+      orders: ctx.orderStore,
+      fromAppId,
+      fromOpenId
+    });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, { reason: result.reason });
+    }
+    const text = JSON.stringify(result.data);
+    if (/openid|OPENID|FROM_OPENID/i.test(text)) {
+      return fail(request.requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" });
+    }
     return publicSafe(request.requestId, now, result.data);
   }
   if (request.action === "vip.status") {
@@ -731,7 +809,10 @@ async function handleMember(
     }
     return publicSafe(request.requestId, now, result.data);
   }
-  if ((MEMBER_PURCHASE_ACTIONS as readonly string[]).includes(request.action)) {
+  if (
+    (MEMBER_PURCHASE_ACTIONS as readonly string[]).includes(request.action) ||
+    (MEMBER_REFUND_ACTIONS as readonly string[]).includes(request.action)
+  ) {
     return handleMemberPurchase(ctx, request, now, fromAppId, fromOpenId);
   }
   if (request.action === "member.growth") {
@@ -742,6 +823,22 @@ async function handleMember(
     const result = await readMemberGrowth(ctx.memberStore, ctx.growthStore, fromAppId, fromOpenId, growth);
     if (!result.ok) {
       return fail(request.requestId, result.code as ErrorCode, { reason: result.reason });
+    }
+    return publicSafe(request.requestId, now, result.data);
+  }
+  if (request.action === "member.categoryScores") {
+    if (!ctx.memberStore) {
+      return fail(request.requestId, "INTERNAL_ERROR", { reason: "MEMBER_STORE_UNAVAILABLE" });
+    }
+    const result = await readMemberCategoryScores({
+      members: ctx.memberStore,
+      attempts: ctx.attemptStore,
+      fromAppId,
+      fromOpenId,
+      data: request.data
+    });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
     }
     return publicSafe(request.requestId, now, result.data);
   }
@@ -794,6 +891,62 @@ async function handleMember(
       replayed: result.replayed === true,
       tx: budgetsWithinLimit(result.budget)
     });
+  }
+  if (request.action === "feedback.create") {
+    if (!ctx.feedbackStore) {
+      return fail(request.requestId, "INTERNAL_ERROR", { reason: "FEEDBACK_STORE_UNAVAILABLE" });
+    }
+    if (!ctx.paperStore) {
+      return fail(request.requestId, "INTERNAL_ERROR", { reason: "PAPER_STORE_UNAVAILABLE" });
+    }
+    const session = await readMemberSession(ctx.memberStore, fromAppId, fromOpenId);
+    if (!session.registered || !session.memberId) {
+      return fail(request.requestId, "MEMBER_REQUIRED", { reason: "MEMBER_NOT_REGISTERED" });
+    }
+    const result = await createFeedback({
+      store: ctx.feedbackStore,
+      members: ctx.memberStore,
+      papers: ctx.paperStore,
+      memberId: session.memberId,
+      data: request.data,
+      idempotencyKey: request.idempotencyKey,
+      now
+    });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return publicSafe(request.requestId, now, { ...result.data, replayed: result.replayed === true });
+  }
+  if (request.action === "member.requestDeletion") {
+    const result = await requestMemberDeletion({
+      stores: ctx.memberStore,
+      policies: ctx.policyStore,
+      orders: ctx.orderStore,
+      feedback: ctx.feedbackStore,
+      code2Session: ctx.virtualPay?.code2Session,
+      fromAppId,
+      fromOpenId,
+      data: request.data,
+      requestId: request.requestId,
+      idempotencyKey: request.idempotencyKey,
+      now
+    });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    const text = JSON.stringify(result.data);
+    if (/openid|OPENID|FROM_OPENID/i.test(text)) {
+      return fail(request.requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" });
+    }
+    return publicSafe(request.requestId, now, { ...result.data, replayed: result.replayed === true });
   }
   if (request.action === "member.register") {
     const growth = ctx.growthStore ? await resolveGrowthConfig(ctx.growthStore, now) : undefined;
@@ -859,9 +1012,12 @@ async function handleAdmin(
   const isMw20 = (ADMIN_MW20_ACTIONS as readonly string[]).includes(action);
   const isMw21Plan = (ADMIN_MW21_PLAN_ACTIONS as readonly string[]).includes(action);
   const isMw21Order = (ADMIN_MW21_ORDER_ACTIONS as readonly string[]).includes(action);
+  const isMw22Refund = (ADMIN_MW22_REFUND_ACTIONS as readonly string[]).includes(action);
+  const isMw23Ops = (ADMIN_MW23_OPS_ACTIONS as readonly string[]).includes(action);
+  const isMw23Super = (ADMIN_MW23_SUPER_ACTIONS as readonly string[]).includes(action);
   const isRead = (ADMIN_ACTIONS as readonly string[]).includes(action);
   const isWrite = (ADMIN_WRITE_ACTIONS as readonly string[]).includes(action);
-  if (!isRead && !isWrite && !isMw18 && !isMw19 && !isMw20 && !isMw21Plan && !isMw21Order) {
+  if (!isRead && !isWrite && !isMw18 && !isMw19 && !isMw20 && !isMw21Plan && !isMw21Order && !isMw22Refund && !isMw23Ops && !isMw23Super) {
     return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
   }
   const admin = await requireAdmin(ctx, requestId);
@@ -889,6 +1045,12 @@ async function handleAdmin(
   }
   if (isMw21Order) {
     return handleAdminOrder(ctx, admin.record, action, requestId, now);
+  }
+  if (isMw22Refund) {
+    return handleAdminRefund(ctx, admin.record, action, requestId, now);
+  }
+  if (isMw23Ops || isMw23Super) {
+    return handleAdminProfileOps(ctx, admin.record, action, requestId, now);
   }
   if (action === "category.tree" || action.startsWith("category.")) {
     return handleAdminCategory(ctx, admin.record, action, requestId, now);
@@ -1066,6 +1228,87 @@ async function handleAdminGrowth(
  * - ranking.rebuild 需要 super，且必须带 idempotencyKey 与 reason；
  *   写齐该代名次行后事务内切换板块头，失败保留上一完整代并标记更新延迟。
  */
+async function handleAdminProfileOps(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  const { rec, data } = adminRequestBody(ctx);
+  if ((ADMIN_MEMBER_READ_ACTIONS as readonly string[]).includes(action) || (ADMIN_FEEDBACK_READ_ACTIONS as readonly string[]).includes(action) || action === "feedback.resolve") {
+    if (!adminHasRole(admin.roles, "operations")) {
+      return fail(requestId, "FORBIDDEN", { reason: "OPERATIONS_ROLE_REQUIRED" });
+    }
+  }
+  if ((ADMIN_MEMBER_DISABLE_ACTIONS as readonly string[]).includes(action) || (ADMIN_RANKING_BAN_ACTIONS as readonly string[]).includes(action)) {
+    if (!adminHasRole(admin.roles, "super")) {
+      return fail(requestId, "FORBIDDEN", { reason: "SUPER_ROLE_REQUIRED" });
+    }
+  }
+  if (action === "member.list") {
+    if (!ctx.memberStore) return fail(requestId, "INTERNAL_ERROR", { reason: "MEMBER_STORE_UNAVAILABLE" });
+    const result = await listAdminMembers({ stores: ctx.memberStore, data });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return ok(requestId, now, result.data);
+  }
+  if (action === "member.get") {
+    if (!ctx.memberStore) return fail(requestId, "INTERNAL_ERROR", { reason: "MEMBER_STORE_UNAVAILABLE" });
+    const result = await getAdminMember({ stores: ctx.memberStore, vip: ctx.vipStore, data, now });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    const text = JSON.stringify(result.data);
+    if (/openid|OPENID|FROM_OPENID/i.test(text)) {
+      return fail(requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" });
+    }
+    return ok(requestId, now, result.data);
+  }
+  if (action === "feedback.list") {
+    if (!ctx.feedbackStore) return fail(requestId, "INTERNAL_ERROR", { reason: "FEEDBACK_STORE_UNAVAILABLE" });
+    const result = await listFeedback({ store: ctx.feedbackStore, data });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return ok(requestId, now, result.data);
+  }
+  if (action === "feedback.resolve") {
+    if (!ctx.feedbackStore) return fail(requestId, "INTERNAL_ERROR", { reason: "FEEDBACK_STORE_UNAVAILABLE" });
+    const result = await resolveFeedback({ store: ctx.feedbackStore, actorId: admin.uid, data, now });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    return ok(requestId, now, result.data);
+  }
+  if (typeof rec.idempotencyKey !== "string" || !rec.idempotencyKey) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  if (!ctx.memberStore) return fail(requestId, "INTERNAL_ERROR", { reason: "MEMBER_STORE_UNAVAILABLE" });
+  if (action === "member.disable") {
+    const result = await disableMember({
+      stores: ctx.memberStore,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: rec.idempotencyKey,
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+  }
+  if (action === "ranking.ban") {
+    const result = await banRanking({
+      stores: ctx.memberStore,
+      actorId: admin.uid,
+      data,
+      requestId,
+      idempotencyKey: rec.idempotencyKey,
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    return ok(requestId, now, { ...result.data, replayed: result.replayed === true });
+  }
+  return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
+}
+
 async function handleAdminRanking(
   ctx: OfficialContext,
   admin: AdminUserRecord,
@@ -1252,6 +1495,14 @@ async function handleMemberPurchase(
   if (!session.registered || !session.memberId) {
     return fail(request.requestId, "MEMBER_REQUIRED", { reason: "MEMBER_NOT_REGISTERED" });
   }
+  const purchaseWrites = ["order.create", "payment.prepare", "order.close", "refund.request"];
+  if (purchaseWrites.includes(request.action) && ctx.memberStore) {
+    const member = await ctx.memberStore.getMember(session.memberId);
+    if (member && disableBlocksWrites(member.status)) {
+      const code: ErrorCode = deletionBlocksWrites(member.status) ? "ACCOUNT_DELETED" : "ACCOUNT_DISABLED";
+      return fail(request.requestId, code, { reason: code });
+    }
+  }
   if (request.action === "order.get") {
     const result = await getOrderForMember({ orders: ctx.orderStore, memberId: session.memberId, data: request.data });
     if (!result.ok) return fail(request.requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
@@ -1280,6 +1531,24 @@ async function handleMemberPurchase(
       });
     }
     return publicSafe(request.requestId, now, result.data);
+  }
+  if (request.action === "refund.request") {
+    const result = await requestRefund({
+      orders: ctx.orderStore,
+      memberId: session.memberId,
+      data: request.data,
+      now,
+      actorId: session.memberId,
+      requestId: request.requestId
+    });
+    if (!result.ok) {
+      return fail(request.requestId, result.code as ErrorCode, {
+        reason: result.reason,
+        ...(result.issues ? { issues: result.issues } : {}),
+        ...(result.details || {})
+      });
+    }
+    return publicSafe(request.requestId, now, { ...result.data, replayed: result.replayed === true });
   }
   if (request.action === "order.refresh" || request.action === "order.close") {
     if (!ctx.virtualPay || !ctx.vipStore) {
@@ -1410,6 +1679,18 @@ async function handleAdminOrder(
     if (!order) return fail(requestId, "NOT_FOUND", { reason: "ORDER_NOT_FOUND" });
     return ok(requestId, now, orderView(order));
   }
+  if (action === "order.reconcile") {
+    const result = await reconcileOrders({
+      orders: ctx.orderStore,
+      vip: ctx.vipStore,
+      data,
+      now
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    return ok(requestId, now, result.data);
+  }
   if (!ctx.vipStore || !ctx.virtualPay) {
     return fail(requestId, "PAYMENT_CHANNEL_UNAVAILABLE", { reason: "VIRTUAL_PAY_UNAVAILABLE" });
   }
@@ -1427,6 +1708,96 @@ async function handleAdminOrder(
     return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.details || {}) });
   }
   return ok(requestId, now, result.data);
+}
+
+async function handleAdminRefund(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  if (!ctx.orderStore) return fail(requestId, "INTERNAL_ERROR", { reason: "ORDER_STORE_UNAVAILABLE" });
+  const { rec, data } = adminRequestBody(ctx);
+  if (action === "refund.list") {
+    if (!adminHasRole(admin.roles, "operations")) {
+      return fail(requestId, "FORBIDDEN", { reason: "OPERATIONS_ROLE_REQUIRED" });
+    }
+    const result = await listAdminRefunds({ orders: ctx.orderStore });
+    return ok(requestId, now, result.data);
+  }
+  if (action === "refund.review") {
+    if (!adminHasRole(admin.roles, "operations")) {
+      return fail(requestId, "FORBIDDEN", { reason: "OPERATIONS_ROLE_REQUIRED" });
+    }
+    const result = await reviewRefund({
+      orders: ctx.orderStore,
+      actorId: admin.uid,
+      data,
+      now,
+      requestId
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    return ok(requestId, now, result.data);
+  }
+  if (!adminHasRole(admin.roles, "super")) {
+    return fail(requestId, "FORBIDDEN", { reason: "SUPER_ROLE_REQUIRED" });
+  }
+  if (action === "refund.fixturePrepare") {
+    if (!ctx.vipStore) return fail(requestId, "INTERNAL_ERROR", { reason: "VIP_STORE_UNAVAILABLE" });
+    const result = await prepareRefundFixture({
+      orders: ctx.orderStore,
+      vip: ctx.vipStore,
+      members: ctx.memberStore,
+      data,
+      now,
+      actorId: admin.uid,
+      requestId,
+      configuredEnv: ctx.virtualPay?.configuredEnv ?? process.env.VIRTUAL_PAY_ENV
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    return ok(requestId, now, result.data);
+  }
+  if (action === "refund.recordChannelResult") {
+    if (!ctx.vipStore) return fail(requestId, "INTERNAL_ERROR", { reason: "VIP_STORE_UNAVAILABLE" });
+    const result = await recordRefundChannelResult({
+      orders: ctx.orderStore,
+      vip: ctx.vipStore,
+      data,
+      now,
+      actorId: admin.uid
+    });
+    if (!result.ok) {
+      return fail(requestId, result.code as ErrorCode, { reason: result.reason, ...(result.issues ? { issues: result.issues } : {}) });
+    }
+    const recorded = ok(requestId, now, result.data);
+    if (recorded.ok && result.replayed === true) return { ...recorded, replayed: true };
+    return recorded;
+  }
+  if (typeof rec.idempotencyKey !== "string" || !rec.idempotencyKey) {
+    return fail(requestId, "INVALID_ARGUMENT", { issues: ["idempotencyKey required"] });
+  }
+  const result = await executeRefund({
+    orders: ctx.orderStore,
+    actorId: admin.uid,
+    data,
+    now,
+    requestId
+  });
+  if (!result.ok) {
+    return fail(requestId, result.code as ErrorCode, {
+      reason: result.reason,
+      ...(result.issues ? { issues: result.issues } : {}),
+      ...(result.details || {})
+    });
+  }
+  const executed = ok(requestId, now, result.data);
+  if (executed.ok && result.replayed === true) return { ...executed, replayed: true };
+  return executed;
 }
 
 async function handleAdminVip(
@@ -1986,13 +2357,73 @@ async function handlePayHook(ctx: OfficialContext, event: unknown): Promise<unkn
       protocol: verified.protocol
     };
   }
-  if (verified.eventType === "xpay_refund_notify") {
+  if (verified.eventType === "xpay_subscribe_ios_refund_query_notify") {
+    const payload = verified.payload || {};
+    const bizNo =
+      (typeof payload.OutTradeNo === "string" && payload.OutTradeNo) ||
+      (typeof payload.out_trade_no === "string" && payload.out_trade_no) ||
+      "";
+    const evidence =
+      ctx.orderStore && ctx.vipStore && bizNo
+        ? await appleRefundInquiry({ orders: ctx.orderStore, vip: ctx.vipStore, channelBizNo: bizNo })
+        : { certain: false, note: "无订单证据，返回不确定结果，不编造使用记录" };
     return {
       ErrCode: 0,
       ErrMsg: "success",
       eventType: verified.eventType,
       vipGranted: false,
-      refundHandled: false,
+      inquiry: evidence,
+      protocol: "virtual-pay-message-push"
+    };
+  }
+  if (verified.eventType === "xpay_refund_notify") {
+    const parsed = evidenceFromRefundNotify(verified.payload || {});
+    if (!parsed || !ctx.orderStore || !ctx.vipStore) {
+      return {
+        ErrCode: 0,
+        ErrMsg: "success",
+        eventType: verified.eventType,
+        vipGranted: false,
+        refundHandled: false,
+        protocol: "virtual-pay-message-push"
+      };
+    }
+    const order = await ctx.orderStore.getOrderByBizNo(parsed.channelBizNo);
+    if (!order) {
+      return {
+        ErrCode: 0,
+        ErrMsg: "success",
+        eventType: verified.eventType,
+        vipGranted: false,
+        refundHandled: false,
+        reason: "ORDER_NOT_FOUND",
+        protocol: "virtual-pay-message-push"
+      };
+    }
+    const refund = await ctx.orderStore.getRefundByOrder(order.orderId);
+    const applied = await applyRefundChannelOutcome({
+      orders: ctx.orderStore,
+      vip: ctx.vipStore,
+      order,
+      refund,
+      outcome: parsed.outcome,
+      confirmedFen: parsed.confirmedFen,
+      eventKey: parsed.eventKey,
+      now: ctx.now ?? new Date(),
+      actorId: "mw-pay-hook",
+      reason: "channel-refund-notify"
+    });
+    return {
+      ErrCode: 0,
+      ErrMsg: "success",
+      eventType: verified.eventType,
+      vipGranted: false,
+      refundHandled: true,
+      refundCreated: false,
+      refundState: applied.refund?.state || applied.order.refundState,
+      revokedSeconds: applied.revokedSeconds,
+      replayed: applied.replayed,
+      reason: applied.reason,
       protocol: "virtual-pay-message-push"
     };
   }

@@ -1,0 +1,19 @@
+<view class="page">
+  <text class="h1">协议与隐私（测试稿）</text>
+  <text class="muted">当前有效版本必须带版本号。正式文案仍待负责人确认。不开放生产真实注册或收款。</text>
+  <view class="card">
+    <text class="title">{{agreementTitle}} / {{agreementVersion}}</text>
+    <scroll-view class="draft" scroll-y>
+      <text class="muted">{{agreementText}}</text>
+    </scroll-view>
+  </view>
+  <view class="card">
+    <text class="title">{{privacyTitle}} / {{privacyVersion}}</text>
+    <scroll-view class="draft" scroll-y>
+      <text class="muted">{{privacyText}}</text>
+    </scroll-view>
+  </view>
+  <text class="muted">{{note}}</text>
+  <button class="ghost" bindtap="goSupport">客服入口</button>
+  <button class="ghost" bindtap="goDeletion">账号注销</button>
+</view>

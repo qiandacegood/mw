@@ -1,6 +1,6 @@
 # 07 思维工坊实际进度
 
-开发手册 v0.1｜更新日期：2026年10月17日
+开发手册 v0.1｜更新日期：2026年10月19日
 [任务总览](02-roadmap.md)｜[手册入口](README.md)
 
 本文件是开发执行状态入口。任务总览规定应做什么，本文件只记录实际做到哪里；证据和限制写入各任务结果，再由此处链接。
@@ -8,7 +8,7 @@
 ## 当前状态
 
 - 产品说明书 V1.1、CloudBase 配套技术文档仍是现行设计输入。
-- **MW01、MW02、MW03、MW05、MW06、MW07、MW08、MW09、MW10、MW11、MW13、MW14 已完成**；**MW04 部分完成**；**MW12 部分完成**；**MW15 已完成**（2026-10-14 手点与 leftover 收口闭合）；**MW16 已完成**（2026-10-15 用户手点 1–9 完成、leftover 收口闭合）；**MW17 已完成**（2026-10-15 用户手点 1–10 完成、leftover 收口闭合；过程中修掉一处 `ranking_rows` 行写入缺陷后补部署）；**MW18 已完成**（2026-10-15/16 A–D 接线与 mw-test 核验通过，E 段用户手点 1–12 与 leftover=0 闭合；未标 A28—A30 / T03—T07）；**MW19 已完成**（2026-10-16 A–D 接线与 mw-test 核验通过，E 段用户手点 1–12 与 leftover=0 闭合；未标 A22 / A23 / T18 / T19）；**MW20 已完成**（2026-10-16 A–D 接线与 mw-test 核验通过，E 段用户手点与 leftover=0 于 2026-10-17 闭合；未标 A02 / A09 / A17 / A18 / T25）；**MW21 已完成**（A–D 接线与 mw-test 负向核验通过；E 段手点 1–7 通过，入册订单/套餐已清；已付履约 8–10 与现网路径明确留到 MW29；未标 A14 / A15 / A16 / A17 / A20 / T20 / T21 / T22 / T26）；MW22—MW30 未开始。MW07 仅为技术样例：未真实扣款、未 iOS 现网、未购买闭环，未标 A14/A20/T20/T26 通过。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
+- **MW01、MW02、MW03、MW05、MW06、MW07、MW08、MW09、MW10、MW11、MW13、MW14 已完成**；**MW04 部分完成**；**MW12 部分完成**；**MW15 已完成**（2026-10-14 手点与 leftover 收口闭合）；**MW16 已完成**（2026-10-15 用户手点 1–9 完成、leftover 收口闭合）；**MW17 已完成**（2026-10-15 用户手点 1–10 完成、leftover 收口闭合；过程中修掉一处 `ranking_rows` 行写入缺陷后补部署）；**MW18 已完成**（2026-10-15/16 A–D 接线与 mw-test 核验通过，E 段用户手点 1–12 与 leftover=0 闭合；未标 A28—A30 / T03—T07）；**MW19 已完成**（2026-10-16 A–D 接线与 mw-test 核验通过，E 段用户手点 1–12 与 leftover=0 闭合；未标 A22 / A23 / T18 / T19）；**MW20 已完成**（2026-10-16 A–D 接线与 mw-test 核验通过，E 段用户手点与 leftover=0 于 2026-10-17 闭合；未标 A02 / A09 / A17 / A18 / T25）；**MW21 已完成**（A–D 接线与 mw-test 负向核验通过；E 段手点 1–7 通过，入册订单/套餐已清；已付履约 8–10 与现网路径明确留到 MW29；未标 A14 / A15 / A16 / A17 / A20 / T20 / T21 / T22 / T26）；**MW22 已完成**（A–D 接线与 mw-test 负向核验通过；E 段手点 1–12 用户确认全过，leftover=0 已核验；未标 A19 / A20 / A27 / T23 / T24 / T26）；**MW23 已完成**（A—D 接线与 mw-test 负向核验通过；E 段手点用户确认全过，leftover=0 已核验；未标 A12 / A25 / A26 / T02 / T14）；**MW24 已完成**（A—D 接线与 mw-test 负向核验通过；E 段手点用户确认全过，leftover=0 已核验；未标 A01 / A12 / A26 / T01 / T14）；MW25—MW30 未开始。MW07 仅为技术样例：未真实扣款、未 iOS 现网、未购买闭环，未标 A14/A20/T20/T26 通过。MW06 在基线 `b2411c2` 上完成最终代码整改（alreadyResumed、缺 workStore 失败关闭、nonceReplay 门禁、jobs token 只读核验）后仍为“已完成”。
 - mw-test 上 P01—P12 已逐项记录：P01—P07、P09、P12 为 PASS；MW04 真实剩余仅为 **P08/P10/P11 PARTIAL**。P08 已补记 `jobs` / `audit_logs` 索引、MW09 的 `categories` 指定索引（`parentId/deletedAt/sort/_id`）、MW10 的 `questions` 指定索引（`categoryId/status/updatedAt/_id`），以及 MW11 的 `papers` 两条指定索引（`status/categoryId/publishedAt/_id` 与 `status/sort/_id`）；其余未来索引仍 PARTIAL。P10 仍 PARTIAL（网关 413）。已锁定 Nodejs20.19 与 SDK。正式六入口、`cloudbase_auth`、`admin_users` 与 MW06 四集合已部署；MW09 已部署 `categories` / `category_names` 与种子十类；MW10 已部署 `questions` / `question_versions` / `media_assets` / `upload_tickets`；MW11 已部署 `papers` / `paper_versions` / `paper_chunks` / `paper_answers`。**没有生产环境、没有真实支付**。
 - MW07-A 已于 2026-10-08 按官方现行页与思维工坊项目小程序后台完成资格核对。用户其后完成后台开通，并写入本地沙箱配置名。MW07-B 已落地签名/通知/发货隔离样例；`mw-pay-hook` 已覆盖带 `openid` 的 GET 握手、XML/JSON POST 与伪造/APIv3 拒绝。沙箱 `/xpay/query_order` 已对未知单号调用一次 `env=1`：`errcode=268490001`，`authPathReached=true`，`signatureAccepted=true`，`wroteDocs=false`。未把 A14/A20 或 T20/T26 标为通过。未真实扣款、未做 iOS 现网、未做购买闭环。
 - 已在 `F:/MW/main` 初始化 Git，并以仓库级身份创建基线提交 `8294079`；`main` 已推送至 `https://github.com/qiandacegood/mw.git` 并跟踪 `origin/main`。
@@ -40,9 +40,9 @@
 | MW19 | 题目纠错与历史重评分 | [已完成](first-batch/results/mw19-result.md) |
 | MW20 | VIP 权益账本与判权 | [已完成](first-batch/results/mw20-result.md)（E 段手点与 leftover=0 已闭合；未标 A02 / A09 / A17 / A18 / T25） |
 | MW21 | VIP 套餐与在线购买 | [已完成](first-batch/results/mw21-result.md)（E 1–7 与 leftover 已闭合；已付 8–10 留 MW29；未标 A14 / A15 / A16 / A17 / A20 / T20 / T21 / T22 / T26） |
-| MW22 | 退款与账务对账 | 未开始 |
-| MW23 | 个人中心与反馈运营 | 未开始 |
-| MW24 | 正式协议与账号注销 | 未开始 |
+| MW22 | 退款与账务对账 | [已完成](first-batch/results/mw22-result.md)（E 1–12 与 leftover=0 已闭合；未标 A19 / A20 / A27 / T23 / T24 / T26） |
+| MW23 | 个人中心与反馈运营 | [已完成](first-batch/results/mw23-result.md)（E 段手点与 leftover=0 已闭合；未标 A12 / A25 / A26 / T02 / T14） |
+| MW24 | 正式协议与账号注销 | [已完成](first-batch/results/mw24-result.md)（E 段手点与 leftover=0 已闭合；未标 A01 / A12 / A26 / T01 / T14） |
 | MW25 | 后台运营统计与使用说明 | 未开始 |
 | MW26 | 权限安全与容量专项验证 | 未开始 |
 | MW27 | 备份恢复与发布回退演练 | 未开始 |
@@ -247,3 +247,40 @@ A09 / T29 仍未标通过（可覆盖部分见 [mw16-result.md](first-batch/resu
 | MW21-E 手点与 leftover | **已闭合**（2026-10-18）。1–7 通过；拉起收银台后确认中、查单未已付，未付 899 元。8–10 NOT_RUN，留 MW29。入册删订单 2 + 套餐 3。未标 A14/A20/T20/T26 |
 | 本地检查 | `typecheck` 0、`npm test` 0（workspaces **327** 项：admin 8 / miniprogram 38 / shared 137 / api 144）、`npm run build` 0。当时 4174 未占用 |
 | 提交与推送 | 见本轮收口提交 |
+
+## 本轮执行记录（2026-10-18，MW22）
+
+只做 MW22：退款与账务对账。不改写 MW01—MW21 与 MW-UI01 的历史完成记录，不启动 MW23—MW30。只操作 mw-test。没有把 A01—A31 或 T01—T30 标为通过，尤其未标 **A19 / A20 / A27 / T23 / T24 / T26**，也不回标 A14 / A15 / A16 / A17 / T20 / T21 / T22。未开启超额。沙箱 `VIRTUAL_PAY_ENV=1`，未切现网 AppKey。未真实扣款、未真实退款、未做 iOS / Apple 现网。MW21 已付履约留 MW29，本轮不借退款补做真付。未自动提交、推送或发布。E 段手点 1–12 用户确认全过；第 13 步 leftover=0 **已核验**。整项标完成。不把 A19 / A20 / A27 / T23 / T24 / T26 标通过。
+
+| 任务 | 结果 |
+| --- | --- |
+| MW22-A / B / C | 已接线（[mw22-refund.md](first-batch/mw22-refund.md)）：退款状态机与按来源撤销未用、`refund.request` / `review` / `execute`、最终成功才撤 order 来源、Apple 拒绝商户 execute、`order.reconcile` 只列差异、小程序售后分流、后台审核/执行与日账差异 |
+| MW22-D | `mw22:deploy` / `mw22:verify` 退出码 0。部署 `mw-admin` / `mw-member` / `mw-pay-hook`；新建 `refunds` / `reconcile_diffs` 与两条索引；未登录 `refund.execute` / `refund.request` = `AUTH_REQUIRED`；种子十类 10；本轮两集合文档 0；`EnableOverrun=false`；沙箱 `VIRTUAL_PAY_ENV=1`，无现网 AppKey。`runtime.sha256` 前缀 `a045fde49636` |
+| MW22-E 手点与 leftover | 用户确认 1–12 全过。leftover 收口已核验：导入 7 个哈希（6 订单 + 1 退款），反查全命中，精确删除 21 条，`independentRemain=0`，`leftoverDocs=0`，种子十类 10 |
+| MW22 审核整改 | 无事先 `refund.request` 的渠道通知不新建 `refunds`（成功早到则识别处理并补单绑定，不走未知结果建单）；小程序订单页浏览不自动入册 leftover。其后 E 与 leftover 已闭合 |
+| 本地检查 | 审核整改后 `typecheck` / `npm test` 0（workspaces **338** 项：admin 8 / miniprogram 39 / shared 143 / api 148）。leftover 收口后 `independentRemain=0`、`leftoverDocs=0` |
+| 提交与推送 | 未自动提交、推送或发布 |
+
+## 本轮执行记录（2026-10-18，MW23）
+
+只做 MW23：个人中心与反馈运营。不改写 MW01—MW22 与 MW-UI01 的历史完成记录，不启动 MW24—MW30。只操作 mw-test。没有把 A01—A31 或 T01—T30 标为通过，尤其未标 **A12 / A25 / A26 / T02 / T14**，也不回标 A14 / A19 / A20。未开启超额。沙箱 `VIRTUAL_PAY_ENV=1`，未切现网 AppKey。未真实扣款、未真实退款、未做 iOS / Apple 现网。不重写 `vip_accounts` / `vip_grants` / `orders` / `refunds` 账本。MW21 已付履约与 MW22 真退款现网仍留 MW29。未自动提交、推送。E 段手点用户确认全过；leftover=0 **已核验**。整项标完成。不把 A12 / A25 / A26 / T02 / T14 标通过。
+
+| 任务 | 结果 |
+| --- | --- |
+| MW23-A / B / C | 已接线（[mw23-profile-ops.md](first-batch/mw23-profile-ops.md)）：反馈绑版本、停用/禁榜分记、公开行脱敏与昵称覆盖；`feedback.*` / `member.list|get|disable` / `ranking.ban`；小程序「我的」入口与解析页反馈、后台会员/反馈 |
+| MW23-D | `mw23:deploy` / `mw23:verify` 退出码 0，`ok:true`（见 [mw23-result.md](first-batch/results/mw23-result.md)）；`runtime.sha256` 前缀 `d5d85adabdca`；`EnableOverrun=false`；沙箱 `VIRTUAL_PAY_ENV=1`。用户要求后发布 mw-test 后台托管 |
+| MW23-E 手点与 leftover | **已闭合**。用户确认手点全过。导入 1 条反馈哈希，反查 1=1，精确删除 1，`independentRemain=0`，`leftoverDocs=0`，种子十类 10 |
+| 本地检查 | `typecheck` / `npm test` / `build` 0（workspaces **351** 项：admin 8 / miniprogram 40 / shared 149 / api 154） |
+| 提交与推送 | 未自动提交、推送 |
+
+## 本轮执行记录（2026-10-19，MW24）
+
+只做 MW24：正式协议与账号注销。不改写 MW01—MW23 与 MW-UI01 的历史完成记录，不启动 MW25—MW30。只操作 mw-test。没有把 A01—A31 或 T01—T30 标为通过，尤其未标 **A01 / A12 / A26 / T01 / T14**，也不回标 A14 / A19 / A20 / A25。未开启超额。沙箱 `VIRTUAL_PAY_ENV=1`，未切现网 AppKey。未真实扣款、未真实退款、未做 iOS / Apple 现网。不重写 `vip_accounts` / `vip_grants` / `orders` / `refunds` 账本。MW21 已付履约与 MW22 真退款现网仍留 MW29。未自动提交、推送或发布。E 段手点用户确认全过；leftover=0 **已核验**。整项标完成。不把 A01 / A12 / A26 / T01 / T14 标通过。
+
+| 任务 | 结果 |
+| --- | --- |
+| MW24-A / B / C | 已接线（[mw24-policies-deletion.md](first-batch/mw24-policies-deletion.md)）：协议测试稿带版本号、注册须主动勾选当前版本；`member.requestDeletion` 须重新认证 + 当前协议确认；未完成订单列待办不删号；注销成功同一事务落到 `deleted`、公开榜立即不合格且不半发布；已注销再注册 `ACCOUNT_DELETED`；注册页 / 「我的」协议与注销真流程；后台只读注销状态 |
+| MW24-D | `mw24:deploy` / `mw24:verify` 退出码 0，`ok:true`（见 [mw24-result.md](first-batch/results/mw24-result.md)）；`runtime.sha256` 前缀 `5f20282c1487`；`EnableOverrun=false`；沙箱 `VIRTUAL_PAY_ENV=1`；`leftoverClaimedZero=false` |
+| MW24-E 手点与 leftover | **已闭合**。用户确认手点 1–12 全过。第二微信测试号补 1 条反馈哈希，反查 1=1，精确删除 1，`independentRemain=0`，`leftoverDocs=0`，种子十类 10。未删套餐/订单/已注销号/第二测试号 |
+| 本地检查 | `typecheck` / `npm test` / `build` 0（workspaces **359** 项：admin 8 / miniprogram 40 / shared 152 / api 159） |
+| 提交与推送 | 未自动提交、推送或发布 |

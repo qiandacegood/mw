@@ -11,6 +11,7 @@ import {
   parseVipRevokeInput,
   projectVipLedger,
   revokeVipGift,
+  revokeVipOrderSource,
   vipGrantId
 } from "./vip.js";
 
@@ -192,6 +193,92 @@ describe("vip ledger consume and revoke", () => {
       reason: "cannot revoke paid"
     });
     expect(revokePaid).toMatchObject({ ok: false, reason: "GIFT_GRANT_NOT_FOUND" });
+  });
+
+  it("refunds A leftover 10 days and keeps B 30 days; used-up A does not cut B", () => {
+    const day = durationSecondsFromDays(1);
+    const t0 = firstGrantAt;
+    const after20 = new Date(t0.getTime() + 20 * day * 1000);
+    const a = applyVipGrant({
+      grants: [],
+      memberId: "m1",
+      sourceType: "order",
+      sourceId: "order-a",
+      durationSeconds: 30 * day,
+      grantedAt: t0,
+      reason: "paid-order:order-a",
+      actorId: "system"
+    });
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
+    const b = applyVipGrant({
+      account: a.account,
+      grants: a.grants,
+      memberId: "m1",
+      sourceType: "order",
+      sourceId: "order-b",
+      durationSeconds: 30 * day,
+      grantedAt: t0,
+      reason: "paid-order:order-b",
+      actorId: "system"
+    });
+    expect(b.ok).toBe(true);
+    if (!b.ok) return;
+    const settled = projectVipLedger({ account: b.account, grants: b.grants, now: after20 });
+    expect(settled.grants[0]?.remainingSeconds).toBe(10 * day);
+    expect(settled.grants[1]?.remainingSeconds).toBe(30 * day);
+    const revokedA = revokeVipOrderSource({
+      account: b.account,
+      grants: b.grants,
+      sourceId: "order-a",
+      now: after20,
+      reason: "whole refund A"
+    });
+    expect(revokedA.ok).toBe(true);
+    if (!revokedA.ok) return;
+    expect(revokedA.revokedSeconds).toBe(10 * day);
+    const leftoverB = revokedA.grants.find((row) => row.sourceId === "order-b");
+    expect(leftoverB?.remainingSeconds).toBe(30 * day);
+    expect(leftoverB?.consumedSeconds).toBe(0);
+    expect(revokedA.account.remainingSeconds).toBe(30 * day);
+    expect(revokedA.grants.every((row) => row.remainingSeconds >= 0)).toBe(true);
+
+    const shortA = applyVipGrant({
+      grants: [],
+      memberId: "m2",
+      sourceType: "order",
+      sourceId: "used-a",
+      durationSeconds: 10 * day,
+      grantedAt: t0,
+      reason: "paid-order:used-a",
+      actorId: "system"
+    });
+    if (!shortA.ok) return;
+    const keepB = applyVipGrant({
+      account: shortA.account,
+      grants: shortA.grants,
+      memberId: "m2",
+      sourceType: "order",
+      sourceId: "keep-b",
+      durationSeconds: 30 * day,
+      grantedAt: t0,
+      reason: "paid-order:keep-b",
+      actorId: "system"
+    });
+    if (!keepB.ok) return;
+    const afterAUsed = new Date(t0.getTime() + 10 * day * 1000);
+    const used = revokeVipOrderSource({
+      account: keepB.account,
+      grants: keepB.grants,
+      sourceId: "used-a",
+      now: afterAUsed,
+      reason: "refund used-up A"
+    });
+    expect(used.ok).toBe(true);
+    if (!used.ok) return;
+    expect(used.revokedSeconds).toBe(0);
+    expect(used.replayed).toBe(true);
+    expect(used.grants.find((row) => row.sourceId === "keep-b")?.remainingSeconds).toBe(30 * day);
   });
 });
 

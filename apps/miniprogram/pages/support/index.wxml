@@ -1,0 +1,12 @@
+<view class="page">
+  <text class="h1">客服入口</text>
+  <view class="card">
+    <text class="title">{{title}}</text>
+    <text class="muted">渠道：{{channel}}</text>
+    <text class="muted">时间：{{hours}}</text>
+    <text class="muted">{{note}}</text>
+  </view>
+  <text class="muted">题目或解析错误请走解析页「反馈本版题目」，不要把订单售后发到这里。</text>
+  <button class="ghost" bindtap="goFeedback">去题目反馈</button>
+  <button class="ghost" bindtap="goOrders">订单售后仍走订单页</button>
+</view>

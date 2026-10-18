@@ -4,6 +4,8 @@ const leftoverPaperIdSet = new Set<string>();
 const leftoverAttemptIdSet = new Set<string>();
 const leftoverMemberIdSet = new Set<string>();
 const leftoverOrderIdSet = new Set<string>();
+const leftoverRefundIdSet = new Set<string>();
+const leftoverFeedbackIdSet = new Set<string>();
 
 export function markLeftoverPaperId(paperId: string): boolean {
   const id = String(paperId || "").trim();
@@ -50,6 +52,36 @@ export function leftoverOrderIdList(): string[] {
   return [...leftoverOrderIdSet];
 }
 
+export function markLeftoverRefundId(refundId: string): boolean {
+  const id = String(refundId || "").trim();
+  if (!id) return false;
+  leftoverRefundIdSet.add(id);
+  return true;
+}
+
+export function leftoverRefundIdList(): string[] {
+  return [...leftoverRefundIdSet];
+}
+
+export function markLeftoverFeedbackId(feedbackId: string): boolean {
+  const id = String(feedbackId || "").trim();
+  if (!id) return false;
+  leftoverFeedbackIdSet.add(id);
+  return true;
+}
+
+export function leftoverFeedbackIdList(): string[] {
+  return [...leftoverFeedbackIdSet];
+}
+
+export function resetLeftoverFeedbackIds(): void {
+  leftoverFeedbackIdSet.clear();
+}
+
+export function resetLeftoverRefundIds(): void {
+  leftoverRefundIdSet.clear();
+}
+
 export function resetLeftoverOrderIds(): void {
   leftoverOrderIdSet.clear();
 }
@@ -66,12 +98,21 @@ export function resetLeftoverMemberIds(): void {
   leftoverMemberIdSet.clear();
 }
 
-export function knownIdPayload(): { papers: string[]; attempts: string[]; members: string[]; orders: string[] } {
+export function knownIdPayload(): {
+  papers: string[];
+  attempts: string[];
+  members: string[];
+  orders: string[];
+  refunds: string[];
+  feedbacks: string[];
+} {
   return {
     papers: leftoverPaperIdList().map((id) => sha256Hex(id)),
     attempts: leftoverAttemptIdList().map((id) => sha256Hex(id)),
     members: leftoverMemberIdList().map((id) => sha256Hex(id)),
-    orders: leftoverOrderIdList().map((id) => sha256Hex(id))
+    orders: leftoverOrderIdList().map((id) => sha256Hex(id)),
+    refunds: leftoverRefundIdList().map((id) => sha256Hex(id)),
+    feedbacks: leftoverFeedbackIdList().map((id) => sha256Hex(id))
   };
 }
 

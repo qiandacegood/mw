@@ -205,6 +205,7 @@ function asMemberRow(data: Record<string, unknown>, fallbackId: string): Ranking
     status:
       status === "disabled" || status === "deleting" || status === "deleted" || status === "active" ? status : "active",
     rankingOptIn: data.rankingOptIn === true,
+    rankingBanned: data.rankingBanned === true,
     revision: typeof data.revision === "number" ? data.revision : 1
   };
 }

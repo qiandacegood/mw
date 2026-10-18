@@ -15,6 +15,7 @@ import {
   parseProfileInput,
   parseRegisterInput,
   payloadHash,
+  publicProfileForStatus,
   planMedalGrants,
   replayOrConflict,
   type ConsentVersions,
@@ -37,8 +38,8 @@ import type { TxBudget } from "./job-stores.js";
 import type { AttemptWorkStore } from "./attempt-stores.js";
 import { readDraftSummary } from "./attempt.js";
 
-export const MEMBER_WRITE_ACTIONS = ["member.register", "member.updateProfile"] as const;
-export const MEMBER_READ_ACTIONS = ["member.session", "member.me", "member.growth"] as const;
+export const MEMBER_WRITE_ACTIONS = ["member.register", "member.updateProfile", "member.requestDeletion"] as const;
+export const MEMBER_READ_ACTIONS = ["member.session", "member.me", "member.growth", "member.deletionStatus"] as const;
 export const MEMBER_TX_MAX_ATTEMPTS = 3;
 
 const RETRYABLE_TX =
@@ -50,8 +51,10 @@ export type MemberPublicView = {
   nickname: string;
   avatarKey: string;
   status: MemberRecord["status"];
-  rankingOptIn: boolean;
-  consentVersions: ConsentVersions;
+    rankingOptIn: boolean;
+    rankingBanned: boolean;
+    consentVersions: ConsentVersions;
+  deletedAt?: string;
   revision: number;
   stats: {
     totalScore: number;
@@ -111,7 +114,7 @@ export function isRetryableMemberTxError(error: unknown): boolean {
   return RETRYABLE_TX.test(text);
 }
 
-async function runWithTxRetry<T>(run: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
+export async function runWithTxRetry<T>(run: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MEMBER_TX_MAX_ATTEMPTS; attempt += 1) {
     try {
@@ -164,14 +167,22 @@ export function publicMemberView(
   draft?: MemberPublicView["draft"],
   vip?: MemberPublicView["vip"]
 ): MemberPublicView {
+  const visible = publicProfileForStatus({
+    status: member.status,
+    nickname: member.nickname,
+    avatarKey: member.avatarKey,
+    rankingOptIn: member.rankingOptIn === true
+  });
   return {
     memberId: member.memberId,
     ...(identityId ? { identityId } : {}),
-    nickname: member.nickname,
-    avatarKey: member.avatarKey,
+    nickname: visible.nickname,
+    avatarKey: visible.avatarKey,
     status: member.status,
-    rankingOptIn: member.rankingOptIn === true,
+    rankingOptIn: visible.rankingOptIn,
+    rankingBanned: member.rankingBanned === true,
     consentVersions: { ...member.consentVersions },
+    ...(member.deletedAt ? { deletedAt: member.deletedAt } : {}),
     revision: member.revision,
     stats: {
       totalScore: stats?.totalScore ?? 0,
@@ -211,6 +222,7 @@ function newMember(memberId: string, consent: ConsentVersions, now: Date): Membe
     avatarKey: DEFAULT_AVATAR_KEY,
     status: "active",
     rankingOptIn: false,
+    rankingBanned: false,
     consentVersions: consent,
     revision: 1,
     schemaVersion: MEMBER_SCHEMA_VERSION,
@@ -417,6 +429,9 @@ export async function registerMember(input: {
         if (!existing) {
           return { error: "MEMBER_ROW_MISSING", result: undefined as unknown as MemberPublicView };
         }
+        if (existing.status === "deleted" || existing.status === "deleting") {
+          return { error: "ACCOUNT_DELETED", result: undefined as unknown as MemberPublicView };
+        }
         const view = publicMemberView(existing, snap.stats, identityId);
         return {
           idem: {
@@ -468,6 +483,9 @@ export async function registerMember(input: {
     if (mutation.error === "IDEMPOTENCY_CONFLICT") {
       return fail("IDEMPOTENCY_CONFLICT", "IDEMPOTENCY_CONFLICT");
     }
+    if (mutation.error === "ACCOUNT_DELETED") {
+      return fail("ACCOUNT_DELETED", "ACCOUNT_DELETED");
+    }
     if (mutation.error) {
       return fail("INTERNAL_ERROR", mutation.error);
     }
@@ -484,6 +502,9 @@ export async function registerMember(input: {
   }
   const existing = await existingPublicView(input.stores, identityId, memberId);
   if (existing) {
+    if (existing.status === "deleted" || existing.status === "deleting") {
+      return fail("ACCOUNT_DELETED", "ACCOUNT_DELETED");
+    }
     return {
       ok: true,
       data: withWriteIds(existing, identityId, idemRecord.id),
@@ -597,6 +618,7 @@ export function profileUnchanged(before: MemberRecord, after: MemberRecord | und
     before.avatarKey === after.avatarKey &&
     before.status === after.status &&
     before.rankingOptIn === after.rankingOptIn &&
+    before.rankingBanned === after.rankingBanned &&
     before.revision === after.revision &&
     payloadHash(before.consentVersions) === payloadHash(after.consentVersions)
   );

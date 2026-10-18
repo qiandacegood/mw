@@ -83,6 +83,12 @@ describe("order paid/grant display and close rules", () => {
     expect(canTransitionPayState("paid", "closed")).toBe(false);
     expect(orderDisplayStatus({ ...order, payState: "paid", grantState: "pending" }).userHint).toBe("已支付，权益开通中");
     expect(orderDisplayStatus({ ...order, payState: "paid", grantState: "granted" }).displayStatus).toBe("已完成");
+    expect(orderDisplayStatus({ ...order, payState: "paid", grantState: "granted" }).canRequestRefund).toBe(true);
+    expect(orderDisplayStatus({ ...order, channel: "ios", payState: "paid", grantState: "granted" })).toMatchObject({
+      merchantRefundSupported: false,
+      canRequestRefund: false
+    });
+    expect(orderDisplayStatus({ ...order, channel: "ios" }).appleGuidance).toContain("App Store");
   });
 
   it("sends amount/user/product mismatches to needsReview", () => {

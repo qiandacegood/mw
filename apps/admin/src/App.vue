@@ -15,11 +15,14 @@ import {
   callAdminVip,
   callAdminPlan,
   callAdminOrder,
+  callAdminRefund,
   callAdminJob,
   callAdminQuestion,
   callAdminPaper,
   callAdminImport,
   callAdminRanking,
+  callAdminMember,
+  callAdminFeedback,
   completeAdminUpload,
   createAdminApp,
   loginAndReadAdmin,
@@ -27,9 +30,12 @@ import {
   type AdminCallResult,
   type AdminGrowthAction,
   type AdminRankingAction,
+  type AdminMemberAction,
+  type AdminFeedbackAction,
   type AdminVipAction,
   type AdminPlanAction,
   type AdminOrderAction,
+  type AdminRefundAction,
   type AdminSession
 } from "./cloudbase-web";
 
@@ -202,11 +208,32 @@ const orderId = ref("");
 const orderStatus = ref("operations 可核对同一订单。已支付不得改价。");
 const orderEvidence = ref("");
 const lastOrderIds = ref<string[]>([]);
+const lastRefundIds = ref<string[]>([]);
+const refundMemberId = ref("");
+const refundOrderId = ref("");
+const refundAdvice = ref("建议整笔退款（测试）");
+const refundReason = ref("MW22 退款原因");
+const refundAmountFen = ref("9900");
+const refundOutcome = ref("succeeded");
+const refundStatus = ref("content 不能审退款。operations 只能 review。super 才能 execute。Apple 无商户退款按钮。");
+const refundEvidence = ref("");
+const refundView = ref("");
 /** MW17 榜单治理：快照状态、真实更新时间与更新延迟都由服务端返回，本页不伪造。 */
 const rReason = ref("MW17 重建四维榜单快照");
 const rStatus = ref("先点「读取榜单快照状态」，再按需「重建并发布榜单快照」。重建需要 super 角色。");
 const rView = ref("");
 const rEvidence = ref("");
+const memberQuery = ref("");
+const memberIdInput = ref("");
+const memberReason = ref("MW23 治理原因");
+const memberStatus = ref("operations 可查会员，不能 disable/ban。content 不能看订单明细，也不能处理反馈。");
+const memberView = ref("");
+const memberEvidence = ref("");
+const lastFeedbackIds = ref<string[]>([]);
+const feedbackNote = ref("已核对原版解析无误");
+const feedbackStatus = ref("operations 处理题目反馈。content 会被拒。不能借反馈改答案库。");
+const feedbackView = ref("");
+const feedbackEvidence = ref("");
 
 type PageKey =
   | "admin-categories"
@@ -219,7 +246,10 @@ type PageKey =
   | "admin-vip"
   | "admin-plans"
   | "admin-orders"
+  | "admin-refunds"
   | "admin-ranking"
+  | "admin-members"
+  | "admin-ops"
   | "admin-jobs";
 type NavGroup = "content" | "import" | "ops";
 
@@ -282,13 +312,31 @@ const PAGES: Record<PageKey, { group: string; nav: NavGroup; title: string; desc
     group: "运营",
     nav: "ops",
     title: "订单核对",
-    desc: "operations 可查本人以外的订单并同单核对。不修改金额。已付未开通走同一订单补偿。"
+    desc: "operations 可查本人以外的订单并同单核对。不修改金额。已付未开通走同一订单补偿。日账差异只列不改金额。"
+  },
+  "admin-refunds": {
+    group: "运营",
+    nav: "ops",
+    title: "退款审核与执行",
+    desc: "operations 只能写审核建议。super 整笔执行。Apple 不出现商户退款按钮。最终成功才撤该 order 未用时长。"
   },
   "admin-ranking": {
     group: "运营",
     nav: "ops",
     title: "榜单治理",
-    desc: "总分、分类、周进步、月进步四个榜单由服务端快照提供。免费卷与 VIP 卷统一计入，没有费用筛选。"
+    desc: "总分、分类、周进步、月进步四个榜单由服务端快照提供。免费卷与 VIP 卷统一计入，没有费用筛选。禁榜走会员页，不等于停用。"
+  },
+  "admin-members": {
+    group: "运营",
+    nav: "ops",
+    title: "会员详情与禁榜",
+    desc: "operations 可查会员，不含 OPENID 与订单明细。停用与禁榜分记，原因必填，仅 super。禁榜不等于停用。注销状态只读，content 仍无订单明细。停用 ≠ 注销。"
+  },
+  "admin-ops": {
+    group: "运营",
+    nav: "ops",
+    title: "题目反馈处理",
+    desc: "operations 列出并处理题目/解析反馈。content 不能 resolve。反馈绑定题目版本，不能改答案库。"
   },
   "admin-jobs": {
     group: "运营",
@@ -2314,10 +2362,20 @@ async function listPlans(): Promise<void> {
   }
 }
 
-async function leftoverPayload(): Promise<{ plans: string[]; orders: string[]; members: string[]; papers: string[]; attempts: string[] }> {
+async function leftoverPayload(): Promise<{
+  plans: string[];
+  orders: string[];
+  refunds: string[];
+  members: string[];
+  papers: string[];
+  attempts: string[];
+  feedbacks: string[];
+}> {
   const plans = await Promise.all(lastPlanIds.value.map((id) => hashText(id)));
   const orders = await Promise.all(lastOrderIds.value.map((id) => hashText(id)));
-  return { plans, orders, members: [], papers: [], attempts: [] };
+  const refunds = await Promise.all(lastRefundIds.value.map((id) => hashText(id)));
+  const feedbacks = await Promise.all(lastFeedbackIds.value.map((id) => hashText(id)));
+  return { plans, orders, refunds, members: [], papers: [], attempts: [], feedbacks };
 }
 
 async function copyPlanLeftover(): Promise<void> {
@@ -2371,9 +2429,149 @@ async function reconcileOrder(): Promise<void> {
 async function copyOrderLeftover(): Promise<void> {
   const payload = await leftoverPayload();
   const text = JSON.stringify(payload);
-  orderEvidence.value = JSON.stringify({ knownIds: payload, note: "只入册本轮订单与套餐哈希" }, null, 2);
+  orderEvidence.value = JSON.stringify({ knownIds: payload, note: "只入册本轮订单、退款与套餐哈希" }, null, 2);
   void navigator.clipboard?.writeText(text);
   orderStatus.value = "已复制本轮订单 leftover 哈希。";
+}
+
+async function runRefund(action: AdminRefundAction, data: Record<string, unknown>): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  const result = await callAdminRefund(app, action, data);
+  const parsed = refundEvidence.value ? JSON.parse(refundEvidence.value) : { steps: [] };
+  parsed.steps.push({
+    action,
+    ok: result.ok === true,
+    errorCode: result.error?.code || "",
+    errorReason: result.error?.details?.reason || "",
+    refundId: result.data?.refundId || "",
+    state: result.data?.state || null,
+    kind: result.data?.kind || null,
+    merchantRefundSupported: result.data?.merchantRefundSupported,
+    revokedSeconds: result.data?.revokedSeconds ?? null
+  });
+  refundEvidence.value = JSON.stringify(parsed, null, 2);
+  if (result.data?.refundId) lastRefundIds.value = [...new Set([...lastRefundIds.value, String(result.data.refundId)])];
+  const leftover = result.data?.leftover as { orders?: unknown[] } | undefined;
+  if (Array.isArray(leftover?.orders)) {
+    lastOrderIds.value = [...new Set([...lastOrderIds.value, ...leftover.orders.map((id) => String(id))])];
+  }
+  const keepB = result.data?.keepB as
+    | { orderA?: string; orderB?: string; remainingASeconds?: number; remainingBSeconds?: number }
+    | undefined;
+  if (keepB?.orderA) lastOrderIds.value = [...new Set([...lastOrderIds.value, String(keepB.orderA), String(keepB.orderB || "")])];
+  if (result.data?.orderId) lastOrderIds.value = [...new Set([...lastOrderIds.value, String(result.data.orderId)])];
+  return result;
+}
+
+async function prepareRefundFixture(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runRefund("refund.fixturePrepare", {
+      targetMemberId: refundMemberId.value.trim(),
+      reason: refundReason.value.trim() || "MW22 测试夹具"
+    });
+    refundView.value = JSON.stringify(result.data || result.error, null, 2);
+    const keepB = result.data?.keepB as
+      | { orderA?: string; remainingASeconds?: number; remainingBSeconds?: number }
+      | undefined;
+    refundStatus.value = result.ok
+      ? `已构造测试夹具（非正式售价、非渠道成功骗发放）。A 余 ${keepB?.remainingASeconds || 0} 秒 / B 余 ${keepB?.remainingBSeconds || 0} 秒。Apple 无商户退款。`
+      : `夹具失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+    if (keepB?.orderA) refundOrderId.value = String(keepB.orderA);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function listRefunds(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runRefund("refund.list", {});
+    refundView.value = JSON.stringify(result.data || result.error, null, 2);
+    refundStatus.value = result.ok
+      ? `已读取退款申请 ${Array.isArray(result.data?.items) ? result.data.items.length : 0} 条。`
+      : `读取失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function reviewRefund(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runRefund("refund.review", {
+      orderId: refundOrderId.value.trim(),
+      advice: refundAdvice.value.trim(),
+      reason: refundReason.value.trim()
+    });
+    refundView.value = JSON.stringify(result.data || result.error, null, 2);
+    refundStatus.value = result.ok
+      ? `已写入审核建议。不能发起渠道退款。state=${result.data?.state || ""}`
+      : `审核失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function executeRefund(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runRefund("refund.execute", {
+      orderId: refundOrderId.value.trim(),
+      amountFen: Number(refundAmountFen.value) || 0,
+      reason: refundReason.value.trim()
+    });
+    refundView.value = JSON.stringify(result.data || result.error, null, 2);
+    if (result.data?.merchantRefundSupported === false) {
+      refundStatus.value = `Apple/iOS 无商户退款按钮对应的 execute：${result.error?.details?.reason || result.data?.appleGuidance || "MERCHANT_REFUND_UNSUPPORTED"}`;
+    } else {
+      refundStatus.value = result.ok
+        ? `已绑定申请与金额。state=${result.data?.state || ""} kind=${result.data?.kind || ""}。未真实退款。未知结果不新建退款单。`
+        : `执行失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+    }
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function recordRefundChannel(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runRefund("refund.recordChannelResult", {
+      orderId: refundOrderId.value.trim(),
+      outcome: refundOutcome.value,
+      confirmedFen: Number(refundAmountFen.value) || undefined,
+      eventKey: `mw22-sandbox-${refundOrderId.value.trim()}`,
+      reason: refundReason.value.trim() || "sandbox channel result"
+    });
+    refundView.value = JSON.stringify(result.data || result.error, null, 2);
+    refundStatus.value = result.ok
+      ? `已录入渠道最终结果（测试夹具，非现网退款）。state=${result.data?.state || ""} revokedSeconds=${result.data?.revokedSeconds ?? ""} replayed=${result.replayed === true}`
+      : `录入失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function listReconcileDiffs(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runOrder("order.reconcile", refundOrderId.value.trim() ? { orderId: refundOrderId.value.trim() } : {});
+    refundView.value = JSON.stringify(result.data || result.error, null, 2);
+    refundStatus.value = result.ok
+      ? `日账差异 ${Array.isArray(result.data?.diffs) ? result.data.diffs.length : 0} 条。amountFenUnchanged=${result.data?.amountFenUnchanged === true}`
+      : `对账失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function copyRefundLeftover(): Promise<void> {
+  const payload = await leftoverPayload();
+  const text = JSON.stringify(payload);
+  refundEvidence.value = JSON.stringify({ knownIds: payload, note: "只入册本轮退款单/测试订单/order 来源账本哈希" }, null, 2);
+  void navigator.clipboard?.writeText(text);
+  refundStatus.value = "已复制本轮退款 leftover 哈希。";
 }
 
 async function runRanking(action: AdminRankingAction, data: Record<string, unknown>): Promise<AdminCallResult> {
@@ -2478,6 +2676,127 @@ function copyRankingEvidence(): void {
   rEvidence.value = text;
   void navigator.clipboard?.writeText(text);
   rStatus.value = "已复制榜单治理证据。不要发送密码、环境 ID 或明文 _id。";
+}
+
+async function runMember(action: AdminMemberAction, data: Record<string, unknown>): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  return callAdminMember(app, action, data);
+}
+
+async function runFeedback(action: AdminFeedbackAction, data: Record<string, unknown>): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  return callAdminFeedback(app, action, data);
+}
+
+async function listAdminMembersPage(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runMember("member.list", memberQuery.value.trim() ? { nickname: memberQuery.value.trim() } : {});
+    memberView.value = JSON.stringify(result.data || result.error, null, 2);
+    memberStatus.value = result.ok
+      ? `已列出 ${Array.isArray(result.data?.items) ? result.data.items.length : 0} 名会员。不含 OPENID / 订单明细。`
+      : `列出失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function getAdminMemberPage(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runMember("member.get", { targetMemberId: memberIdInput.value.trim() });
+    memberView.value = JSON.stringify(result.data || result.error, null, 2);
+    if (result.ok && result.data?.memberId) memberIdInput.value = String(result.data.memberId);
+    memberStatus.value = result.ok
+      ? `状态=${result.data?.status || ""} 注销=${result.data?.status === "deleted" || result.data?.status === "deleting" ? "只读" : "否"} optIn=${result.data?.rankingOptIn === true} banned=${result.data?.rankingBanned === true}`
+      : `读取失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function setMemberDisabled(disabled: boolean): Promise<void> {
+  busy.value = true;
+  try {
+    const reason = memberReason.value.trim();
+    if (!reason) {
+      memberStatus.value = "原因必填。";
+      return;
+    }
+    const result = await runMember("member.disable", {
+      targetMemberId: memberIdInput.value.trim(),
+      disabled,
+      reason
+    });
+    memberView.value = JSON.stringify(result.data || result.error, null, 2);
+    memberStatus.value = result.ok
+      ? `${disabled ? "已停用" : "已恢复"} status=${result.data?.status || ""}。停用后仍可 member.me，不能写。`
+      : `失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function setRankingBanned(banned: boolean): Promise<void> {
+  busy.value = true;
+  try {
+    const reason = memberReason.value.trim();
+    if (!reason) {
+      memberStatus.value = "原因必填。";
+      return;
+    }
+    const result = await runMember("ranking.ban", {
+      targetMemberId: memberIdInput.value.trim(),
+      banned,
+      reason
+    });
+    memberView.value = JSON.stringify(result.data || result.error, null, 2);
+    memberStatus.value = result.ok
+      ? `${banned ? "已禁榜" : "已解禁"} rankingBanned=${result.data?.rankingBanned === true} status=${result.data?.status || ""}。禁榜不等于停用。`
+      : `失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function listFeedbacksPage(): Promise<void> {
+  busy.value = true;
+  try {
+    const result = await runFeedback("feedback.list", { status: "open" });
+    feedbackView.value = JSON.stringify(result.data || result.error, null, 2);
+    const items = Array.isArray(result.data?.items) ? result.data.items : [];
+    for (const row of items) {
+      const id = String((row as { feedbackId?: string }).feedbackId || "");
+      if (id && !lastFeedbackIds.value.includes(id)) lastFeedbackIds.value = [...lastFeedbackIds.value, id];
+    }
+    feedbackStatus.value = result.ok
+      ? `开放反馈 ${items.length} 条。content 会被拒。`
+      : `列出失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function resolveFeedbackPage(): Promise<void> {
+  busy.value = true;
+  try {
+    const feedbackId = lastFeedbackIds.value[lastFeedbackIds.value.length - 1] || "";
+    const result = await runFeedback("feedback.resolve", { feedbackId, note: feedbackNote.value.trim() });
+    feedbackView.value = JSON.stringify(result.data || result.error, null, 2);
+    feedbackStatus.value = result.ok
+      ? `已处理 ${result.data?.feedbackId || ""}。不能改答案库。`
+      : `处理失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function copyFeedbackLeftover(): Promise<void> {
+  const payload = await leftoverPayload();
+  const text = JSON.stringify(payload);
+  feedbackEvidence.value = JSON.stringify({ knownIds: payload, note: "只入册本轮反馈哈希；不停用误伤账号、不删会员" }, null, 2);
+  void navigator.clipboard?.writeText(text);
+  feedbackStatus.value = "已复制本轮反馈 leftover 哈希。";
 }
 
 async function logout(): Promise<void> {
@@ -2674,11 +2993,38 @@ async function logout(): Promise<void> {
             <button
               class="nav-item"
               type="button"
+              :class="{ active: currentPage === 'admin-refunds' }"
+              :aria-current="currentPage === 'admin-refunds' ? 'page' : undefined"
+              @click="go('admin-refunds')"
+            >
+              退款审核
+            </button>
+            <button
+              class="nav-item"
+              type="button"
               :class="{ active: currentPage === 'admin-ranking' }"
               :aria-current="currentPage === 'admin-ranking' ? 'page' : undefined"
               @click="go('admin-ranking')"
             >
               榜单治理
+            </button>
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-members' }"
+              :aria-current="currentPage === 'admin-members' ? 'page' : undefined"
+              @click="go('admin-members')"
+            >
+              会员详情
+            </button>
+            <button
+              class="nav-item"
+              type="button"
+              :class="{ active: currentPage === 'admin-ops' }"
+              :aria-current="currentPage === 'admin-ops' ? 'page' : undefined"
+              @click="go('admin-ops')"
+            >
+              题目反馈
             </button>
             <button
               class="nav-item"
@@ -3348,7 +3694,7 @@ async function logout(): Promise<void> {
           <div class="page-head">
             <div>
               <h1 class="page-title">{{ PAGES["admin-orders"].title }}</h1>
-              <p class="page-desc">同订单查单后履约。已付未开通可补偿，不能重复延长。不修改金额，不创建退款。</p>
+              <p class="page-desc">同订单查单后履约。已付未开通可补偿，不能重复延长。不修改金额。日账差异只列任务。</p>
             </div>
           </div>
           <div class="card">
@@ -3361,6 +3707,46 @@ async function logout(): Promise<void> {
             </div>
             <p class="status">{{ orderStatus }}</p>
             <pre>{{ orderEvidence }}</pre>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-refunds' }" data-page="admin-refunds">
+          <p class="breadcrumb">{{ PAGES["admin-refunds"].group }} / {{ PAGES["admin-refunds"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-refunds"].title }}</h1>
+              <p class="page-desc">
+                content 不能审核或执行。operations 只能 review。super 整笔执行后须等渠道最终成功才撤该 order 未用时长。
+                Apple 订单不出现「商户直接退款」按钮。部分退款转人工，不自动削天数。不真实退款。
+              </p>
+            </div>
+          </div>
+          <div class="card">
+            <label>会员 ID（测试夹具）<input v-model="refundMemberId" autocomplete="off" /></label>
+            <label>订单 ID<input v-model="refundOrderId" autocomplete="off" /></label>
+            <label>原因<input v-model="refundReason" autocomplete="off" /></label>
+            <label>审核建议（operations）<input v-model="refundAdvice" autocomplete="off" /></label>
+            <label>绑定金额（分）<input v-model="refundAmountFen" autocomplete="off" /></label>
+            <label>渠道最终结果
+              <select v-model="refundOutcome">
+                <option value="succeeded">succeeded</option>
+                <option value="failed">failed</option>
+                <option value="processing">processing</option>
+                <option value="accepted">accepted</option>
+              </select>
+            </label>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="prepareRefundFixture">构造测试夹具（super，非正式售价）</button>
+              <button type="button" :disabled="busy" @click="listRefunds">读取退款申请</button>
+              <button type="button" :disabled="busy" @click="reviewRefund">审核建议（operations）</button>
+              <button type="button" :disabled="busy" @click="executeRefund">整笔执行（super，非 Apple）</button>
+              <button type="button" :disabled="busy" @click="recordRefundChannel">录入渠道最终结果（测试夹具）</button>
+              <button type="button" class="ghost" :disabled="busy" @click="listReconcileDiffs">查看日账差异</button>
+              <button type="button" class="ghost" @click="copyRefundLeftover">复制本轮退款 leftover</button>
+            </div>
+            <p class="status">{{ refundStatus }}</p>
+            <pre>{{ refundView }}</pre>
+            <pre>{{ refundEvidence }}</pre>
           </div>
         </section>
 
@@ -3391,6 +3777,54 @@ async function logout(): Promise<void> {
             <p class="status">{{ rStatus }}</p>
             <pre data-testid="ranking-status">{{ rView }}</pre>
             <pre data-testid="ranking-evidence">{{ rEvidence }}</pre>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-members' }" data-page="admin-members">
+          <p class="breadcrumb">{{ PAGES["admin-members"].group }} / {{ PAGES["admin-members"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-members"].title }}</h1>
+              <p class="page-desc">{{ PAGES["admin-members"].desc }}</p>
+            </div>
+          </div>
+          <div class="card">
+            <label>昵称筛选<input v-model="memberQuery" autocomplete="off" /></label>
+            <label>会员 ID<input v-model="memberIdInput" autocomplete="off" /></label>
+            <label>原因（停用/禁榜/恢复必填）<input v-model="memberReason" autocomplete="off" /></label>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="listAdminMembersPage">列出会员</button>
+              <button type="button" :disabled="busy" @click="getAdminMemberPage">读取详情</button>
+              <button type="button" :disabled="busy" @click="setMemberDisabled(true)">停用（super）</button>
+              <button type="button" :disabled="busy" @click="setMemberDisabled(false)">恢复写权限</button>
+              <button type="button" :disabled="busy" @click="setRankingBanned(true)">禁榜（super）</button>
+              <button type="button" :disabled="busy" @click="setRankingBanned(false)">解除禁榜</button>
+            </div>
+            <p class="muted">注销状态只读。停用走 disable，不是注销。content 仍无订单明细。响应不含 OPENID。</p>
+            <p class="status">{{ memberStatus }}</p>
+            <pre>{{ memberView }}</pre>
+            <pre>{{ memberEvidence }}</pre>
+          </div>
+        </section>
+
+        <section class="page" :class="{ 'is-active': currentPage === 'admin-ops' }" data-page="admin-ops">
+          <p class="breadcrumb">{{ PAGES["admin-ops"].group }} / {{ PAGES["admin-ops"].title }}</p>
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">{{ PAGES["admin-ops"].title }}</h1>
+              <p class="page-desc">{{ PAGES["admin-ops"].desc }}</p>
+            </div>
+          </div>
+          <div class="card">
+            <label>处理说明<input v-model="feedbackNote" autocomplete="off" /></label>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="listFeedbacksPage">列出开放反馈</button>
+              <button type="button" :disabled="busy" @click="resolveFeedbackPage">处理最近一条</button>
+              <button type="button" class="ghost" @click="copyFeedbackLeftover">复制本轮反馈 leftover</button>
+            </div>
+            <p class="status">{{ feedbackStatus }}</p>
+            <pre>{{ feedbackView }}</pre>
+            <pre>{{ feedbackEvidence }}</pre>
           </div>
         </section>
 

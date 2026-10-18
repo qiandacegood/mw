@@ -1,0 +1,34 @@
+<view class="page">
+  <text class="h1">账号注销</text>
+  <text class="muted">停用 ≠ 注销。禁榜 ≠ 注销。注销须重新认证并确认当前协议版本。有未完成订单只列待办，不删号。交易证据按最小必要保留。</text>
+  <view class="card">
+    <text class="title">当前状态：{{status}}</text>
+    <text class="title">展示资料：{{nickname}}</text>
+    <text class="title">当前协议：{{agreementVersion}} / {{privacyVersion}}</text>
+    <scroll-view class="draft" scroll-y>
+      <text class="muted">{{agreementText}}</text>
+    </scroll-view>
+  </view>
+  <view class="card">
+    <checkbox-group bindchange="onAck">
+      <label>
+        <checkbox value="ack" checked="{{acknowledged}}" />
+        我已阅读当前测试稿版本，确认申请注销
+      </label>
+    </checkbox-group>
+    <button bindtap="reauth">重新登录确认身份</button>
+    <text class="muted">{{reauthText}}</text>
+    <button bindtap="submit" disabled="{{busy}}">申请注销</button>
+    <button class="ghost" bindtap="reload">查询注销状态</button>
+  </view>
+  <view class="card" wx:if="{{pendingItems.length}}">
+    <text class="title">须先处理的订单（不得直接删号）</text>
+    <view wx:for="{{pendingItems}}" wx:key="orderId" class="card">
+      <text class="muted">{{item.orderId}} · {{item.payState}}/{{item.grantState}}/{{item.refundState}}</text>
+      <text class="muted">{{item.hint}}</text>
+    </view>
+    <button class="ghost" bindtap="goOrders">去订单页处理</button>
+  </view>
+  <text class="muted">{{note}}</text>
+  <text class="title">{{result}}</text>
+</view>

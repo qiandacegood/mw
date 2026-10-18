@@ -12,6 +12,7 @@
       <text class="muted">本人选择：{{item.selectedText}}</text>
       <text class="{{item.score > 0 ? 'ok' : 'bad'}}">正确答案：{{item.correctText}}</text>
       <text class="muted">{{item.analysis}}</text>
+      <button class="ghost" size="mini" data-paper="{{item.paperId}}" data-question="{{item.questionId}}" data-version="{{item.questionVersionId}}" bindtap="goFeedback">反馈本版题目</button>
     </view>
     <button class="ghost" bindtap="goResult">返回结果</button>
   </block>

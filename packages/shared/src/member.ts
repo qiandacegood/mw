@@ -1,5 +1,6 @@
 import { hashNamedFields } from "./canonical.js";
 import { DEFAULT_GROWTH_LEVELS, DEFAULT_LEVEL_ID, levelIdForScore, type GrowthLevel } from "./growth.js";
+import { publicSupportEntry } from "./feedback.js";
 import { rejectUnknownKeys } from "./validate.js";
 
 export const IDENTITY_PROVIDER_WECHAT_MINI = "wechat_mini";
@@ -34,8 +35,17 @@ export const MEMBER_WRITE_MAX_BYTES = 4096;
 export const MEMBER_SCHEMA_VERSION = 1;
 
 export const DEFAULT_POLICY_VERSIONS = {
-  agreementVersion: "mw08-test-agreement-v1",
-  privacyVersion: "mw08-test-privacy-v1"
+  agreementVersion: "mw24-test-agreement-v1",
+  privacyVersion: "mw24-test-privacy-v1"
+} as const;
+
+export const POLICY_TEST_DRAFT = {
+  agreementTitle: "用户协议（测试稿）",
+  privacyTitle: "隐私政策（测试稿）",
+  agreementText:
+    "【测试稿 mw24-test-agreement-v1】本协议为思维工坊测试环境文案，非正式运营条款。正式文案由负责人确认后替换本版本。注册须主动勾选当前版本，禁止预勾选。账号注销须重新认证，未完成订单须先处理。支付与退款记录按最小必要保留。",
+  privacyText:
+    "【测试稿 mw24-test-privacy-v1】本说明为思维工坊测试环境隐私口径，非正式隐私政策。不开放生产真实注册或收款。注销后展示资料删除或最小保留；订单、退款与交易证据按最小必要保留，不承诺立即删除全部交易记录。公开榜与接口响应不含微信开放平台身份标识。"
 } as const;
 
 export const NICKNAME_CONTENT_SAFETY = {
@@ -253,10 +263,13 @@ export function defaultPolicyRecord(now: Date) {
   return {
     agreementVersion: DEFAULT_POLICY_VERSIONS.agreementVersion,
     privacyVersion: DEFAULT_POLICY_VERSIONS.privacyVersion,
-    agreementTitle: "用户协议（测试稿）",
-    privacyTitle: "隐私政策（测试稿）",
+    agreementTitle: POLICY_TEST_DRAFT.agreementTitle,
+    privacyTitle: POLICY_TEST_DRAFT.privacyTitle,
+    agreementText: POLICY_TEST_DRAFT.agreementText,
+    privacyText: POLICY_TEST_DRAFT.privacyText,
     placeholder: true,
-    note: "正式文案由 MW24 接入",
+    note: "负责人未确认正式文案；本轮使用带版本号的测试稿。不开放生产真实注册或收款。",
+    support: publicSupportEntry(now.toISOString()),
     updatedAt: now.toISOString(),
     schemaVersion: MEMBER_SCHEMA_VERSION
   };

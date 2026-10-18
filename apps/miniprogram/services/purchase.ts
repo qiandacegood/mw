@@ -61,6 +61,10 @@ export async function closeOrder(orderId: string): Promise<Record<string, unknow
   return memberAction("order.close", { orderId, confirmed: true });
 }
 
+export async function requestRefund(orderId: string, reason: string): Promise<Record<string, unknown>> {
+  return memberAction("refund.request", { orderId, reason });
+}
+
 export function loginCode(): Promise<string> {
   return new Promise((resolve, reject) => {
     wx.login({

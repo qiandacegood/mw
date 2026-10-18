@@ -52,6 +52,10 @@ type CloudDb = {
       update: (data: Record<string, unknown>) => Promise<unknown>;
     };
     add: (data: Record<string, unknown>) => Promise<{ id?: string; _id?: string }>;
+    limit: (n: number) => { get: () => Promise<unknown> };
+    where?: (query: Record<string, unknown>) => {
+      limit: (n: number) => { get: () => Promise<unknown> };
+    };
   };
   runTransaction: <T>(fn: (tx: CloudDb) => Promise<T>) => Promise<T>;
 };
@@ -114,6 +118,9 @@ function asMember(id: string, data: Record<string, unknown>): MemberRecord {
         ? (status as MemberStatus)
         : "active",
     rankingOptIn: data.rankingOptIn === true,
+    rankingBanned: data.rankingBanned === true,
+    deletedAt: typeof data.deletedAt === "string" ? data.deletedAt : undefined,
+    deletionRequestedAt: typeof data.deletionRequestedAt === "string" ? data.deletionRequestedAt : undefined,
     consentVersions: asConsent(data.consentVersions, {
       agreementVersion: "",
       privacyVersion: "",
@@ -165,8 +172,11 @@ function asPolicy(data: Record<string, unknown> | undefined): PolicyRecord {
     privacyVersion: typeof data.privacyVersion === "string" ? data.privacyVersion : fallback.privacyVersion,
     agreementTitle: typeof data.agreementTitle === "string" ? data.agreementTitle : fallback.agreementTitle,
     privacyTitle: typeof data.privacyTitle === "string" ? data.privacyTitle : fallback.privacyTitle,
+    agreementText: typeof data.agreementText === "string" ? data.agreementText : fallback.agreementText,
+    privacyText: typeof data.privacyText === "string" ? data.privacyText : fallback.privacyText,
     placeholder: data.placeholder !== false,
     note: typeof data.note === "string" ? data.note : fallback.note,
+    support: data.support && typeof data.support === "object" ? (data.support as PolicyRecord["support"]) : fallback.support,
     updatedAt: asIso(data.updatedAt, fallback.updatedAt),
     schemaVersion: typeof data.schemaVersion === "number" ? data.schemaVersion : 1
   };
@@ -190,7 +200,10 @@ function memberWrite(row: MemberRecord): Record<string, unknown> {
     avatarKey: row.avatarKey,
     status: row.status,
     rankingOptIn: row.rankingOptIn,
+    rankingBanned: row.rankingBanned === true,
     consentVersions: row.consentVersions,
+    ...(row.deletedAt ? { deletedAt: row.deletedAt } : {}),
+    ...(row.deletionRequestedAt ? { deletionRequestedAt: row.deletionRequestedAt } : {}),
     revision: row.revision,
     schemaVersion: row.schemaVersion,
     createdAt: row.createdAt,
@@ -367,6 +380,70 @@ export function cloudMemberWorkStore(): MemberWorkStore & MemberReadStore {
         const idemData = unwrapDoc(idemSnap);
         const next = mutate({
           identity: identityData ? asIdentity(identityId, identityData) : undefined,
+          member: memberData ? asMember(memberId, memberData) : undefined,
+          stats: statsData ? asStats(memberId, statsData) : undefined,
+          idem: idemData ? asIdem(idempotencyId, idemData) : undefined
+        });
+        if (next.member) {
+          writeCount += 1;
+          await tx.collection(MW08_COLLECTIONS.members).doc(memberId).update(memberWrite(next.member));
+        }
+        if (next.idem) {
+          writeCount += 1;
+          const body = idemWrite(next.idem, Boolean(idemData));
+          if (idemData) {
+            await tx.collection(MW08_COLLECTIONS.idempotency).doc(idempotencyId).update(body);
+          } else {
+            await tx.collection(MW08_COLLECTIONS.idempotency).doc(idempotencyId).set(body);
+          }
+        }
+        if (next.audit) {
+          writeCount += 1;
+          const auditId = auditDocId(next.audit);
+          await tx.collection(MW08_COLLECTIONS.auditLogs).doc(auditId).set(auditWrite(next.audit));
+        }
+        return next;
+      });
+      const budget: TxBudget = {
+        reads: readCount,
+        writes: writeCount,
+        total: readCount + writeCount,
+        elapsedMs: Date.now() - started
+      };
+      return { mutation, budget };
+    },
+    async listMembers(input) {
+      const limit = input?.limit ?? 50;
+      const snap = await cloudApp().database().collection(MW08_COLLECTIONS.members).limit(limit).get();
+      const rec = snap && typeof snap === "object" ? (snap as Record<string, unknown>) : {};
+      const data = rec.data;
+      const rows = Array.isArray(data)
+        ? data
+        : data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).data)
+          ? ((data as Record<string, unknown>).data as unknown[])
+          : [];
+      return rows
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+        .map((row) => asMember(String(row._id || row.memberId || ""), row));
+    },
+    async transactAdminMember<T>(
+      memberId: string,
+      idempotencyId: string,
+      mutate: (snap: MemberProfileSnapshot) => MemberProfileMutation<T>
+    ) {
+      const started = Date.now();
+      let readCount = 0;
+      let writeCount = 0;
+      const db = cloudApp().database();
+      const mutation = await db.runTransaction(async (tx) => {
+        readCount += 3;
+        const memberSnap = await tx.collection(MW08_COLLECTIONS.members).doc(memberId).get();
+        const statsSnap = await tx.collection(MW08_COLLECTIONS.memberStats).doc(memberId).get();
+        const idemSnap = await tx.collection(MW08_COLLECTIONS.idempotency).doc(idempotencyId).get();
+        const memberData = unwrapDoc(memberSnap);
+        const statsData = unwrapDoc(statsSnap);
+        const idemData = unwrapDoc(idemSnap);
+        const next = mutate({
           member: memberData ? asMember(memberId, memberData) : undefined,
           stats: statsData ? asStats(memberId, statsData) : undefined,
           idem: idemData ? asIdem(idempotencyId, idemData) : undefined

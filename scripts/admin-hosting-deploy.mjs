@@ -43,10 +43,13 @@ record("ensure_shared", { ok: true });
 const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
 const built = spawnSync(npmCmd, ["run", "build", "-w", "@mw/admin"], {
   cwd: root,
-  encoding: "utf8"
+  encoding: "utf8",
+  shell: process.platform === "win32"
 });
 if (built.status !== 0) {
-  throw new Error(`admin build failed: ${built.stderr || built.stdout}`);
+  throw new Error(
+    `admin build failed: ${built.stderr || built.stdout || built.error?.message || `status=${built.status}`}`
+  );
 }
 record("admin_build", { ok: true });
 

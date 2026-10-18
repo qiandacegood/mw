@@ -70,6 +70,7 @@ export interface AttemptReadStore {
   getCatalog?(): Promise<CatalogRecord | undefined>;
   getStats(memberId: string): Promise<MemberStatsRecord | undefined>;
   getBest(memberId: string, paperId: string): Promise<PaperBestRecord | undefined>;
+  listMemberBests?(memberId: string): Promise<PaperBestRecord[]>;
   listSubmittedAttempts(input: {
     memberId: string;
     paperId?: string;
@@ -305,6 +306,9 @@ export function memoryAttemptStore(seed: {
     async getBest(memberId, paperId) {
       const row = bests.get(paperBestId(memberId, paperId));
       return row ? cloneBest(row) : undefined;
+    },
+    async listMemberBests(memberId) {
+      return [...bests.values()].filter((row) => row.memberId === memberId).map(cloneBest);
     },
     async getCategory(categoryId) {
       const row = categories.get(categoryId);

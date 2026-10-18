@@ -1,4 +1,6 @@
 .page { padding: 24px; }
 .h1 { font-size: 20px; font-weight: 600; display: block; }
+.h2 { font-size: 16px; font-weight: 600; display: block; margin-top: 4px; }
 .muted, .title { display: block; margin-top: 8px; color: #4a5568; }
+.card { margin-top: 12px; padding: 14px; background: #fff; border-radius: 10px; }
 button { margin-top: 16px; background: #2b6cb0; color: #fff; }

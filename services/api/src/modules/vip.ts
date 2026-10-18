@@ -103,7 +103,9 @@ export async function grantVipGift(input: {
   if (input.members) {
     const member = await input.members.getMember(parsed.memberId);
     if (!member) return fail("NOT_FOUND", "MEMBER_NOT_FOUND");
-    if (member.status === "disabled") return fail("ACCOUNT_DISABLED", "ACCOUNT_DISABLED");
+    if (member.status === "disabled" || member.status === "deleting" || member.status === "deleted") {
+      return fail(member.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_DELETED", member.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_DELETED");
+    }
   }
   const sourceId = parsed.sourceId || input.idempotencyKey;
   const grantId = vipGrantId(VIP_SOURCE_GIFT, sourceId);

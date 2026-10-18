@@ -4,14 +4,22 @@ import {
   knownIdPayload,
   leftoverAttemptIdList,
   leftoverMemberIdList,
+  leftoverOrderIdList,
   leftoverPaperIdList,
+  leftoverRefundIdList,
+  leftoverFeedbackIdList,
   markLeftoverAttemptId,
   markLeftoverMemberId,
+  markLeftoverOrderId,
   markLeftoverPaperId,
+  markLeftoverRefundId,
+  markLeftoverFeedbackId,
   resetLeftoverAttemptIds,
   resetLeftoverMemberIds,
   resetLeftoverOrderIds,
-  resetLeftoverPaperIds
+  resetLeftoverPaperIds,
+  resetLeftoverRefundIds,
+  resetLeftoverFeedbackIds
 } from "./known-ids";
 
 describe("MW13 leftover knownIds", () => {
@@ -20,17 +28,22 @@ describe("MW13 leftover knownIds", () => {
     resetLeftoverAttemptIds();
     resetLeftoverMemberIds();
     resetLeftoverOrderIds();
+    resetLeftoverRefundIds();
+    resetLeftoverFeedbackIds();
   });
 
   it("defaults to empty papers, attempts and members until something is explicitly marked", () => {
-    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [], orders: [] });
+    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [], orders: [], refunds: [], feedbacks: [] });
     expect(leftoverPaperIdList()).toEqual([]);
     expect(leftoverAttemptIdList()).toEqual([]);
     expect(leftoverMemberIdList()).toEqual([]);
+    expect(leftoverOrderIdList()).toEqual([]);
+    expect(leftoverRefundIdList()).toEqual([]);
+    expect(leftoverFeedbackIdList()).toEqual([]);
   });
 
   it("does not record leftover on browse or automatic page enter", () => {
-    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [], orders: [] });
+    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [], orders: [], refunds: [], feedbacks: [] });
     expect(markLeftoverPaperId("paper_fict_mw13")).toBe(true);
     expect(markLeftoverAttemptId("attempt_fict_mw14")).toBe(true);
     expect(markLeftoverMemberId("member_fict_mw16")).toBe(true);
@@ -55,7 +68,7 @@ describe("MW13 leftover knownIds", () => {
     expect(markLeftoverPaperId("   ")).toBe(false);
     expect(markLeftoverAttemptId("")).toBe(false);
     expect(markLeftoverMemberId("  ")).toBe(false);
-    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [], orders: [] });
+    expect(knownIdPayload()).toEqual({ papers: [], attempts: [], members: [], orders: [], refunds: [], feedbacks: [] });
   });
 
   it("only hashes the member id when the user explicitly marks it", () => {
@@ -66,5 +79,28 @@ describe("MW13 leftover knownIds", () => {
     expect(payload.members).toEqual([sha256Hex("member_fict_mw16")]);
     expect(payload.members.some((item) => item.includes("member_fict_mw16"))).toBe(false);
     expect(leftoverMemberIdList()).toEqual(["member_fict_mw16"]);
+  });
+
+  it("does not enroll orders or refunds until the user explicitly marks leftover", () => {
+    expect(knownIdPayload().orders).toEqual([]);
+    expect(knownIdPayload().refunds).toEqual([]);
+    expect(markLeftoverOrderId("order_fict_mw22")).toBe(true);
+    expect(markLeftoverOrderId("order_fict_mw22")).toBe(true);
+    expect(markLeftoverRefundId("refund_fict_mw22")).toBe(true);
+    const payload = knownIdPayload();
+    expect(payload.orders).toEqual([sha256Hex("order_fict_mw22")]);
+    expect(payload.refunds).toEqual([sha256Hex("refund_fict_mw22")]);
+    expect(payload.orders.includes("order_fict_mw22")).toBe(false);
+    expect(leftoverOrderIdList()).toEqual(["order_fict_mw22"]);
+    expect(leftoverRefundIdList()).toEqual(["refund_fict_mw22"]);
+  });
+
+  it("only hashes feedback ids when the user explicitly marks leftover", () => {
+    expect(markLeftoverFeedbackId("fb_fict_mw23")).toBe(true);
+    expect(markLeftoverFeedbackId("fb_fict_mw23")).toBe(true);
+    const payload = knownIdPayload();
+    expect(payload.feedbacks).toEqual([sha256Hex("fb_fict_mw23")]);
+    expect(payload.feedbacks.includes("fb_fict_mw23")).toBe(false);
+    expect(leftoverFeedbackIdList()).toEqual(["fb_fict_mw23"]);
   });
 });

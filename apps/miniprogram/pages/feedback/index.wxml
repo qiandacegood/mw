@@ -1,0 +1,16 @@
+<view class="page">
+  <text class="h1">题目反馈</text>
+  <text class="muted">必须绑定试卷与题目版本。不接受外链。不能改答案库。客服入口与订单售后是另外两类问题。</text>
+  <view class="card">
+    <text class="title">类型</text>
+    <button size="mini" class="{{type === 'question_error' ? 'on' : 'ghost'}}" data-type="question_error" bindtap="pickType">题目错误</button>
+    <button size="mini" class="{{type === 'analysis_error' ? 'on' : 'ghost'}}" data-type="analysis_error" bindtap="pickType">解析错误</button>
+    <input value="{{paperId}}" bindinput="onPaper" placeholder="paperId" />
+    <input value="{{questionId}}" bindinput="onQuestion" placeholder="questionId" />
+    <input value="{{versionId}}" bindinput="onVersion" placeholder="题目 versionId" />
+    <textarea value="{{text}}" bindinput="onText" maxlength="500" placeholder="说明本题或本版解析的问题，不要贴外链" />
+    <button bindtap="submit">提交本版反馈</button>
+    <button class="ghost" bindtap="markLeftover">记入本轮 leftover（本条反馈）</button>
+  </view>
+  <text class="title">{{result}}</text>
+</view>

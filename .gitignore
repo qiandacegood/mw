@@ -45,6 +45,12 @@ configs/mw20-state.json
 configs/mw20-verify-state.json
 configs/mw21-state.json
 configs/mw21-verify-state.json
+configs/mw22-state.json
+configs/mw22-verify-state.json
+configs/mw23-state.json
+configs/mw23-verify-state.json
+configs/mw24-state.json
+configs/mw24-verify-state.json
 configs/mw07-state.json
 configs/mw07-verify-state.json
 configs/mw07b-state.json

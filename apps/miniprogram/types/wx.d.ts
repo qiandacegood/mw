@@ -82,6 +82,16 @@ interface PageInstance {
   goHistory?: () => void;
   goVip?: () => void;
   goOrders?: () => void;
+  goRanking?: () => void;
+  goSupport?: () => void;
+  goFeedback?: (event?: { currentTarget?: { dataset?: { question?: string; version?: string; paper?: string } } }) => void;
+  goDeletion?: () => void;
+  copyMemberId?: () => void;
+  pickType?: (event?: { currentTarget?: { dataset?: { type?: string } } }) => void;
+  onPaper?: (event?: { detail?: { value?: string } }) => void;
+  onQuestion?: (event?: { detail?: { value?: string } }) => void;
+  onVersion?: (event?: { detail?: { value?: string } }) => void;
+  onText?: (event?: { detail?: { value?: string } }) => void;
   goAnalysis?: (event?: { currentTarget?: { dataset?: { id?: string } } }) => void;
   submitAttempt?: (confirmUnanswered?: boolean) => void | Promise<void>;
   submitPaper?: () => void | Promise<void>;
@@ -141,7 +151,7 @@ interface PageOptions {
   more?: (this: PageInstance) => void;
   startFree?: (this: PageInstance) => void | Promise<void>;
   replaceStart?: (this: PageInstance, abandonAttemptId: string, expectedRevision?: number) => void | Promise<void>;
-  markLeftover?: (this: PageInstance) => void;
+  markLeftover?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string } } }) => void;
   reload?: (this: PageInstance, reset?: boolean) => void | Promise<void>;
   loadTree?: (this: PageInstance, preferredId?: string) => void | Promise<void>;
   applyNode?: (this: PageInstance, nodes: unknown, currentId?: string) => void;
@@ -203,11 +213,29 @@ interface PageOptions {
   toggleRanking?: (this: PageInstance) => void | Promise<void>;
   goVip?: (this: PageInstance) => void;
   goOrders?: (this: PageInstance) => void;
+  goRanking?: (this: PageInstance) => void;
+  goSupport?: (this: PageInstance) => void;
+  goPolicies?: (this: PageInstance) => void;
+  onAck?: (this: PageInstance, event: { detail?: { value?: string[] } }) => void;
+  reauth?: (this: PageInstance) => void | Promise<void>;
+  goFeedback?: (
+    this: PageInstance,
+    event?: { currentTarget?: { dataset?: { question?: string; version?: string; paper?: string } } }
+  ) => void;
+  goDeletion?: (this: PageInstance) => void;
+  copyMemberId?: (this: PageInstance) => void;
+  pickType?: (this: PageInstance, event?: { currentTarget?: { dataset?: { type?: string } } }) => void;
+  onPaper?: (this: PageInstance, event?: { detail?: { value?: string } }) => void;
+  onQuestion?: (this: PageInstance, event?: { detail?: { value?: string } }) => void;
+  onVersion?: (this: PageInstance, event?: { detail?: { value?: string } }) => void;
+  onText?: (this: PageInstance, event?: { detail?: { value?: string } }) => void;
   buy?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string; version?: string } } }) => void | Promise<void>;
   pay?: (this: PageInstance) => void | Promise<void>;
   fakeSuccess?: (this: PageInstance) => void | Promise<void>;
   refresh?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string } } }) => void | Promise<void>;
   close?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string } } }) => void | Promise<void>;
+  onReason?: (this: PageInstance, event?: { detail?: { value?: string } }) => void;
+  requestRefund?: (this: PageInstance, event?: { currentTarget?: { dataset?: { id?: string } } }) => void | Promise<void>;
   copyLeftover?: (this: PageInstance) => void;
 }
 

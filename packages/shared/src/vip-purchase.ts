@@ -1,6 +1,11 @@
 import { hashNamedFields } from "./canonical.js";
 import type { GrantState, PayState, RefundState } from "./types.js";
 import { rejectUnknownKeys } from "./validate.js";
+import {
+  appleRefundGuidance,
+  merchantRefundSupported,
+  orderRefundDisplay
+} from "./vip-refund.js";
 import { durationSecondsFromDays, SECONDS_PER_DAY, VIP_SOURCE_ORDER } from "./vip.js";
 import { resolveVirtualPayEnv, VIRTUAL_PAY_BUY_QUANTITY, type VirtualPayEnv } from "./virtual-pay.js";
 
@@ -112,6 +117,7 @@ export type OrderRecord = {
   needsReview: boolean;
   reviewReason: string;
   goodsNotified: boolean;
+  fixtureLedger: boolean;
   schemaVersion: number;
 };
 
@@ -205,39 +211,98 @@ export function freezePlanSnapshot(input: {
   };
 }
 
-export function orderDisplayStatus(order: Pick<OrderRecord, "payState" | "grantState" | "refundState">): {
+export function orderDisplayStatus(
+  order: Pick<OrderRecord, "payState" | "grantState" | "refundState" | "channel">
+): {
   displayStatus: string;
   userHint?: string;
   availableActions: string[];
   forbidRepurchaseHint?: boolean;
+  merchantRefundSupported: boolean;
+  appleGuidance?: string;
+  canRequestRefund: boolean;
 } {
+  const merchant = merchantRefundSupported(order.channel);
+  const appleGuidance = merchant ? undefined : appleRefundGuidance();
   if (order.refundState !== "none") {
-    return { displayStatus: "退款相关", availableActions: ["order.get"] };
+    const refund = orderRefundDisplay(order.refundState);
+    return {
+      displayStatus: refund.displayStatus,
+      userHint: refund.userHint,
+      availableActions: ["order.get"],
+      merchantRefundSupported: merchant,
+      appleGuidance,
+      canRequestRefund: false
+    };
   }
   if (order.payState === "closed") {
-    return { displayStatus: "已关闭", availableActions: ["order.get"] };
+    return {
+      displayStatus: "已关闭",
+      availableActions: ["order.get"],
+      merchantRefundSupported: merchant,
+      appleGuidance,
+      canRequestRefund: false
+    };
   }
   if (order.payState === "pending") {
-    return { displayStatus: "待支付", availableActions: ["payment.prepare", "order.refresh", "order.close"] };
+    return {
+      displayStatus: "待支付",
+      availableActions: ["payment.prepare", "order.refresh", "order.close"],
+      merchantRefundSupported: merchant,
+      appleGuidance,
+      canRequestRefund: false
+    };
   }
   if (order.payState === "confirming") {
-    return { displayStatus: "确认中", availableActions: ["order.refresh"] };
+    return {
+      displayStatus: "确认中",
+      availableActions: ["order.refresh"],
+      merchantRefundSupported: merchant,
+      appleGuidance,
+      canRequestRefund: false
+    };
   }
+  const canRequestRefund =
+    merchant &&
+    order.payState === "paid" &&
+    (order.grantState === "granted" || order.grantState === "pending" || order.grantState === "processing");
   if (order.payState === "paid" && order.grantState === "granted") {
-    return { displayStatus: "已完成", availableActions: ["order.get"] };
+    return {
+      displayStatus: "已完成",
+      availableActions: canRequestRefund ? ["order.get", "refund.request"] : ["order.get"],
+      merchantRefundSupported: merchant,
+      appleGuidance,
+      canRequestRefund
+    };
   }
   if (order.payState === "paid" && order.grantState === "processing") {
-    return { displayStatus: "开通中", availableActions: ["order.refresh"], forbidRepurchaseHint: true };
+    return {
+      displayStatus: "开通中",
+      availableActions: ["order.refresh"],
+      forbidRepurchaseHint: true,
+      merchantRefundSupported: merchant,
+      appleGuidance,
+      canRequestRefund
+    };
   }
   if (order.payState === "paid") {
     return {
       displayStatus: "已支付",
       userHint: "已支付，权益开通中",
-      availableActions: ["order.refresh"],
-      forbidRepurchaseHint: true
+      availableActions: canRequestRefund ? ["order.refresh", "refund.request"] : ["order.refresh"],
+      forbidRepurchaseHint: true,
+      merchantRefundSupported: merchant,
+      appleGuidance,
+      canRequestRefund
     };
   }
-  return { displayStatus: "确认中", availableActions: ["order.refresh"] };
+  return {
+    displayStatus: "确认中",
+    availableActions: ["order.refresh"],
+    merchantRefundSupported: merchant,
+    appleGuidance,
+    canRequestRefund: false
+  };
 }
 
 export function canTransitionPayState(from: PayState, to: PayState): boolean {
@@ -504,6 +569,7 @@ export function newOrderRecord(input: {
     needsReview: false,
     reviewReason: "",
     goodsNotified: false,
+    fixtureLedger: false,
     schemaVersion: ORDER_SCHEMA_VERSION
   };
 }

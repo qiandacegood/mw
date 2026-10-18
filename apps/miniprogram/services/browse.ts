@@ -45,6 +45,40 @@ export async function memberMe(): Promise<Record<string, unknown>> {
   }
 }
 
+export async function memberCategoryScores(): Promise<Record<string, unknown>> {
+  try {
+    return await callOfficialAction("mw-member", "member.categoryScores", {}, { requestId: `req_mp_catscores_${Date.now()}` });
+  } catch {
+    return { ok: false, error: { code: "SERVICE_BUSY", message: "网络失败或服务繁忙", retryable: true } };
+  }
+}
+
+export async function policiesCurrent(): Promise<Record<string, unknown>> {
+  return publicAction("policies.current");
+}
+
+export async function memberDeletionStatus(): Promise<Record<string, unknown>> {
+  try {
+    return await callOfficialAction("mw-member", "member.deletionStatus", {}, { requestId: `req_mp_delstatus_${Date.now()}` });
+  } catch {
+    return { ok: false, error: { code: "SERVICE_BUSY", message: "网络失败或服务繁忙", retryable: true } };
+  }
+}
+
+export async function requestMemberDeletion(input: {
+  reauthProof: { kind: "wx_login_code"; code: string };
+  acknowledgementVersion: string;
+}): Promise<Record<string, unknown>> {
+  try {
+    return await callOfficialAction("mw-member", "member.requestDeletion", input, {
+      requestId: `req_mp_del_${Date.now()}`,
+      idempotencyKey: `mp_deletion_${Date.now()}`
+    });
+  } catch {
+    return { ok: false, error: { code: "SERVICE_BUSY", message: "网络失败或服务繁忙", retryable: true } };
+  }
+}
+
 /** 个人成长展示：当前等级、总分、升级进度、已得勋章（MW16）。 */
 export async function memberGrowth(): Promise<Record<string, unknown>> {
   try {

@@ -6,6 +6,8 @@ Page({
     privacyVersion: "",
     agreementTitle: "",
     privacyTitle: "",
+    agreementText: "",
+    privacyText: "",
     accepted: false,
     busy: false,
     result: "尚未提交"
@@ -18,6 +20,8 @@ Page({
       privacyVersion: String(data.privacyVersion || ""),
       agreementTitle: String(data.agreementTitle || "用户协议（测试稿）"),
       privacyTitle: String(data.privacyTitle || "隐私政策（测试稿）"),
+      agreementText: String(data.agreementText || ""),
+      privacyText: String(data.privacyText || ""),
       accepted: false
     });
   },
@@ -27,6 +31,10 @@ Page({
   },
   async submit() {
     if (this.data.busy) return;
+    if (this.data.accepted !== true) {
+      this.setData({ result: "须主动勾选当前协议版本后才能注册。未预勾选。" });
+      return;
+    }
     this.setData({ busy: true, result: "提交中" });
     const res = await callOfficialAction(
       "mw-member",
@@ -34,7 +42,7 @@ Page({
       {
         agreementVersion: this.data.agreementVersion,
         privacyVersion: this.data.privacyVersion,
-        accepted: this.data.accepted === true
+        accepted: true
       },
       { requestId: `req_mp_register_${Date.now()}`, idempotencyKey: `mp_register_${Date.now()}` }
     );

@@ -7,7 +7,18 @@ Page({
     message: "",
     attemptId: "",
     wrongOnly: false,
-    items: [] as Array<{ questionId: string; score: number; selectedText: string; correctText: string; analysis: string }>
+    paperId: "",
+    paperVersionId: "",
+    items: [] as Array<{
+      questionId: string;
+      questionVersionId: string;
+      paperId: string;
+      paperVersionId: string;
+      score: number;
+      selectedText: string;
+      correctText: string;
+      analysis: string;
+    }>
   },
   onLoad(query?: Record<string, string | undefined>) {
     this.setData({ attemptId: String(query?.attemptId || "") });
@@ -47,14 +58,20 @@ Page({
       const items = asRecord(next.data).items;
       if (Array.isArray(items)) raw.push(...items);
     }
+    const firstItem = asRecord(raw[0]);
     this.setData({
       state: "ok",
+      paperId: String(firstItem.paperId || ""),
+      paperVersionId: String(firstItem.paperVersionId || ""),
       items: raw.map((row) => {
         const rec = asRecord(row);
         const selected = Array.isArray(rec.selectedOptionIds) ? rec.selectedOptionIds.map(String) : [];
         const correct = Array.isArray(rec.correctOptionIds) ? rec.correctOptionIds.map(String) : [];
         return {
           questionId: String(rec.questionId || ""),
+          questionVersionId: String(rec.questionVersionId || ""),
+          paperId: String(rec.paperId || ""),
+          paperVersionId: String(rec.paperVersionId || ""),
           score: Number(rec.score || 0),
           selectedText: selected.length ? selected.join(" ") : "未答",
           correctText: correct.join(" "),
@@ -70,5 +87,14 @@ Page({
   goResult() {
     const attemptId = String(this.data.attemptId || "");
     wx.navigateTo({ url: `/pages/result/index?attemptId=${encodeURIComponent(attemptId)}` });
+  },
+  goFeedback(event?: { currentTarget?: { dataset?: { question?: string; version?: string; paper?: string } } }) {
+    const ds = event?.currentTarget?.dataset || {};
+    const paperId = encodeURIComponent(String(ds.paper || this.data.paperId || ""));
+    const questionId = encodeURIComponent(String(ds.question || ""));
+    const versionId = encodeURIComponent(String(ds.version || ""));
+    wx.navigateTo({
+      url: `/pages/feedback/index?paperId=${paperId}&questionId=${questionId}&versionId=${versionId}`
+    });
   }
 });

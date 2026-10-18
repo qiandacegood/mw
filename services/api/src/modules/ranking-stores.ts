@@ -38,6 +38,7 @@ export type RankingMemberRow = {
   avatarKey: string;
   status: "active" | "disabled" | "deleting" | "deleted";
   rankingOptIn: boolean;
+  rankingBanned?: boolean;
   revision: number;
 };
 

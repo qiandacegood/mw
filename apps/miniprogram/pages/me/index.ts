@@ -1,5 +1,6 @@
-import { asRecord, errorInfo, memberGrowth, memberMe } from "../../services/browse";
+import { asRecord, errorInfo, memberCategoryScores, memberGrowth, memberMe } from "../../services/browse";
 import { markLeftoverMemberId } from "../../services/known-ids";
+import { setRanking } from "../../services/ranking";
 
 type MedalRow = {
   levelName: string;
@@ -45,6 +46,11 @@ Page({
     vipActive: false,
     vipText: "未读取",
     vipExpiresAt: "",
+    rankingOptIn: false,
+    rankingBanned: false,
+    rankingText: "未读取",
+    categoryText: "未读取",
+    revision: 1,
     raw: ""
   },
   onShow() {
@@ -53,6 +59,7 @@ Page({
   async reload() {
     const res = await memberMe();
     const growth = await memberGrowth();
+    const scores = await memberCategoryScores();
     if (!res.ok) {
       const info = errorInfo(res);
       this.setData({
@@ -69,6 +76,8 @@ Page({
         vipActive: false,
         vipText: info.code === "MEMBER_REQUIRED" ? "注册后可查看 VIP 状态。" : "未读取",
         vipExpiresAt: "",
+        rankingText: info.code === "MEMBER_REQUIRED" ? "注册后可开关公开排行。" : "未读取",
+        categoryText: "",
         raw: JSON.stringify({ ok: false, code: info.code, reason: info.reason })
       });
       return;
@@ -82,6 +91,21 @@ Page({
     const vip = asRecord(data.vip);
     const vipActive = vip.active === true;
     const vipExpiresAt = String(vip.expiresAt || "");
+    const rankingOptIn = data.rankingOptIn === true;
+    const rankingBanned = data.rankingBanned === true;
+    const scoreData = asRecord(scores.data);
+    const nodes = Array.isArray(scoreData.nodes) ? scoreData.nodes : [];
+    const categoryText = scores.ok
+      ? nodes.length
+        ? nodes
+            .slice(0, 6)
+            .map((row) => {
+              const rec = asRecord(row);
+              return `${rec.categoryId || "-"} 直接${rec.directScore ?? 0} / 含后代${rec.inclusiveScore ?? 0}`;
+            })
+            .join("；")
+        : "暂无分类分"
+      : `${errorInfo(scores).message}。可重试。`;
     this.setData({
       statusText: String(data.status || ""),
       memberId: String(data.memberId || ""),
@@ -109,11 +133,17 @@ Page({
       vipActive,
       vipText: vipActive ? "有效 VIP" : vipExpiresAt ? "已过期" : "未开通",
       vipExpiresAt,
+      rankingOptIn,
+      rankingBanned,
+      rankingText: rankingBanned ? "已禁榜（账号未停用）" : rankingOptIn ? "已参与公开排行" : "未参与公开排行",
+      categoryText,
+      revision: typeof data.revision === "number" ? data.revision : 1,
       raw: JSON.stringify({
         ok: true,
         status: data.status,
         revision: data.revision,
-        rankingOptIn: data.rankingOptIn,
+        rankingOptIn,
+        rankingBanned,
         growthOk: growth.ok === true,
         vipActive,
         vipExpiresAt
@@ -134,6 +164,37 @@ Page({
   },
   goOrders() {
     wx.navigateTo({ url: "/pages/orders/index" });
+  },
+  goRanking() {
+    wx.switchTab({ url: "/pages/ranking/index" });
+  },
+  goPolicies() {
+    wx.navigateTo({ url: "/pages/policies/index" });
+  },
+  goSupport() {
+    wx.navigateTo({ url: "/pages/support/index" });
+  },
+  goFeedback() {
+    wx.navigateTo({ url: "/pages/feedback/index" });
+  },
+  goDeletion() {
+    wx.navigateTo({ url: "/pages/deletion/index" });
+  },
+  async toggleRanking() {
+    const res = await setRanking(!this.data.rankingOptIn, Number(this.data.revision || 1));
+    if (!res.ok) {
+      wx.showToast({ title: errorInfo(res).message, icon: "none" });
+      return;
+    }
+    void this.reload?.();
+  },
+  copyMemberId() {
+    const id = String(this.data.memberId || "").trim();
+    if (!id) {
+      wx.showToast({ title: "暂无会员 ID，请先刷新", icon: "none" });
+      return;
+    }
+    wx.setClipboardData({ data: id });
   },
   /** 只有用户主动点击才把本人身份记入本轮 leftover，用于按 member 独立核查。 */
   markLeftover() {
