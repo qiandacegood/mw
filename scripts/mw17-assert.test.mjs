@@ -227,7 +227,8 @@ assert.match(cloudMain, /cloudRankingStore/);
 
 // 云库写入：`_id` 只能由 doc(id) 决定，载荷里再带 `_id` 会被 CloudBase 拒绝。
 // MW17 手点首次暴露：ranking_rows 行写失败 → 每次重建都 RANKING_ROWS_WRITE_FAILED。
-assert.match(cloudRanking, /doc\(row\.rowId\)\.set\(\{ \.\.\.row \}\)/);
+assert.match(cloudRanking, /doc\(row\.rowId\)\.set\(omitDocId\(\{ \.\.\.row \}\)\)/);
+assert.match(cloudRanking, /function omitDocId/);
 assert.match(cloudRanking, /purgeRowsOf/);
 {
   const modulesDir = join(root, "services/api/src/modules");

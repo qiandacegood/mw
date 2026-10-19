@@ -94,6 +94,8 @@ describe("MW25 ops.stats / tutorial / exceptions", () => {
     expect(res.data.turnoverIsNotProfit).toBe(true);
     expect(res.data.repeatPracticeCounts).toBe(true);
     expect(res.data.vipRule).toBe("now < expiresAt");
+    expect(res.data.scanTruncated).toBe(false);
+    expect(res.data.scanBudget).toBe(2000);
     expect(JSON.stringify(res.data)).toContain("重复练习计入次数");
     expect(JSON.stringify(res.data)).toContain("不是净利润");
     const papers = res.data.papers as Array<{ completedCount: number; averageScore: number }>;

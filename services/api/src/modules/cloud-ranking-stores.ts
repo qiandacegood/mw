@@ -1,5 +1,6 @@
 import {
   METRIC_GENERATION_BASE,
+  RANKING_BUILD_SCAN_PAGE,
   RANKING_RUNTIME_DOC_ID,
   auditDocId,
   rankingRowId,
@@ -23,8 +24,8 @@ import {
 } from "./ranking-stores.js";
 import type { TxBudget } from "./job-stores.js";
 
-const WRITE_CHUNK = 10;
-const SCAN_PAGE = 500;
+const WRITE_CHUNK = 20;
+const SCAN_PAGE = RANKING_BUILD_SCAN_PAGE;
 
 type CloudDocRef = {
   get: () => Promise<unknown>;
@@ -47,6 +48,7 @@ type CloudColl = CloudQuery & {
 type CloudDb = {
   collection: (name: string) => CloudColl;
   runTransaction: <T>(fn: (tx: CloudDb) => Promise<T>) => Promise<T>;
+  command?: { gt: (value: unknown) => unknown };
 };
 
 function cloudApp() {
@@ -96,6 +98,12 @@ function docsFromGet(snap: unknown): Record<string, unknown>[] {
   return [];
 }
 
+function omitDocId(payload: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...payload };
+  delete out._id;
+  return out;
+}
+
 async function queryRows(
   collection: string,
   query: Record<string, unknown> | undefined,
@@ -119,6 +127,34 @@ async function queryRows(
   }
   const snap = await cursor.limit(limit).get();
   return docsFromGet(snap);
+}
+
+async function queryPaged(
+  collection: string,
+  query: Record<string, unknown> | undefined,
+  max: number
+): Promise<{ rows: Record<string, unknown>[]; truncated: boolean }> {
+  const out: Record<string, unknown>[] = [];
+  let lastId = "";
+  const gt = db().command?.gt;
+  while (out.length < max) {
+    const take = Math.min(SCAN_PAGE, max - out.length);
+    const pageQuery: Record<string, unknown> = { ...(query || {}) };
+    if (lastId && gt) pageQuery._id = gt(lastId);
+    const rows = await queryRows(
+      collection,
+      Object.keys(pageQuery).length ? pageQuery : undefined,
+      { field: "_id", direction: "asc" },
+      take,
+      lastId && !gt ? out.length : 0
+    );
+    if (!rows.length) return { rows: out, truncated: false };
+    out.push(...rows);
+    lastId = String(rows[rows.length - 1]?._id || "");
+    if (!lastId || rows.length < take) return { rows: out, truncated: false };
+    if (!gt && out.length >= 1000) return { rows: out, truncated: true };
+  }
+  return { rows: out, truncated: out.length >= max };
 }
 
 function strings(value: unknown): string[] {
@@ -373,26 +409,27 @@ export function cloudRankingStore(): RankingWorkStore {
       return data ? asMetricRow(data, metricId) : undefined;
     },
     async scanMetrics(input) {
-      const rows = await queryRows(
-        RANKING_COLLECTIONS.scoreMetrics,
-        { metricGeneration: METRIC_GENERATION_BASE },
-        undefined,
-        input.limit
-      );
-      return { rows: rows.map((row) => asMetricRow(row, String(row._id || ""))), truncated: rows.length >= input.limit };
+      const page = await queryPaged(RANKING_COLLECTIONS.scoreMetrics, { metricGeneration: METRIC_GENERATION_BASE }, input.limit);
+      return {
+        rows: page.rows.map((row) => asMetricRow(row, String(row._id || ""))),
+        truncated: page.truncated
+      };
     },
     async scanMembers(input) {
-      const rows = await queryRows(RANKING_COLLECTIONS.members, undefined, undefined, input.limit);
-      return { rows: rows.map((row) => asMemberRow(row, String(row._id || ""))), truncated: rows.length >= input.limit };
+      const page = await queryPaged(RANKING_COLLECTIONS.members, undefined, input.limit);
+      return {
+        rows: page.rows.map((row) => asMemberRow(row, String(row._id || ""))),
+        truncated: page.truncated
+      };
     },
     async scanStats(input) {
-      const rows = await queryRows(RANKING_COLLECTIONS.memberStats, undefined, undefined, input.limit);
-      const parsed: RankingStatsRow[] = rows.map((row) => ({
+      const page = await queryPaged(RANKING_COLLECTIONS.memberStats, undefined, input.limit);
+      const parsed: RankingStatsRow[] = page.rows.map((row) => ({
         memberId: typeof row.memberId === "string" ? row.memberId : String(row._id || ""),
         totalScore: typeof row.totalScore === "number" ? row.totalScore : 0,
         levelId: typeof row.levelId === "string" ? row.levelId : ""
       }));
-      return { rows: parsed, truncated: rows.length >= input.limit };
+      return { rows: parsed, truncated: page.truncated };
     },
     async listCategories() {
       const rows = await queryRows(RANKING_COLLECTIONS.categories, undefined, undefined, SCAN_PAGE);
@@ -428,7 +465,7 @@ export function cloudRankingStore(): RankingWorkStore {
        */
       try {
         const rowsWritten = await setInChunks(rows, (row) =>
-          db().collection(RANKING_COLLECTIONS.rankingRows).doc(row.rowId).set({ ...row })
+          db().collection(RANKING_COLLECTIONS.rankingRows).doc(row.rowId).set(omitDocId({ ...row }))
         );
         return { rowsWritten, obsoleteRemoved };
       } catch (error) {
@@ -437,7 +474,7 @@ export function cloudRankingStore(): RankingWorkStore {
       }
     },
     async saveRuntime(runtime) {
-      await db().collection(RANKING_COLLECTIONS.appConfig).doc(RANKING_RUNTIME_DOC_ID).set({ ...runtime });
+      await db().collection(RANKING_COLLECTIONS.appConfig).doc(RANKING_RUNTIME_DOC_ID).set(omitDocId({ ...runtime }));
     },
     async markRequested(requestedAt) {
       const current = asRuntime(
@@ -463,7 +500,7 @@ export function cloudRankingStore(): RankingWorkStore {
         schemaVersion: current?.schemaVersion || 1,
         revision: (current?.revision || 0) + 1
       };
-      await db().collection(RANKING_COLLECTIONS.appConfig).doc(RANKING_RUNTIME_DOC_ID).set({ ...next });
+      await db().collection(RANKING_COLLECTIONS.appConfig).doc(RANKING_RUNTIME_DOC_ID).set(omitDocId({ ...next }));
       return { requestedAt, changed: true };
     },
     async transactRebuild<T>(input: {
@@ -489,11 +526,11 @@ export function cloudRankingStore(): RankingWorkStore {
         for (const head of next.heads || []) {
           reads += 1;
           writes += 1;
-          await tx.collection(RANKING_COLLECTIONS.rankingHeads).doc(head.boardId).set({ ...head });
+          await tx.collection(RANKING_COLLECTIONS.rankingHeads).doc(head.boardId).set(omitDocId({ ...head }));
         }
         if (next.runtime) {
           writes += 1;
-          await tx.collection(RANKING_COLLECTIONS.appConfig).doc(RANKING_RUNTIME_DOC_ID).set({ ...next.runtime });
+          await tx.collection(RANKING_COLLECTIONS.appConfig).doc(RANKING_RUNTIME_DOC_ID).set(omitDocId({ ...next.runtime }));
         }
         if (next.idem) {
           writes += 1;
@@ -504,7 +541,7 @@ export function cloudRankingStore(): RankingWorkStore {
           await tx
             .collection(RANKING_COLLECTIONS.auditLogs)
             .doc(auditDocId(next.audit))
-            .set({ ...next.audit } as unknown as Record<string, unknown>);
+            .set(omitDocId({ ...next.audit } as unknown as Record<string, unknown>));
         }
         return next;
       });

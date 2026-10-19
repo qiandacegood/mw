@@ -29,5 +29,7 @@ export * from "./feedback.js";
 export * from "./profile-ops.js";
 export * from "./account-deletion.js";
 export * from "./ops-stats.js";
+export * from "./mw26-capacity.js";
+export * from "./mw27-restore.js";
 export * from "./virtual-pay.js";
 export * from "./mock/paper-detail.js";

@@ -387,4 +387,27 @@ describe("official identity and entry boundaries", () => {
       expect(auth.allow).toEqual(["mw-public", "mw-member"]);
     });
   });
+
+  it("MW26: 50 concurrent unauthenticated attempt.submit stay AUTH_REQUIRED under 2s P95", async () => {
+    const started = Date.now();
+    const rows = await Promise.all(
+      Array.from({ length: 50 }, (_, index) =>
+        handleOfficial({
+          entry: "mw-member",
+          event: {
+            apiVersion: "1",
+            action: "attempt.submit",
+            requestId: `mw26_submit_${index}`,
+            data: { attemptId: "x", expectedRevision: 1, answers: [], confirmUnanswered: true }
+          },
+          allowedAppIds,
+          now
+        })
+      )
+    );
+    const elapsedMs = Date.now() - started;
+    expect(rows.every((row) => (row as { ok: boolean; error?: { code?: string } }).ok === false)).toBe(true);
+    expect(rows.every((row) => (row as { error?: { code?: string } }).error?.code === "AUTH_REQUIRED")).toBe(true);
+    expect(elapsedMs).toBeLessThan(2000);
+  });
 });

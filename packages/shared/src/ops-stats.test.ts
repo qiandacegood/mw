@@ -9,6 +9,7 @@ import {
   isAbnormalGrantOrder,
   isRegisteredMemberStatus,
   isValidSubmittedAttempt,
+  opsScanTruncatedNotice,
   opsStatsSnapshotId,
   opsStatsSnapshotWrite,
   stripOpsStatsMoney,
@@ -98,6 +99,26 @@ describe("MW25 ops stats口径", () => {
     expect(view.notes.turnoverIsNotProfit).toContain("不是净利润");
     expect(view.notes.completedRecords).toContain("重复练习计入次数");
     expect(view.dayKey).toBe("2026-10-19");
+    expect(view.scanTruncated).toBe(false);
+    expect(view.scanBudget).toBeGreaterThan(200);
+  });
+
+  it("marks scanTruncated when the scan budget is exhausted", () => {
+    const view = aggregateOpsStats({
+      now,
+      members: [{ memberId: "a", status: "active" }],
+      attempts: [],
+      vipAccounts: [],
+      orders: [],
+      refunds: [],
+      scanBudget: 2000,
+      scanTruncated: true
+    });
+    expect(view.scanTruncated).toBe(true);
+    expect(view.scanBudget).toBe(2000);
+    expect(view.notes.scanBudget).toContain("scanTruncated");
+    expect(opsScanTruncatedNotice(true, 2000)).toContain("未扫全，数字不是全集");
+    expect(opsScanTruncatedNotice(false, 2000)).toContain("scanTruncated=false");
   });
 
   it("does not treat turnover as profit and strips money fields for content projection", () => {

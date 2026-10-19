@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import {
+  opsScanTruncatedNotice,
   paperIdForSourceKey,
   paperTemplateCsv,
   planDocId,
@@ -347,7 +348,7 @@ const PAGES: Record<PageKey, { group: string; nav: NavGroup; title: string; desc
     group: "运营",
     nav: "ops",
     title: "反馈与基础统计",
-    desc: "operations 看基础统计与逐步教程。content 无订单金额。流水不是利润。重复练习计入次数。反馈绑定题目版本，不能改答案库。"
+    desc: "operations 看基础统计与逐步教程。scanTruncated 显示在数字旁；true 时标明未扫全，数字不是全集。content 无订单金额。流水不是利润。重复练习计入次数。反馈绑定题目版本，不能改答案库。"
   },
   "admin-jobs": {
     group: "运营",
@@ -397,6 +398,9 @@ function toggleSidebar(): void {
 }
 
 const currentMeta = computed(() => PAGES[currentPage.value]);
+const opsScanNotice = computed(() =>
+  opsScanTruncatedNotice(opsStats.value?.scanTruncated === true, Number(opsStats.value?.scanBudget) || undefined)
+);
 const identityLabel = computed(() => {
   if (!session.value?.loggedIn) return "未登录";
   return session.value.roles.length ? session.value.roles.join(" / ") : "已登录";
@@ -2762,7 +2766,7 @@ async function loadOpsStats(persistFixture = false): Promise<void> {
       return;
     }
     opsStatus.value = stats.ok
-      ? `已读取统计。流水不是利润。重复练习计入次数。当日 ${String(stats.data?.dayKey || "")}。`
+      ? `已读取统计。流水不是利润。重复练习计入次数。当日 ${String(stats.data?.dayKey || "")}。${opsScanTruncatedNotice(stats.data?.scanTruncated === true, Number(stats.data?.scanBudget) || undefined)}`
       : `统计失败：${stats.error?.code || ""} ${stats.error?.details?.reason || ""}`;
   } finally {
     busy.value = false;
@@ -3925,6 +3929,15 @@ async function logout(): Promise<void> {
               <button type="button" class="ghost" @click="copyOpsLeftover">复制本轮统计 leftover</button>
             </div>
             <p class="status">{{ opsStatus }}</p>
+            <p
+              v-if="opsStats"
+              class="scan-truncated-banner"
+              :class="{ 'is-truncated': opsStats.scanTruncated === true }"
+              data-testid="ops-scan-truncated"
+              role="status"
+            >
+              {{ opsScanNotice }}
+            </p>
             <div v-if="opsStats" class="stats-grid">
               <div><strong>注册会员数</strong><span>{{ opsStats.registeredMembers }}</span></div>
               <div><strong>当日完成记录</strong><span>{{ opsStats.completedRecordsToday }}</span></div>
@@ -3935,8 +3948,12 @@ async function logout(): Promise<void> {
               <div><strong>已确认收款</strong><span>{{ opsFen(opsStats.confirmedReceiptFen) }}（流水，不是利润）</span></div>
               <div><strong>退款金额</strong><span>{{ opsFen(opsStats.refundedFen) }}</span></div>
               <div><strong>异常开通订单</strong><span>{{ opsStats.abnormalGrantOrderCount }}</span></div>
+              <div class="stat-scan" :class="{ 'is-truncated': opsStats.scanTruncated === true }">
+                <strong>scanTruncated</strong>
+                <span>{{ opsStats.scanTruncated === true ? "true：未扫全，数字不是全集" : "false：本轮扫描未截断" }}</span>
+              </div>
             </div>
-            <p class="muted">当日窗口 {{ String(opsStats?.dayKey || "未读取") }}。生成时间 {{ String(opsStats?.generatedAt || "—") }}。</p>
+            <p class="muted">当日窗口 {{ String(opsStats?.dayKey || "未读取") }}。生成时间 {{ String(opsStats?.generatedAt || "—") }}。{{ opsStats ? opsScanNotice : "" }}</p>
             <table v-if="Array.isArray(opsStats?.papers) && (opsStats.papers as unknown[]).length" class="stats-table">
               <thead>
                 <tr>

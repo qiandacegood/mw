@@ -11,7 +11,13 @@ import { isVipActive } from "./vip.js";
 export const OPS_STATS_SCHEMA_VERSION = 1;
 export const OPS_STATS_ACTIONS = ["ops.stats", "ops.exceptions", "ops.tutorial"] as const;
 export const OPS_STATS_SNAPSHOT_ID_FIELDS = ["kind", "schemaVersion", "dayKey"] as const;
+/** 单页扫描大小。MW25 原上限；MW26 用它做分页 page，不再把 200 当成全集。 */
 export const OPS_STATS_SCAN_LIMIT = 200;
+/**
+ * 单次 ops.stats 请求的最大扫描条数（分页累计）。
+ * 不是新大盘：超预算必须 scanTruncated=true，禁止静默少计。不在请求路径扫 10 万答题。
+ */
+export const OPS_STATS_SCAN_BUDGET = 2_000;
 
 export const OPS_STATS_MONEY_FIELDS = [
   "paidOrderCount",
@@ -29,6 +35,8 @@ export const OPS_STATS_NOTES = {
   activeVip: "有效 VIP 与 MW20 账本同一判权：now < expiresAt。",
   turnoverIsNotProfit: "已确认收款是流水，不是净利润。退款后的差额仍不是利润。",
   amountsInFen: "金额单位为分。时间单位为 ISO。",
+  scanBudget: "统计按页扫描；触达单次预算时 scanTruncated=true，禁止把 200 条当全集。",
+  scanTruncatedBanner: "scanTruncated 必须显示在统计数字旁；true 时标明未扫全，数字不是全集。",
   noFakeTickets: "异常入口接到对账差异、异常开通、待处理退款、开放反馈，不另造工单。"
 } as const;
 
@@ -177,6 +185,8 @@ export type OpsStatsView = OpsStatsNumbers & {
   timeUnit: "iso";
   vipRule: "now < expiresAt";
   repeatPracticeCounts: true;
+  scanBudget: number;
+  scanTruncated: boolean;
 };
 
 export type OpsMemberRow = { memberId: string; status: string };
@@ -260,6 +270,14 @@ export function stripOpsStatsMoney<T extends Record<string, unknown>>(data: T): 
   return next;
 }
 
+export function opsScanTruncatedNotice(scanTruncated: boolean, scanBudget?: number): string {
+  const budget = typeof scanBudget === "number" && Number.isFinite(scanBudget) ? `（预算 ${scanBudget}）` : "";
+  if (scanTruncated) {
+    return `scanTruncated=true：未扫全，数字不是全集${budget}`;
+  }
+  return `scanTruncated=false：本轮扫描未截断${budget}`;
+}
+
 export function aggregateOpsStats(input: {
   now: Date;
   members: readonly OpsMemberRow[];
@@ -267,6 +285,8 @@ export function aggregateOpsStats(input: {
   vipAccounts: readonly OpsVipRow[];
   orders: readonly OpsOrderRow[];
   refunds: readonly OpsRefundRow[];
+  scanBudget?: number;
+  scanTruncated?: boolean;
 }): OpsStatsView {
   const dayKey = dayKeyShanghai(input.now);
   const nowMs = input.now.getTime();
@@ -319,7 +339,9 @@ export function aggregateOpsStats(input: {
     amountsUnit: "fen",
     timeUnit: "iso",
     vipRule: "now < expiresAt",
-    repeatPracticeCounts: true
+    repeatPracticeCounts: true,
+    scanBudget: input.scanBudget ?? OPS_STATS_SCAN_BUDGET,
+    scanTruncated: input.scanTruncated === true
   };
 }
 

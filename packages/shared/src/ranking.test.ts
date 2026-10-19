@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  RANKING_BUILD_SCAN_LIMIT,
   RANKING_REFRESH_TARGET_MS,
   RANKING_TOP_LIMIT,
   boundaryInclusiveCount,
@@ -299,5 +300,33 @@ describe("buildRankingBoards", () => {
     const months = boards.filter((board) => board.ref.scope === "month");
     expect(months).toHaveLength(1);
     expect(months[0]?.ref.periodKey).toBe("2026-10");
+  });
+
+  it("MW26：全量名次生成覆盖 1 万参与者，不把扫描上限停在 5000，且计入全体行而不是前 100", () => {
+    expect(RANKING_BUILD_SCAN_LIMIT).toBeGreaterThanOrEqual(10_000);
+    const members = Array.from({ length: 10_000 }, (_, index) => ({
+      memberId: `m${index}`,
+      nickname: `夹具${index}`,
+      avatarKey: "avatar.builtin.01",
+      levelId: "L1",
+      eligible: true
+    }));
+    const metrics = members.map((row, index) => ({
+      scope: "total",
+      periodKey: "all",
+      categoryId: "",
+      memberId: row.memberId,
+      value: 1 + (index % 99),
+      reachedAt: "2026-10-19T02:00:00.000Z"
+    }));
+    const started = Date.now();
+    const boards = buildRankingBoards({ metrics, members, categoryIds: [] });
+    const elapsedMs = Date.now() - started;
+    const total = boards.find((board) => board.ref.scope === "total");
+    expect(total?.ranked.length).toBe(10_000);
+    expect(total?.displayCount).toBeLessThanOrEqual(RANKING_TOP_LIMIT + 100);
+    expect(total?.ranked[9999]?.rank).toBeGreaterThan(100);
+    expect(JSON.stringify(total?.ranked.slice(0, 3))).not.toMatch(/openid|OPENID|AppKey/i);
+    expect(elapsedMs).toBeLessThan(RANKING_REFRESH_TARGET_MS);
   });
 });

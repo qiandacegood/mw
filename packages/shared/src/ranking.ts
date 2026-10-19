@@ -28,8 +28,13 @@ export const RANKING_BOUNDARY_MAX_EXTRA = 100;
 export const RANKING_REFRESH_TARGET_MS = 60_000;
 export const RANKING_RUNTIME_DOC_ID = "ranking";
 export const RANKING_SCHEMA_VERSION = 1;
-/** 单轮快照构建的采样上限（容量与性能专项在 MW26）。 */
-export const RANKING_BUILD_SCAN_LIMIT = 5_000;
+/** 单轮快照分页大小（CloudBase 单次 get 上限远低于全体名次规模）。 */
+export const RANKING_BUILD_SCAN_PAGE = 500;
+/**
+ * 单轮快照构建的采样上限。MW26：必须能覆盖目标 1 万会员及其 total/week/month 指标，
+ * 不能停在 5000 后把 truncated 当完成。分页由存储层按 _id 游标继续，不靠加大函数内存。
+ */
+export const RANKING_BUILD_SCAN_LIMIT = 80_000;
 
 export const TOTAL_PERIOD_KEY = "all";
 

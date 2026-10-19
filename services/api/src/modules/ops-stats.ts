@@ -1,6 +1,6 @@
 import {
   OPS_STATS_ACTIONS,
-  OPS_STATS_SCAN_LIMIT,
+  OPS_STATS_SCAN_BUDGET,
   aggregateOpsExceptions,
   aggregateOpsStats,
   canViewOpsStats,
@@ -40,7 +40,7 @@ function fail(code: string, reason: string, issues?: string[]): OpsStatsFailure 
 }
 
 async function loadSource(store: OpsStatsStore) {
-  const limit = OPS_STATS_SCAN_LIMIT;
+  const limit = OPS_STATS_SCAN_BUDGET;
   const [members, attempts, vipAccounts, orders, refunds, diffs, feedbacks] = await Promise.all([
     store.listMembers(limit),
     store.listSubmittedAttempts(limit),
@@ -50,7 +50,15 @@ async function loadSource(store: OpsStatsStore) {
     store.listOpenDiffs(limit),
     store.listOpenFeedbacks(limit)
   ]);
-  return { members, attempts, vipAccounts, orders, refunds, diffs, feedbacks };
+  const truncated =
+    members.length >= limit ||
+    attempts.length >= limit ||
+    vipAccounts.length >= limit ||
+    orders.length >= limit ||
+    refunds.length >= limit ||
+    diffs.length >= limit ||
+    feedbacks.length >= limit;
+  return { members, attempts, vipAccounts, orders, refunds, diffs, feedbacks, truncated };
 }
 
 export async function readOpsStats(input: {
@@ -69,7 +77,9 @@ export async function readOpsStats(input: {
     attempts: source.attempts,
     vipAccounts: source.vipAccounts,
     orders: source.orders,
-    refunds: source.refunds
+    refunds: source.refunds,
+    scanBudget: OPS_STATS_SCAN_BUDGET,
+    scanTruncated: source.truncated
   });
   if (input.persistFixture !== true) {
     return { ok: true, data };

@@ -1,4 +1,4 @@
-import { OPS_STATS_SCAN_LIMIT } from "@mw/shared";
+import { OPS_STATS_SCAN_BUDGET, OPS_STATS_SCAN_LIMIT } from "@mw/shared";
 import { MW08_COLLECTIONS } from "./cloud-member-stores.js";
 import { MW14_COLLECTIONS } from "./cloud-attempt-stores.js";
 import { VIP_COLLECTIONS } from "./vip-stores.js";
@@ -30,6 +30,7 @@ type CloudColl = {
 };
 type CloudDb = {
   collection: (name: string) => CloudColl;
+  command?: { gt: (value: unknown) => unknown };
 };
 
 function docsFromGet(snap: unknown): Record<string, unknown>[] {
@@ -48,10 +49,29 @@ function docsFromGet(snap: unknown): Record<string, unknown>[] {
 }
 
 async function listDocs(collection: string, query: Record<string, unknown>, limit: number): Promise<Record<string, unknown>[]> {
-  const coll = cloudApp().database().collection(collection);
+  const max = Math.max(1, Math.min(limit, OPS_STATS_SCAN_BUDGET));
+  const db = cloudApp().database();
+  const coll = db.collection(collection);
   if (!coll.where) return [];
-  const snap = await coll.where(query).limit(Math.max(1, Math.min(limit, OPS_STATS_SCAN_LIMIT))).get();
-  return docsFromGet(snap);
+  const out: Record<string, unknown>[] = [];
+  let lastId = "";
+  const gt = db.command?.gt;
+  while (out.length < max) {
+    const take = Math.min(OPS_STATS_SCAN_LIMIT, max - out.length);
+    const pageQuery: Record<string, unknown> = { ...query };
+    if (lastId && gt) pageQuery._id = gt(lastId);
+    let cursor: CloudQuery = coll.where(pageQuery);
+    if (cursor.orderBy) cursor = cursor.orderBy("_id", "asc");
+    else if (lastId && cursor.skip) cursor = cursor.skip(out.length);
+    const snap = await cursor.limit(take).get();
+    const rows = docsFromGet(snap);
+    if (!rows.length) break;
+    out.push(...rows);
+    lastId = String(rows[rows.length - 1]?._id || "");
+    if (!lastId || rows.length < take) break;
+    if (!gt && out.length >= 1000) break;
+  }
+  return out;
 }
 
 export function cloudOpsStatsStore(): OpsStatsStore {

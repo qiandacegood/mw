@@ -53,6 +53,10 @@ configs/mw24-state.json
 configs/mw24-verify-state.json
 configs/mw25-state.json
 configs/mw25-verify-state.json
+configs/mw26-state.json
+configs/mw26-verify-state.json
+configs/mw27-state.json
+configs/mw27-verify-state.json
 configs/mw07-state.json
 configs/mw07-verify-state.json
 configs/mw07b-state.json
