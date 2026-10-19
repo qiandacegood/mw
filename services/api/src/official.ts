@@ -162,6 +162,13 @@ import {
   requestMemberDeletion
 } from "./modules/account-deletion.js";
 import {
+  ADMIN_OPS_STATS_ACTIONS,
+  readOpsExceptions,
+  readOpsStats,
+  readOpsTutorial,
+  type OpsStatsStore
+} from "./modules/ops-stats.js";
+import {
   abandonAttempt,
   getAttempt,
   listAttemptHistory,
@@ -265,6 +272,7 @@ export const ADMIN_MW23_OPS_ACTIONS = [
   ...ADMIN_FEEDBACK_WRITE_ACTIONS
 ] as const;
 export const ADMIN_MW23_SUPER_ACTIONS = [...ADMIN_MEMBER_DISABLE_ACTIONS, ...ADMIN_RANKING_BAN_ACTIONS] as const;
+export const ADMIN_MW25_OPS_ACTIONS = [...ADMIN_OPS_STATS_ACTIONS] as const;
 
 export type OfficialEntry =
   | "mw-public"
@@ -324,6 +332,7 @@ export interface OfficialContext {
   entitlement?: PracticeEntitlementReader;
   virtualPayNotify?: VirtualPayNotifyConfig;
   feedbackStore?: FeedbackStore;
+  opsStatsStore?: OpsStatsStore;
 }
 
 export interface MemoryAdminStore extends AdminUserStore {
@@ -1015,9 +1024,10 @@ async function handleAdmin(
   const isMw22Refund = (ADMIN_MW22_REFUND_ACTIONS as readonly string[]).includes(action);
   const isMw23Ops = (ADMIN_MW23_OPS_ACTIONS as readonly string[]).includes(action);
   const isMw23Super = (ADMIN_MW23_SUPER_ACTIONS as readonly string[]).includes(action);
+  const isMw25Ops = (ADMIN_MW25_OPS_ACTIONS as readonly string[]).includes(action);
   const isRead = (ADMIN_ACTIONS as readonly string[]).includes(action);
   const isWrite = (ADMIN_WRITE_ACTIONS as readonly string[]).includes(action);
-  if (!isRead && !isWrite && !isMw18 && !isMw19 && !isMw20 && !isMw21Plan && !isMw21Order && !isMw22Refund && !isMw23Ops && !isMw23Super) {
+  if (!isRead && !isWrite && !isMw18 && !isMw19 && !isMw20 && !isMw21Plan && !isMw21Order && !isMw22Refund && !isMw23Ops && !isMw23Super && !isMw25Ops) {
     return fail(requestId, "FORBIDDEN", { reason: "ACTION_DENIED", entry: "mw-admin" });
   }
   const admin = await requireAdmin(ctx, requestId);
@@ -1051,6 +1061,9 @@ async function handleAdmin(
   }
   if (isMw23Ops || isMw23Super) {
     return handleAdminProfileOps(ctx, admin.record, action, requestId, now);
+  }
+  if (isMw25Ops) {
+    return handleAdminOpsStats(ctx, admin.record, action, requestId, now);
   }
   if (action === "category.tree" || action.startsWith("category.")) {
     return handleAdminCategory(ctx, admin.record, action, requestId, now);
@@ -1228,6 +1241,42 @@ async function handleAdminGrowth(
  * - ranking.rebuild 需要 super，且必须带 idempotencyKey 与 reason；
  *   写齐该代名次行后事务内切换板块头，失败保留上一完整代并标记更新延迟。
  */
+async function handleAdminOpsStats(
+  ctx: OfficialContext,
+  admin: AdminUserRecord,
+  action: string,
+  requestId: string,
+  now: Date
+): Promise<ApiResponse<unknown>> {
+  if (action === "ops.tutorial") {
+    const result = readOpsTutorial({ roles: admin.roles });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason });
+    return ok(requestId, now, result.data);
+  }
+  if (!ctx.opsStatsStore) return fail(requestId, "INTERNAL_ERROR", { reason: "OPS_STATS_STORE_UNAVAILABLE" });
+  const { data } = adminRequestBody(ctx);
+  if (action === "ops.exceptions") {
+    const result = await readOpsExceptions({ store: ctx.opsStatsStore, roles: admin.roles });
+    if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason });
+    const text = JSON.stringify(result.data);
+    if (/amountFen|confirmedReceiptFen|openid|OPENID/i.test(text) && !adminHasRole(admin.roles, "operations") && !adminHasRole(admin.roles, "super")) {
+      return fail(requestId, "INTERNAL_ERROR", { reason: "SECRET_LEAK_BLOCKED" });
+    }
+    return ok(requestId, now, result.data);
+  }
+  const result = await readOpsStats({
+    store: ctx.opsStatsStore,
+    roles: admin.roles,
+    now,
+    persistFixture: data.persistFixture === true
+  });
+  if (!result.ok) return fail(requestId, result.code as ErrorCode, { reason: result.reason });
+  if (!adminHasRole(admin.roles, "operations") && !adminHasRole(admin.roles, "super")) {
+    return fail(requestId, "FORBIDDEN", { reason: "CONTENT_STATS_DENIED" });
+  }
+  return ok(requestId, now, result.data);
+}
+
 async function handleAdminProfileOps(
   ctx: OfficialContext,
   admin: AdminUserRecord,

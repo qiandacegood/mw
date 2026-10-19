@@ -28,5 +28,6 @@ export * from "./ranking.js";
 export * from "./feedback.js";
 export * from "./profile-ops.js";
 export * from "./account-deletion.js";
+export * from "./ops-stats.js";
 export * from "./virtual-pay.js";
 export * from "./mock/paper-detail.js";

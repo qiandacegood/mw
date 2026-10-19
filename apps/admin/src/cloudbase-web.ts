@@ -309,6 +309,7 @@ export async function callAdminVip(
 
 export type AdminMemberAction = "member.list" | "member.get" | "member.disable" | "ranking.ban";
 export type AdminFeedbackAction = "feedback.list" | "feedback.resolve";
+export type AdminOpsAction = "ops.stats" | "ops.exceptions" | "ops.tutorial";
 
 export async function callAdminMember(
   app: CloudApp,
@@ -333,6 +334,23 @@ export async function callAdminFeedback(
   app: CloudApp,
   action: AdminFeedbackAction,
   data: Record<string, unknown>
+): Promise<AdminCallResult> {
+  const result = await app.callFunction({
+    name: "mw-admin",
+    data: {
+      apiVersion: "1",
+      action,
+      requestId: `req_admin_${action}_${Date.now()}`,
+      data
+    }
+  });
+  return unwrapCallResult(result);
+}
+
+export async function callAdminOps(
+  app: CloudApp,
+  action: AdminOpsAction,
+  data: Record<string, unknown> = {}
 ): Promise<AdminCallResult> {
   const result = await app.callFunction({
     name: "mw-admin",

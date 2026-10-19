@@ -20,6 +20,7 @@ import { cloudRankingStore } from "./modules/cloud-ranking-stores.js";
 import { cloudFeedbackStore } from "./modules/cloud-feedback-stores.js";
 import { cloudVipStore } from "./modules/cloud-vip-stores.js";
 import { cloudOrderStore } from "./modules/cloud-order-stores.js";
+import { cloudOpsStatsStore } from "./modules/cloud-ops-stats-stores.js";
 import { cloudVirtualPayRuntime } from "./modules/cloud-virtual-pay.js";
 import { handleOfficial, type AdminUserRecord, type AdminUserStore, type OfficialEntry } from "./official.js";
 
@@ -174,6 +175,7 @@ export async function main(entry: OfficialEntry, event: unknown): Promise<unknow
           ? cloudRankingStore()
           : undefined,
       feedbackStore: entry === "mw-member" || entry === "mw-admin" ? cloudFeedbackStore() : undefined,
+      opsStatsStore: entry === "mw-admin" ? cloudOpsStatsStore() : undefined,
       virtualPayNotify:
         entry === "mw-pay-hook"
           ? {

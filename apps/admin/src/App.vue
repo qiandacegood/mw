@@ -23,6 +23,7 @@ import {
   callAdminRanking,
   callAdminMember,
   callAdminFeedback,
+  callAdminOps,
   completeAdminUpload,
   createAdminApp,
   loginAndReadAdmin,
@@ -32,6 +33,7 @@ import {
   type AdminRankingAction,
   type AdminMemberAction,
   type AdminFeedbackAction,
+  type AdminOpsAction,
   type AdminVipAction,
   type AdminPlanAction,
   type AdminOrderAction,
@@ -234,6 +236,15 @@ const feedbackNote = ref("已核对原版解析无误");
 const feedbackStatus = ref("operations 处理题目反馈。content 会被拒。不能借反馈改答案库。");
 const feedbackView = ref("");
 const feedbackEvidence = ref("");
+const opsStatus = ref("operations 可看统计与教程。content 看不到收款金额。流水不是利润。重复练习计入次数。");
+const opsView = ref("");
+const opsEvidence = ref("");
+const lastOpsSnapshotIds = ref<string[]>([]);
+const opsStats = ref<Record<string, unknown> | null>(null);
+const opsExceptions = ref<Array<{ kind: string; count: number; page: string; action: string; note: string }>>([]);
+const opsTutorial = ref<
+  Array<{ step: number; id: string; title: string; actions: string[]; page: string; executeRole: string; note: string }>
+>([]);
 
 type PageKey =
   | "admin-categories"
@@ -335,8 +346,8 @@ const PAGES: Record<PageKey, { group: string; nav: NavGroup; title: string; desc
   "admin-ops": {
     group: "运营",
     nav: "ops",
-    title: "题目反馈处理",
-    desc: "operations 列出并处理题目/解析反馈。content 不能 resolve。反馈绑定题目版本，不能改答案库。"
+    title: "反馈与基础统计",
+    desc: "operations 看基础统计与逐步教程。content 无订单金额。流水不是利润。重复练习计入次数。反馈绑定题目版本，不能改答案库。"
   },
   "admin-jobs": {
     group: "运营",
@@ -374,6 +385,7 @@ function go(page: PageKey): void {
   if (isNarrowViewport()) sidebarVisible.value = false;
   if (page === "admin-questions" && !questionCatalog.value.length) void refreshQuestionList();
   if (page === "admin-papers" && !paperCatalog.value.length) void refreshPaperList();
+  if (page === "admin-ops" && !opsTutorial.value.length) void loadOpsTutorial();
 }
 
 function toggleGroup(key: NavGroup): void {
@@ -2688,6 +2700,93 @@ async function runFeedback(action: AdminFeedbackAction, data: Record<string, unk
   return callAdminFeedback(app, action, data);
 }
 
+async function runOps(action: AdminOpsAction, data: Record<string, unknown> = {}): Promise<AdminCallResult> {
+  const app = await createAdminApp();
+  return callAdminOps(app, action, data);
+}
+
+function opsFen(value: unknown): string {
+  return typeof value === "number" && Number.isInteger(value) ? `${value} 分` : "—";
+}
+
+async function loadOpsTutorial(): Promise<void> {
+  try {
+    const result = await runOps("ops.tutorial");
+    const steps = Array.isArray(result.data?.steps) ? result.data.steps : [];
+    opsTutorial.value = steps.map((row) => {
+      const rec = row as Record<string, unknown>;
+      return {
+        step: Number(rec.step) || 0,
+        id: String(rec.id || ""),
+        title: String(rec.title || ""),
+        actions: Array.isArray(rec.actions) ? rec.actions.map((item) => String(item)) : [],
+        page: String(rec.page || "admin-ops"),
+        executeRole: String(rec.executeRole || ""),
+        note: String(rec.note || "")
+      };
+    });
+    if (!result.ok) {
+      opsStatus.value = `教程读取失败：${result.error?.code || ""} ${result.error?.details?.reason || ""}`;
+    }
+  } catch {
+    opsStatus.value = "教程读取失败。";
+  }
+}
+
+async function loadOpsStats(persistFixture = false): Promise<void> {
+  busy.value = true;
+  try {
+    const [stats, exceptions] = await Promise.all([
+      runOps("ops.stats", persistFixture ? { persistFixture: true } : {}),
+      runOps("ops.exceptions")
+    ]);
+    if (!opsTutorial.value.length) await loadOpsTutorial();
+    opsStats.value = stats.ok ? (stats.data as Record<string, unknown>) : null;
+    const entries = exceptions.ok && Array.isArray(exceptions.data?.entries) ? exceptions.data.entries : [];
+    opsExceptions.value = entries.map((row) => {
+      const rec = row as Record<string, unknown>;
+      return {
+        kind: String(rec.kind || ""),
+        count: Number(rec.count) || 0,
+        page: String(rec.page || "admin-ops"),
+        action: String(rec.action || ""),
+        note: String(rec.note || "")
+      };
+    });
+    opsView.value = JSON.stringify({ stats: stats.data || stats.error, exceptions: exceptions.data || exceptions.error }, null, 2);
+    if (typeof stats.data?.leftoverSnapshotId === "string" && stats.data.leftoverSnapshotId) {
+      lastOpsSnapshotIds.value = [...new Set([...lastOpsSnapshotIds.value, stats.data.leftoverSnapshotId])];
+    }
+    if (!stats.ok && stats.error?.details?.reason === "CONTENT_STATS_DENIED") {
+      opsStatus.value = "content 不能看统计与收款金额。教程步骤仍可打开导入/上架入口。";
+      return;
+    }
+    opsStatus.value = stats.ok
+      ? `已读取统计。流水不是利润。重复练习计入次数。当日 ${String(stats.data?.dayKey || "")}。`
+      : `统计失败：${stats.error?.code || ""} ${stats.error?.details?.reason || ""}`;
+  } finally {
+    busy.value = false;
+  }
+}
+
+function openOpsPage(page: string): void {
+  if (page in PAGES) go(page as PageKey);
+}
+
+async function copyOpsLeftover(): Promise<void> {
+  const snapshots = await Promise.all(lastOpsSnapshotIds.value.map((id) => hashText(id)));
+  const payload = { snapshots, tutorialFixtures: [] as string[] };
+  opsEvidence.value = JSON.stringify(
+    { knownIds: payload, note: "只入册本轮统计快照哈希。不入册订单/退款/会员/审计。" },
+    null,
+    2
+  );
+  void navigator.clipboard?.writeText(JSON.stringify(payload));
+  opsStatus.value = lastOpsSnapshotIds.value.length
+    ? "已复制本轮统计快照 leftover 哈希。不得把空清单当 leftover=0。"
+    : "本轮没有统计快照。空清单不得报 leftover=0。";
+}
+
 async function listAdminMembersPage(): Promise<void> {
   busy.value = true;
   try {
@@ -3024,7 +3123,7 @@ async function logout(): Promise<void> {
               :aria-current="currentPage === 'admin-ops' ? 'page' : undefined"
               @click="go('admin-ops')"
             >
-              题目反馈
+              反馈与统计
             </button>
             <button
               class="nav-item"
@@ -3816,6 +3915,75 @@ async function logout(): Promise<void> {
             </div>
           </div>
           <div class="card">
+            <h2 class="page-title">基础统计</h2>
+            <p class="muted">
+              平均分按全部有效已交卷记录计算。重复练习计入次数。已确认收款是流水，不是净利润。金额用分，时间用 ISO。有效 VIP 与 MW20 同一判权：now &lt; expiresAt。content 看不到收款金额。
+            </p>
+            <div class="actions">
+              <button type="button" :disabled="busy" @click="loadOpsStats(false)">读取统计</button>
+              <button type="button" class="ghost" :disabled="busy" @click="loadOpsStats(true)">写入本轮统计夹具快照</button>
+              <button type="button" class="ghost" @click="copyOpsLeftover">复制本轮统计 leftover</button>
+            </div>
+            <p class="status">{{ opsStatus }}</p>
+            <div v-if="opsStats" class="stats-grid">
+              <div><strong>注册会员数</strong><span>{{ opsStats.registeredMembers }}</span></div>
+              <div><strong>当日完成记录</strong><span>{{ opsStats.completedRecordsToday }}</span></div>
+              <div><strong>累计完成记录</strong><span>{{ opsStats.completedRecordsTotal }}</span></div>
+              <div><strong>独立答题人数</strong><span>{{ opsStats.uniqueAnswerers }}</span></div>
+              <div><strong>有效 VIP</strong><span>{{ opsStats.activeVipCount }}</span></div>
+              <div><strong>付款订单数</strong><span>{{ opsStats.paidOrderCount }}</span></div>
+              <div><strong>已确认收款</strong><span>{{ opsFen(opsStats.confirmedReceiptFen) }}（流水，不是利润）</span></div>
+              <div><strong>退款金额</strong><span>{{ opsFen(opsStats.refundedFen) }}</span></div>
+              <div><strong>异常开通订单</strong><span>{{ opsStats.abnormalGrantOrderCount }}</span></div>
+            </div>
+            <p class="muted">当日窗口 {{ String(opsStats?.dayKey || "未读取") }}。生成时间 {{ String(opsStats?.generatedAt || "—") }}。</p>
+            <table v-if="Array.isArray(opsStats?.papers) && (opsStats.papers as unknown[]).length" class="stats-table">
+              <thead>
+                <tr>
+                  <th>试卷</th>
+                  <th>完成次数（含重复练习）</th>
+                  <th>平均得分（全部有效已交卷）</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in (opsStats.papers as Array<{ paperId: string; paperTitle: string; completedCount: number; averageScore: number }>)" :key="row.paperId">
+                  <td>{{ row.paperTitle || row.paperId }}</td>
+                  <td>{{ row.completedCount }}</td>
+                  <td>{{ row.averageScore }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h2 class="page-title">异常入口</h2>
+            <p class="muted">接到已有能力，不另造工单。</p>
+            <div class="actions">
+              <button
+                v-for="row in opsExceptions"
+                :key="row.kind"
+                type="button"
+                @click="openOpsPage(row.page)"
+              >
+                {{ row.kind }}（{{ row.count }}）→ {{ row.action }}
+              </button>
+              <button type="button" @click="openOpsPage('admin-orders')">对账差异 / 异常开通</button>
+              <button type="button" @click="openOpsPage('admin-refunds')">待处理退款</button>
+            </div>
+            <p v-for="row in opsExceptions" :key="`${row.kind}-note`" class="muted">{{ row.note }}</p>
+          </div>
+          <div class="card">
+            <h2 class="page-title">逐步操作教程</h2>
+            <p class="muted">每步打开现有页 / 现有命令。不能用假按钮代替。MW12 仍是部分完成。</p>
+            <ol class="tutorial-list">
+              <li v-for="step in opsTutorial" :key="step.id">
+                <div class="actions">
+                  <button type="button" @click="openOpsPage(step.page)">{{ step.step }}. {{ step.title }}</button>
+                </div>
+                <p class="muted">action：{{ step.actions.join(" / ") }}。执行角色 {{ step.executeRole }}。{{ step.note }}</p>
+              </li>
+            </ol>
+          </div>
+          <div class="card">
             <label>处理说明<input v-model="feedbackNote" autocomplete="off" /></label>
             <div class="actions">
               <button type="button" :disabled="busy" @click="listFeedbacksPage">列出开放反馈</button>
@@ -3825,6 +3993,8 @@ async function logout(): Promise<void> {
             <p class="status">{{ feedbackStatus }}</p>
             <pre>{{ feedbackView }}</pre>
             <pre>{{ feedbackEvidence }}</pre>
+            <pre>{{ opsView }}</pre>
+            <pre>{{ opsEvidence }}</pre>
           </div>
         </section>
 

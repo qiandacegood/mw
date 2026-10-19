@@ -23,3 +23,11 @@ export function monthKeyShanghai(utc: Date): string {
   const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
   return `${y}-${m}`;
 }
+
+export function dayKeyShanghai(utc: Date): string {
+  const shifted = new Date(utc.getTime() + beijingOffsetMs());
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(shifted.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
